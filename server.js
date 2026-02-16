@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 require('dotenv').config();
 const cors = require('cors');
 
@@ -28,6 +29,17 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/projects', require('./routes/projects'));
 app.use('/api/projects', require('./routes/tasks'));
+
+// Serve static frontend files
+app.use(express.static(path.join(__dirname, 'frontend')));
+
+// Serve index.html for all non-API routes (SPA support)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, 'frontend', 'index.html'));
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
