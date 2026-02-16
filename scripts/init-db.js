@@ -3,51 +3,37 @@ const path = require('path');
 const { pool } = require('../database/db');
 
 async function initDatabase() {
-  let connection;
+  const client = await pool.connect();
   
   try {
     console.log('🚀 Initializing database...');
     
-    connection = await pool.getConnection();
-    
-    // Read schema
+    // Read and execute schema
     const schemaSQL = fs.readFileSync(
       path.join(__dirname, '../database/schema.sql'),
       'utf8'
     );
     
-    // Split by semicolon and execute each statement
-    const statements = schemaSQL
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-    
-    console.log(`📝 Executing ${statements.length} SQL statements...`);
-    
-    for (const statement of statements) {
-      if (statement.trim()) {
-        await connection.query(statement);
-      }
-    }
-    
+    await client.query(schemaSQL);
     console.log('✅ Database schema created successfully');
     console.log('✅ Tables created: users, projects, project_members, tasks, task_statuses, task_comments, task_dependencies, activity_log');
     console.log('✅ Indexes created');
+    console.log('✅ Triggers created');
     
     // Insert default data
-    await insertDefaultData(connection);
+    await insertDefaultData(client);
     
     console.log('✅ Database initialization complete!');
   } catch (error) {
-    console.error('❌ Error initializing database:', error.message);
+    console.error('❌ Error initializing database:', error);
     throw error;
   } finally {
-    if (connection) connection.release();
+    client.release();
     await pool.end();
   }
 }
 
-async function insertDefaultData(connection) {
+async function insertDefaultData(client) {
   console.log('📝 Checking default data...');
   console.log('✅ Database ready for use');
 }

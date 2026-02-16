@@ -1,32 +1,24 @@
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 require('dotenv').config();
 
-const pool = mysql.createPool({
+const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  waitForConnections: true,
-  connectionLimit: 20,
-  queueLimit: 0,
-  connectTimeout: 10000
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
-// Test connection
-pool.getConnection()
-  .then(connection => {
-    console.log('✅ MySQL connected successfully');
-    connection.release();
-  })
-  .catch(err => {
-    console.error('❌ MySQL connection error:', err.message);
-  });
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+  process.exit(-1);
+});
 
 module.exports = {
-  query: async (text, params) => {
-    const [rows] = await pool.execute(text, params);
-    return { rows };
-  },
+  query: (text, params) => pool.query(text, params),
   pool,
 };
