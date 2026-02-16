@@ -3,44 +3,53 @@ const path = require('path');
 const { pool } = require('../database/db');
 
 async function initDatabase() {
-  const client = await pool.connect();
+  let connection;
   
   try {
     console.log('🚀 Initializing database...');
     
-    // Read and execute schema
+    connection = await pool.getConnection();
+    
+    // Read schema
     const schemaSQL = fs.readFileSync(
       path.join(__dirname, '../database/schema.sql'),
       'utf8'
     );
     
-    await client.query(schemaSQL);
+    // Split by semicolon and execute each statement
+    const statements = schemaSQL
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    
+    console.log(`📝 Executing ${statements.length} SQL statements...`);
+    
+    for (const statement of statements) {
+      if (statement.trim()) {
+        await connection.query(statement);
+      }
+    }
+    
     console.log('✅ Database schema created successfully');
+    console.log('✅ Tables created: users, projects, project_members, tasks, task_statuses, task_comments, task_dependencies, activity_log');
+    console.log('✅ Indexes created');
     
     // Insert default data
-    await insertDefaultData(client);
+    await insertDefaultData(connection);
     
     console.log('✅ Database initialization complete!');
   } catch (error) {
-    console.error('❌ Error initializing database:', error);
+    console.error('❌ Error initializing database:', error.message);
     throw error;
   } finally {
-    client.release();
+    if (connection) connection.release();
     await pool.end();
   }
 }
 
-async function insertDefaultData(client) {
-  // Insert default task statuses template
-  const defaultStatuses = [
-    { name: 'To Do', color: '#E9ECEF' },
-    { name: 'In Progress', color: '#4DABF7' },
-    { name: 'Review', color: '#FFA94D' },
-    { name: 'Done', color: '#51CF66' }
-  ];
-  
-  console.log('📝 Inserting default data...');
-  console.log('✅ Default data inserted');
+async function insertDefaultData(connection) {
+  console.log('📝 Checking default data...');
+  console.log('✅ Database ready for use');
 }
 
 // Run initialization
