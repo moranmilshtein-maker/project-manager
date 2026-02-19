@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: process.env.FRONTEND_URL || '*',
   credentials: true
 }));
 app.use(express.json());
@@ -25,10 +25,17 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// API Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/projects', require('./routes/projects'));
-app.use('/api/projects', require('./routes/tasks'));
+// API Routes - only load if DATABASE_URL is configured
+if (process.env.DATABASE_URL) {
+  try {
+    app.use('/api/auth', require('./routes/auth'));
+    app.use('/api/projects', require('./routes/projects'));
+    app.use('/api/projects', require('./routes/tasks'));
+    console.log('Database routes loaded successfully');
+  } catch (err) {
+    console.warn('Could not load database routes (DB not configured):', err.message);
+  }
+}
 
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'frontend')));
@@ -49,16 +56,19 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
+// 404 handler for API routes
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API route not found' });
+  }
+  res.sendFile(path.join(__dirname, 'frontend', 'index.html'));
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 API URL: http://localhost:${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`URL: http://localhost:${PORT}`);
 });
 
 // Graceful shutdown
