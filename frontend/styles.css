@@ -963,6 +963,239 @@ body {
     color: var(--primary-blue);
 }
 
+/* ===== Subtask / Subitem Styles ===== */
+
+/* Expand button on parent task */
+.subtask-expand-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0;
+    margin-left: -4px;
+    margin-right: 4px;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.subtask-expand-btn:hover {
+    background: #e8e8ee;
+}
+
+.subtask-expand-btn .material-icons-outlined {
+    font-size: 18px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+.subtask-expand-btn.expanded .material-icons-outlined {
+    transform: rotate(0deg);
+    color: var(--text-secondary);
+}
+
+.subtask-expand-btn:not(.expanded) .material-icons-outlined {
+    transform: rotate(-90deg);
+}
+
+.subtask-count-badge {
+    position: absolute;
+    top: -4px;
+    right: -6px;
+    background: var(--primary-blue);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 600;
+    min-width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    line-height: 1;
+}
+
+tr.subtasks-open > td {
+    border-bottom-color: transparent !important;
+}
+
+/* Subtask header row */
+.subtask-header-row td {
+    background: #f0f1f5 !important;
+    border-bottom: 1px solid #e0e2e8 !important;
+    padding: 0 !important;
+}
+
+.subtask-header-content {
+    padding: 4px 16px 4px 52px;
+}
+
+.subtask-header-columns {
+    display: flex;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.subtask-col-name {
+    flex: 1;
+    min-width: 180px;
+}
+
+.subtask-col-owner {
+    width: 80px;
+    text-align: center;
+}
+
+.subtask-col-status {
+    width: 120px;
+    text-align: center;
+}
+
+.subtask-col-date {
+    width: 100px;
+    text-align: center;
+}
+
+.subtask-col-add {
+    width: 30px;
+    text-align: center;
+    cursor: pointer;
+}
+
+/* Subtask data row */
+.subtask-row td {
+    background: #f7f8fa !important;
+    border-bottom: 1px solid #ecedf0 !important;
+    padding: 0 !important;
+}
+
+.subtask-row:hover td {
+    background: #eef0f4 !important;
+}
+
+.subtask-row-content {
+    display: flex;
+    align-items: center;
+    padding: 6px 16px 6px 52px;
+    min-height: 36px;
+}
+
+.subtask-name {
+    flex: 1;
+    min-width: 180px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: default;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.subtask-name:hover {
+    background: #e8e8ee;
+}
+
+.subtask-owner {
+    width: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.subtask-avatar {
+    width: 26px !important;
+    height: 26px !important;
+    font-size: 10px !important;
+}
+
+.subtask-status {
+    width: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.subtask-status-label {
+    font-size: 12px !important;
+    padding: 3px 8px !important;
+    min-width: 90px;
+}
+
+.subtask-date {
+    width: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+}
+
+.subtask-actions {
+    width: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.subtask-row:hover .subtask-actions {
+    opacity: 1;
+}
+
+.subtask-delete-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--text-muted);
+}
+
+.subtask-delete-btn:hover {
+    background: #fce4ec;
+    color: #e2445c;
+}
+
+.subtask-delete-btn .material-icons-outlined {
+    font-size: 16px;
+}
+
+/* Add subitem row */
+.subtask-add-row td {
+    background: #f7f8fa !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    padding: 0 !important;
+}
+
+.subtask-add-trigger {
+    padding: 6px 16px 6px 52px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 12px;
+    transition: color 0.15s;
+}
+
+.subtask-add-trigger:hover {
+    color: var(--primary-blue);
+}
+
+.subtask-inline-input {
+    width: 250px !important;
+}
+
 /* Summary Row */
 .summary-row td {
     background: #f5f6f8 !important;
