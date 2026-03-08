@@ -108,9 +108,63 @@ function formatTimeline(start, end) {
     return `${formatDate(start)} - ${formatDate(end).split(' ')[1]}`;
 }
 
-function timeAgo() {
-    const mins = Math.floor(Math.random() * 10) + 1;
-    return `${mins} minutes ago`;
+// Real timestamp for lastUpdated - returns ISO string
+function nowISO() {
+    return new Date().toISOString();
+}
+
+// Format lastUpdated for display: shows relative time or date
+function formatLastUpdated(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr; // fallback for legacy strings
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}/${month}`;
+}
+
+// Calculate days between two dates
+function daysBetween(date1, date2) {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    return Math.round((d2 - d1) / 86400000);
+}
+
+// Check if a date string is today
+function isToday(dateStr) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+// Check if a date is overdue (past and task not done)
+function isOverdue(dateStr, status) {
+    if (!dateStr || status === 'done') return false;
+    const d = new Date(dateStr);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return d < now;
+}
+
+// Get days overdue
+function daysOverdue(dateStr) {
+    if (!dateStr) return 0;
+    const d = new Date(dateStr);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return Math.floor((now - d) / 86400000);
 }
 
 function escapeHtml(str) {
@@ -122,6 +176,10 @@ function escapeHtml(str) {
 let boardData = {
     name: '\u05E0\u05D9\u05E1\u05D9\u05D5\u05DF',
     archivedGroups: [],
+    boards: [
+        { id: 'board1', name: '\u05E0\u05D9\u05E1\u05D9\u05D5\u05DF', color: '#0073ea', archived: false, createdAt: null }
+    ],
+    activeBoard: 'board1',
     groups: [
         {
             id: 'g1',
@@ -133,7 +191,7 @@ let boardData = {
                     id: 1, name: '\u05E8\u05D0\u05E9\u05D5\u05DF', owner: 'MM', status: 'working',
                     dueDate: '2025-02-15', priority: 'low', notes: 'Action items',
                     budget: 100, files: 1, timelineStart: '2025-02-15', timelineEnd: '2025-02-16',
-                    lastUpdated: timeAgo(),
+                    lastUpdated: nowISO(),
                     subtasks: [],
                     subtasksExpanded: false
                 },
@@ -141,7 +199,7 @@ let boardData = {
                     id: 2, name: '\u05E9\u05E0\u05D9', owner: '', status: 'done',
                     dueDate: '2025-02-16', priority: 'high', notes: 'Meeting notes',
                     budget: 1000, files: 0, timelineStart: '2025-02-17', timelineEnd: '2025-02-18',
-                    lastUpdated: timeAgo(),
+                    lastUpdated: nowISO(),
                     subtasks: [],
                     subtasksExpanded: false
                 },
@@ -149,7 +207,7 @@ let boardData = {
                     id: 3, name: '\u05E9\u05DC\u05D9\u05E9\u05D9', owner: '', status: 'stuck',
                     dueDate: '2025-02-17', priority: 'medium', notes: 'Other',
                     budget: 500, files: 0, timelineStart: '2025-02-19', timelineEnd: '2025-02-20',
-                    lastUpdated: timeAgo(),
+                    lastUpdated: nowISO(),
                     subtasks: [],
                     subtasksExpanded: false
                 }
