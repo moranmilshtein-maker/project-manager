@@ -990,17 +990,17 @@ body {
 
 .subtask-expand-btn .material-icons-outlined {
     font-size: 18px;
-    color: var(--text-muted);
+    color: #323338;
     transition: transform 0.2s;
 }
 
 .subtask-expand-btn.expanded .material-icons-outlined {
-    transform: rotate(0deg);
-    color: var(--text-secondary);
+    transform: rotate(90deg);
+    color: #323338;
 }
 
 .subtask-expand-btn:not(.expanded) .material-icons-outlined {
-    transform: rotate(-90deg);
+    transform: rotate(0deg);
 }
 
 .subtask-count-badge {
@@ -1033,7 +1033,7 @@ tr.subtasks-open > td {
 }
 
 .subtask-header-content {
-    padding: 4px 16px 4px 52px;
+    padding: 4px 16px 4px 42px;
 }
 
 .subtask-header-columns {
@@ -1086,7 +1086,7 @@ tr.subtasks-open > td {
 .subtask-row-content {
     display: flex;
     align-items: center;
-    padding: 6px 16px 6px 52px;
+    padding: 6px 16px 6px 42px;
     min-height: 36px;
 }
 
@@ -1181,7 +1181,7 @@ tr.subtasks-open > td {
 }
 
 .subtask-add-trigger {
-    padding: 6px 16px 6px 52px;
+    padding: 6px 16px 6px 42px;
     cursor: pointer;
     color: var(--text-muted);
     font-size: 12px;
@@ -2537,4 +2537,273 @@ thead input[type="checkbox"].cb-selected {
     .admin-search-wrap {
         min-width: 200px;
     }
+}
+
+/* ============================================================
+   SPRINT 1.2 STYLES
+   ============================================================ */
+
+/* ===== Task 1: Subtask Arrow - Dark, LTR direction ===== */
+.subtask-expand-btn .subtask-arrow-icon {
+    font-size: 18px;
+    color: #323338;
+    transition: transform 0.2s;
+}
+
+.subtask-expand-btn:not(.expanded) .subtask-arrow-icon {
+    transform: rotate(0deg);
+}
+
+.subtask-expand-btn.expanded .subtask-arrow-icon {
+    transform: rotate(90deg);
+}
+
+/* ===== Task 3: Overdue Due Date - Red exclamation ===== */
+.due-overdue {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #e2445c;
+    font-weight: 500;
+}
+
+.due-overdue-icon {
+    font-size: 16px !important;
+    color: #e2445c;
+}
+
+/* ===== Task 4: Completed Due Date - Green check + strikethrough ===== */
+.due-done {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #00c875;
+}
+
+.due-done s {
+    color: #999;
+}
+
+.due-check-icon {
+    font-size: 16px !important;
+    color: #00c875;
+}
+
+/* ===== Task 5: Today Due Date - Gray circle ===== */
+.due-today {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #676879;
+}
+
+.due-today-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9699a6;
+}
+
+/* ===== Task 6: File Count Badge ===== */
+.file-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-count-badge {
+    position: absolute;
+    top: -4px;
+    right: -8px;
+    background: #0073ea;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    line-height: 1;
+}
+
+/* ===== Task 7: Timeline Hover - Days display ===== */
+.timeline-bar.has-dates:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #292f4c;
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* ===== Task 9-10: Subtask Tree View with Hierarchy Lines ===== */
+.subtask-tree-line {
+    position: relative;
+    width: 24px;
+    height: 100%;
+    flex-shrink: 0;
+    margin-left: 4px;
+}
+
+.subtask-tree-line::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: -50%;
+    bottom: 50%;
+    width: 1px;
+    background: #d0d4e4;
+}
+
+.subtask-tree-line::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    width: 12px;
+    height: 1px;
+    background: #d0d4e4;
+}
+
+.subtask-tree-line.last::before {
+    bottom: 50%;
+}
+
+/* Subtask header left-aligned like parent */
+.subtask-header-content {
+    padding: 4px 16px 4px 42px;
+}
+
+.subtask-row-content {
+    padding: 6px 16px 6px 42px;
+}
+
+.subtask-add-trigger {
+    padding: 6px 16px 6px 42px;
+}
+
+/* ===== Task 12-13: Board Context Menu ===== */
+.board-context-menu {
+    position: fixed;
+    z-index: 2000;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    padding: 6px;
+    min-width: 200px;
+    animation: boardCtxFadeIn 0.15s ease;
+}
+
+@keyframes boardCtxFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.board-ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #323338;
+    transition: background 0.1s;
+}
+
+.board-ctx-item:hover {
+    background: #f5f6f8;
+}
+
+.board-ctx-item .material-icons-outlined {
+    font-size: 18px;
+    color: #676879;
+}
+
+.board-ctx-danger {
+    color: #e2445c !important;
+}
+
+.board-ctx-danger .material-icons-outlined {
+    color: #e2445c !important;
+}
+
+.board-ctx-divider {
+    height: 1px;
+    background: #e6e9ef;
+    margin: 4px 0;
+}
+
+/* Board sidebar hover menu trigger */
+.board-menu-trigger {
+    color: #c3c6d4;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px;
+}
+
+.board-menu-trigger:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.15);
+}
+
+/* ===== Task 14: Auth Loading Spinner ===== */
+.auth-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: authSpin 0.6s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes authSpin {
+    to { transform: rotate(360deg); }
+}
+
+.auth-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* ===== Task 15: Password Validation Rules ===== */
+.password-rules {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pw-rule {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    transition: color 0.15s;
+}
+
+.pw-rule.pass {
+    color: #00c875;
+}
+
+.pw-rule.fail {
+    color: #c3c6d4;
+}
+
+.pw-rule .material-icons-outlined {
+    font-size: 14px;
 }
