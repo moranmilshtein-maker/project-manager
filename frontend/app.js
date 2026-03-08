@@ -292,7 +292,7 @@ function floatingBarDuplicate() {
     const items = getSelectedTaskObjects();
     if (items.length === 0) return;
     items.forEach(({ group, task }) => {
-        const clone = { ...task, id: newId(), name: task.name + ' (copy)', lastUpdated: 'just now',
+        const clone = { ...task, id: newId(), name: task.name + ' (copy)', lastUpdated: nowISO(),
             subtasks: (task.subtasks || []).map(s => ({ ...s, id: newId() })),
             subtasksExpanded: false };
         group.tasks.push(clone);
@@ -302,14 +302,7 @@ function floatingBarDuplicate() {
 }
 
 function floatingBarDelete() {
-    const count = selectedTasks.size;
-    if (!confirm(`Delete ${count} selected task(s)?`)) return;
-    const items = getSelectedTaskObjects();
-    items.forEach(({ group, task }) => {
-        group.tasks = group.tasks.filter(t => t.id !== task.id);
-    });
-    clearSelection();
-    renderBoard();
+    floatingBarPermanentDelete();
 }
 
 function floatingBarExportCSV() {
@@ -362,35 +355,7 @@ function downloadBlob(blob, filename) {
 }
 
 function floatingBarArchive() {
-    const items = getSelectedTaskObjects();
-    if (items.length === 0) return;
-    if (!confirm(`Archive ${items.length} task(s)? They will be compressed and stored.`)) return;
-
-    // Store archived data compressed in localStorage
-    let archived = [];
-    try {
-        const data = localStorage.getItem('mondayArchivedTasks');
-        if (data) archived = JSON.parse(data);
-    } catch (e) { /* ignore */ }
-
-    items.forEach(({ group, task }) => {
-        group.tasks = group.tasks.filter(t => t.id !== task.id);
-        archived.push({
-            ...task,
-            archivedAt: new Date().toISOString(),
-            fromGroup: group.name
-        });
-    });
-
-    try {
-        localStorage.setItem('mondayArchivedTasks', JSON.stringify(archived));
-    } catch (e) { /* ignore */ }
-
-    clearSelection();
-    renderBoard();
-
-    // Show feedback
-    showToast(`${items.length} task(s) archived successfully`);
+    floatingBarArchive30();
 }
 
 function clearSelection() {
@@ -702,17 +667,19 @@ function renderSubtaskSection(task, group) {
         </td>
     </tr>`;
 
-    // Subtask rows
-    task.subtasks.forEach(sub => {
+    // Subtask rows with hierarchy tree lines
+    task.subtasks.forEach((sub, idx) => {
         const subIdStr = String(sub.id);
         const subStatus = getStatusInfo(sub.status);
         const subDateDisplay = sub.dueDate ? formatDate(sub.dueDate) : '';
+        const isLast = idx === task.subtasks.length - 1;
 
-        html += `<tr class="subtask-row" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
+        html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></td>
             <td class="cell-checkbox"><input type="checkbox" class="subtask-checkbox"></td>
             <td colspan="11">
                 <div class="subtask-row-content">
+                    <div class="subtask-tree-line ${isLast ? 'last' : ''}"></div>
                     <span class="subtask-name" ${!isViewer ? `ondblclick="editSubtaskName('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.name)}</span>
                     <div class="subtask-owner">
                         ${sub.owner
@@ -798,10 +765,10 @@ function addSubtaskInline(taskId, groupId) {
                     owner: '',
                     status: '',
                     dueDate: '',
-                    lastUpdated: 'just now'
+                    lastUpdated: nowISO()
                 });
                 task.subtasksExpanded = true;
-                task.lastUpdated = 'just now';
+                task.lastUpdated = nowISO();
             }
         }
         renderBoard();
@@ -837,7 +804,7 @@ function editSubtaskName(subtaskId, taskId, groupId, element) {
         const val = input.value.trim();
         if (val && val !== currentName) {
             subtask.name = val;
-            task.lastUpdated = 'just now';
+            task.lastUpdated = nowISO();
         }
         renderBoard();
     };
@@ -856,7 +823,7 @@ function toggleSubtaskOwner(subtaskId, taskId, groupId) {
     if (subtask) {
         const initials = currentUser ? getInitials(currentUser.fullName || currentUser.email) : 'MM';
         subtask.owner = subtask.owner ? '' : initials;
-        task.lastUpdated = 'just now';
+        task.lastUpdated = nowISO();
         renderBoard();
     }
 }
@@ -878,7 +845,7 @@ function showSubtaskStatusDropdown(event, subtaskId, taskId, groupId) {
 
 function setSubtaskStatus(subtaskId, taskId, groupId, statusId) {
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.status = statusId; task.lastUpdated = 'just now'; renderBoard(); }
+    if (subtask) { subtask.status = statusId; task.lastUpdated = nowISO(); renderBoard(); }
     document.getElementById('dropdownMenu').classList.remove('active');
 }
 
@@ -893,7 +860,7 @@ function editSubtaskDate(subtaskId, taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         subtask.dueDate = input.value;
-        task.lastUpdated = 'just now';
+        task.lastUpdated = nowISO();
         renderBoard();
     };
     input.addEventListener('change', save);
@@ -906,7 +873,7 @@ function deleteSubtask(subtaskId, taskId, groupId) {
     const { task } = findTask(taskId, groupId);
     if (!task || !task.subtasks) return;
     task.subtasks = task.subtasks.filter(s => String(s.id) !== String(subtaskId));
-    task.lastUpdated = 'just now';
+    task.lastUpdated = nowISO();
     renderBoard();
 }
 
@@ -941,7 +908,7 @@ function showStatusDropdown(event, taskId, groupId) {
 
 function setTaskStatus(taskId, groupId, statusId) {
     const { group, task } = findTask(taskId, groupId);
-    if (task) { task.status = statusId; task.lastUpdated = 'just now'; renderBoard(); }
+    if (task) { task.status = statusId; task.lastUpdated = nowISO(); renderBoard(); }
     document.getElementById('dropdownMenu').classList.remove('active');
 }
 
@@ -962,7 +929,7 @@ function showPriorityDropdown(event, taskId, groupId) {
 
 function setTaskPriority(taskId, groupId, priorityId) {
     const { group, task } = findTask(taskId, groupId);
-    if (task) { task.priority = priorityId; task.lastUpdated = 'just now'; renderBoard(); }
+    if (task) { task.priority = priorityId; task.lastUpdated = nowISO(); renderBoard(); }
     document.getElementById('dropdownMenu').classList.remove('active');
 }
 
@@ -984,7 +951,7 @@ function editTaskName(taskId, groupId, cell) {
         const val = input.value.trim();
         if (val && val !== currentName) {
             task.name = val;
-            task.lastUpdated = 'just now';
+            task.lastUpdated = nowISO();
         }
         renderBoard();
     };
@@ -1007,7 +974,7 @@ function editDueDate(taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         task.dueDate = input.value;
-        task.lastUpdated = 'just now';
+        task.lastUpdated = nowISO();
         renderBoard();
     };
     input.addEventListener('change', save);
@@ -1026,7 +993,7 @@ function editNotes(taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         task.notes = input.value;
-        task.lastUpdated = 'just now';
+        task.lastUpdated = nowISO();
         renderBoard();
     };
     input.addEventListener('blur', save);
@@ -1044,7 +1011,7 @@ function editBudget(taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         task.budget = parseFloat(input.value) || 0;
-        task.lastUpdated = 'just now';
+        task.lastUpdated = nowISO();
         renderBoard();
     };
     input.addEventListener('blur', save);
@@ -1059,7 +1026,7 @@ function toggleOwner(taskId, groupId) {
     if (task) {
         const initials = currentUser ? getInitials(currentUser.fullName || currentUser.email) : 'MM';
         task.owner = task.owner ? '' : initials;
-        task.lastUpdated = 'just now';
+        task.lastUpdated = nowISO();
         renderBoard();
     }
 }
@@ -1140,7 +1107,7 @@ function addTaskInline(groupId) {
                     files: 0,
                     timelineStart: '',
                     timelineEnd: '',
-                    lastUpdated: 'just now',
+                    lastUpdated: nowISO(),
                     subtasks: [],
                     subtasksExpanded: false
                 });
@@ -1217,7 +1184,7 @@ function saveTaskFromModal() {
     currentModalTask.notes = document.getElementById('modalNotes').value;
     currentModalTask.timelineStart = document.getElementById('modalTimelineStart').value;
     currentModalTask.timelineEnd = document.getElementById('modalTimelineEnd').value;
-    currentModalTask.lastUpdated = 'just now';
+    currentModalTask.lastUpdated = nowISO();
     closeModal();
     renderBoard();
 }
@@ -1327,9 +1294,12 @@ function handleLogin(e) {
     const password = document.getElementById('loginPassword').value;
     if (!email || !password) { showAuthError('loginError', 'Please fill in all fields'); return; }
 
+    showAuthLoading('loginForm');
+
     fetch('/api/auth/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({email, password}) })
         .then(res => res.json())
         .then(data => {
+            hideAuthLoading('loginForm');
             if (data.success) {
                 authToken = data.token;
                 currentUser = data.user;
@@ -1339,7 +1309,7 @@ function handleLogin(e) {
                 showAuthError('loginError', data.error || 'Invalid email or password');
             }
         })
-        .catch(() => showAuthError('loginError', 'Connection error. Please try again.'));
+        .catch(() => { hideAuthLoading('loginForm'); showAuthError('loginError', 'Connection error. Please try again.'); });
 }
 
 // Register - server stores user, no password in browser
@@ -1352,11 +1322,17 @@ function handleRegister(e) {
 
     if (!fullName || !email || !password) { showAuthError('regError', 'Please fill in all fields'); return; }
     if (password !== confirmPassword) { showAuthError('regError', 'Passwords do not match'); return; }
-    if (password.length < 6) { showAuthError('regError', 'Password must be at least 6 characters'); return; }
+    
+    // Validate password strength
+    const allPass = PASSWORD_RULES.every(rule => rule.test(password));
+    if (!allPass) { showAuthError('regError', 'Password does not meet all requirements'); return; }
+
+    showAuthLoading('registerForm');
 
     fetch('/api/auth/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({fullName, email, password}) })
         .then(res => res.json())
         .then(data => {
+            hideAuthLoading('registerForm');
             if (data.success) {
                 authToken = data.token;
                 currentUser = data.user;
@@ -1366,7 +1342,7 @@ function handleRegister(e) {
                 showAuthError('regError', data.error || 'Registration failed');
             }
         })
-        .catch(() => showAuthError('regError', 'Connection error. Please try again.'));
+        .catch(() => { hideAuthLoading('registerForm'); showAuthError('regError', 'Connection error. Please try again.'); });
 }
 
 function handleForgotPassword(e) {
@@ -1596,7 +1572,7 @@ function setupNewTaskButton() {
                 firstGroup.tasks.push({
                     id: newId(), name: 'New Task', owner: '', status: '', dueDate: '',
                     priority: '', notes: '', budget: 0, files: 0,
-                    timelineStart: '', timelineEnd: '', lastUpdated: 'just now',
+                    timelineStart: '', timelineEnd: '', lastUpdated: nowISO(),
                     subtasks: [], subtasksExpanded: false
                 });
                 renderBoard();
@@ -1688,6 +1664,9 @@ async function initApp() {
     }
 
     setupNewTaskButton();
+    setupPasswordValidation();
+    renderBoardSidebar();
+    cleanExpiredArchives();
 
     // Close modals on overlay click
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
@@ -1981,6 +1960,257 @@ if (!document.getElementById('adminSpinStyle')) {
     style.id = 'adminSpinStyle';
     style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
     document.head.appendChild(style);
+}
+
+// ============================================================
+// BOARD SIDEBAR + CONTEXT MENU (Sprint 1.2 Tasks 12-13)
+// ============================================================
+function renderBoardSidebar() {
+    if (!boardData.boards) {
+        boardData.boards = [{ id: 'board1', name: boardData.name || 'ניסיון', color: '#0073ea', archived: false, createdAt: nowISO() }];
+        boardData.activeBoard = 'board1';
+    }
+    const list = document.querySelector('.sidebar-project-list');
+    if (!list) return;
+    let html = '';
+    boardData.boards.filter(b => !b.archived).forEach(board => {
+        const isActive = board.id === boardData.activeBoard;
+        html += `<a href="#" class="sidebar-item project-item ${isActive ? 'active' : ''}" data-board="${board.id}" onclick="event.preventDefault(); switchBoard('${board.id}')" oncontextmenu="event.preventDefault(); showBoardContextMenu(event, '${board.id}')">
+            <span class="material-icons-outlined">table_chart</span>
+            <span class="sidebar-label" dir="rtl">${escapeHtml(board.name)}</span>
+            <span class="board-menu-trigger material-icons-outlined" onclick="event.preventDefault(); event.stopPropagation(); showBoardContextMenu(event, '${board.id}')" style="font-size:16px;margin-right:auto;opacity:0;transition:opacity 0.15s">more_horiz</span>
+        </a>`;
+    });
+    list.innerHTML = html;
+    // Show the ellipsis on hover
+    list.querySelectorAll('.project-item').forEach(item => {
+        item.addEventListener('mouseenter', () => { const t = item.querySelector('.board-menu-trigger'); if (t) t.style.opacity = '1'; });
+        item.addEventListener('mouseleave', () => { const t = item.querySelector('.board-menu-trigger'); if (t) t.style.opacity = '0'; });
+    });
+}
+
+function switchBoard(boardId) {
+    boardData.activeBoard = boardId;
+    const board = boardData.boards.find(b => b.id === boardId);
+    if (board) {
+        const titleEl = document.querySelector('.board-title');
+        if (titleEl) titleEl.textContent = board.name;
+    }
+    renderBoardSidebar();
+    renderBoard();
+}
+
+function showBoardContextMenu(event, boardId) {
+    event.stopPropagation();
+    const board = boardData.boards.find(b => b.id === boardId);
+    if (!board) return;
+    let existing = document.getElementById('boardContextMenu');
+    if (existing) existing.remove();
+    const menu = document.createElement('div');
+    menu.id = 'boardContextMenu';
+    menu.className = 'board-context-menu';
+    menu.innerHTML = `
+        <div class="board-ctx-item" onclick="boardCtxAction('newtab', '${boardId}')"><span class="material-icons-outlined">open_in_new</span>Open in new tab</div>
+        <div class="board-ctx-item" onclick="boardCtxAction('rename', '${boardId}')"><span class="material-icons-outlined">edit</span>Rename</div>
+        <div class="board-ctx-item" onclick="boardCtxAction('duplicate', '${boardId}')"><span class="material-icons-outlined">content_copy</span>Duplicate</div>
+        <div class="board-ctx-item" onclick="boardCtxAction('template', '${boardId}')"><span class="material-icons-outlined">save</span>Save as template</div>
+        <div class="board-ctx-divider"></div>
+        <div class="board-ctx-item" onclick="boardCtxAction('archive', '${boardId}')"><span class="material-icons-outlined">archive</span>Archive</div>
+        <div class="board-ctx-item board-ctx-danger" onclick="boardCtxAction('delete', '${boardId}')"><span class="material-icons-outlined">delete</span>Delete</div>
+    `;
+    document.body.appendChild(menu);
+    menu.style.top = event.clientY + 'px';
+    menu.style.left = event.clientX + 'px';
+    // Adjust if overflowing
+    requestAnimationFrame(() => {
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+        if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+    });
+    const close = (e) => {
+        if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); }
+    };
+    setTimeout(() => document.addEventListener('click', close), 10);
+}
+
+function boardCtxAction(action, boardId) {
+    const board = boardData.boards.find(b => b.id === boardId);
+    if (!board) return;
+    const menu = document.getElementById('boardContextMenu');
+    if (menu) menu.remove();
+    switch (action) {
+        case 'newtab':
+            showToast('Open in new tab: coming soon');
+            break;
+        case 'rename':
+            const newName = prompt('Board name:', board.name);
+            if (newName && newName.trim()) { board.name = newName.trim(); renderBoardSidebar(); saveToStorage(); }
+            break;
+        case 'duplicate':
+            const dup = { ...board, id: 'board' + newId(), name: board.name + ' (copy)', createdAt: nowISO() };
+            boardData.boards.push(dup);
+            renderBoardSidebar();
+            saveToStorage();
+            showToast('Board duplicated');
+            break;
+        case 'template':
+            showToast('Saved as template');
+            break;
+        case 'archive':
+            if (boardData.boards.filter(b => !b.archived).length <= 1) { showToast('Cannot archive the last board'); return; }
+            board.archived = true;
+            board.archivedAt = nowISO();
+            if (boardData.activeBoard === boardId) {
+                const next = boardData.boards.find(b => !b.archived);
+                if (next) switchBoard(next.id);
+            }
+            renderBoardSidebar();
+            saveToStorage();
+            showToast('Board archived (30-day restore)');
+            break;
+        case 'delete':
+            if (boardData.boards.filter(b => !b.archived).length <= 1) { showToast('Cannot delete the last board'); return; }
+            if (!confirm('Permanently delete this board?')) return;
+            boardData.boards = boardData.boards.filter(b => b.id !== boardId);
+            if (boardData.activeBoard === boardId) {
+                const next = boardData.boards.find(b => !b.archived);
+                if (next) switchBoard(next.id);
+            }
+            renderBoardSidebar();
+            saveToStorage();
+            showToast('Board deleted permanently');
+            break;
+    }
+}
+
+// ============================================================
+// ARCHIVE (30-DAY) + PERMANENT DELETE (Sprint 1.2 Task 11)
+// ============================================================
+function floatingBarArchive30() {
+    const items = getSelectedTaskObjects();
+    if (items.length === 0) return;
+    if (!confirm(`Archive ${items.length} task(s)? They can be restored within 30 days.`)) return;
+
+    let archived = [];
+    try {
+        const data = localStorage.getItem('mondayArchivedTasks');
+        if (data) archived = JSON.parse(data);
+    } catch (e) { /* ignore */ }
+
+    items.forEach(({ group, task }) => {
+        group.tasks = group.tasks.filter(t => t.id !== task.id);
+        archived.push({
+            ...task,
+            archivedAt: nowISO(),
+            fromGroup: group.name,
+            fromGroupId: group.id
+        });
+    });
+
+    try {
+        localStorage.setItem('mondayArchivedTasks', JSON.stringify(archived));
+    } catch (e) { /* ignore */ }
+
+    clearSelection();
+    renderBoard();
+    showToast(`${items.length} task(s) archived (30-day restore)`);
+}
+
+function floatingBarPermanentDelete() {
+    const count = selectedTasks.size;
+    if (!confirm(`PERMANENTLY delete ${count} selected task(s)? This cannot be undone.`)) return;
+    const items = getSelectedTaskObjects();
+    items.forEach(({ group, task }) => {
+        group.tasks = group.tasks.filter(t => t.id !== task.id);
+    });
+    clearSelection();
+    renderBoard();
+    showToast(`${count} task(s) permanently deleted`);
+}
+
+// Clean up expired archives (> 30 days)
+function cleanExpiredArchives() {
+    try {
+        const data = localStorage.getItem('mondayArchivedTasks');
+        if (!data) return;
+        const archived = JSON.parse(data);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 30);
+        const valid = archived.filter(a => new Date(a.archivedAt) > cutoff);
+        if (valid.length !== archived.length) {
+            localStorage.setItem('mondayArchivedTasks', JSON.stringify(valid));
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// ============================================================
+// LOGIN LOADING SPINNER (Sprint 1.2 Task 14)
+// ============================================================
+function showAuthLoading(formId) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    const btn = form.querySelector('button[type="submit"], .auth-btn-primary');
+    if (btn) {
+        btn.dataset.originalText = btn.textContent;
+        btn.innerHTML = '<span class="auth-spinner"></span> Loading...';
+        btn.disabled = true;
+    }
+}
+
+function hideAuthLoading(formId) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    const btn = form.querySelector('button[type="submit"], .auth-btn-primary');
+    if (btn) {
+        btn.textContent = btn.dataset.originalText || 'Submit';
+        btn.disabled = false;
+    }
+}
+
+// ============================================================
+// PASSWORD VALIDATION (Sprint 1.2 Task 15)
+// ============================================================
+const PASSWORD_RULES = [
+    { id: 'length', label: 'At least 8 characters', test: p => p.length >= 8 },
+    { id: 'upper', label: 'Uppercase letter (A-Z)', test: p => /[A-Z]/.test(p) },
+    { id: 'lower', label: 'Lowercase letter (a-z)', test: p => /[a-z]/.test(p) },
+    { id: 'number', label: 'Number (0-9)', test: p => /[0-9]/.test(p) },
+    { id: 'special', label: 'Special character (!@#$%^&*)', test: p => /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(p) }
+];
+
+function renderPasswordValidation(containerId, password) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    let allPass = true;
+    let html = '<div class="password-rules">';
+    PASSWORD_RULES.forEach(rule => {
+        const pass = rule.test(password);
+        if (!pass) allPass = false;
+        html += `<div class="pw-rule ${pass ? 'pass' : 'fail'}">
+            <span class="material-icons-outlined" style="font-size:14px">${pass ? 'check_circle' : 'cancel'}</span>
+            ${rule.label}
+        </div>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+    return allPass;
+}
+
+function setupPasswordValidation() {
+    const regPassword = document.getElementById('regPassword');
+    if (!regPassword) return;
+    
+    // Add validation container after password field
+    let validContainer = document.getElementById('passwordValidation');
+    if (!validContainer) {
+        validContainer = document.createElement('div');
+        validContainer.id = 'passwordValidation';
+        regPassword.parentElement.appendChild(validContainer);
+    }
+    
+    regPassword.addEventListener('input', function() {
+        renderPasswordValidation('passwordValidation', this.value);
+    });
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
