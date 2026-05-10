@@ -258,6 +258,7 @@ let activeAddTaskInputs = new Set();
 // TASK 2 & 3: Selection State (checkbox + floating bar)
 // ============================================================
 let selectedTasks = new Set(); // stores "groupId::taskId"
+let selectedSubtasks = new Set(); // stores "groupId::taskId::subtaskId"
 
 function getSelectedKey(groupId, taskId) {
     return `${groupId}::${taskId}`;
@@ -280,19 +281,56 @@ function getSelectedTaskObjects() {
     return results;
 }
 
+function getSelectedSubtaskObjects() {
+    const results = [];
+    selectedSubtasks.forEach(key => {
+        const parts = key.split('::');
+        const [gid, tid, sid] = parts;
+        const group = boardData.groups.find(g => g.id === gid);
+        if (group) {
+            const task = group.tasks.find(t => String(t.id) === tid);
+            if (task && task.subtasks) {
+                const subtask = task.subtasks.find(s => String(s.id) === sid);
+                if (subtask) results.push({ group, task, subtask });
+            }
+        }
+    });
+    return results;
+}
+
 function updateFloatingBar() {
     const bar = document.getElementById('floatingBar');
     if (!bar) return;
-    const count = selectedTasks.size;
-    if (count === 0) {
+    const taskCount = selectedTasks.size;
+    const subtaskCount = selectedSubtasks.size;
+    const totalCount = taskCount + subtaskCount;
+    if (totalCount === 0) {
         bar.classList.remove('active');
         return;
     }
     bar.classList.add('active');
     const countEl = document.getElementById('floatingBarCount');
     if (countEl) {
-        countEl.textContent = `${count} Task${count > 1 ? 's' : ''} selected`;
+        if (subtaskCount > 0 && taskCount === 0) {
+            countEl.textContent = `${subtaskCount} Subitem${subtaskCount > 1 ? 's' : ''} selected`;
+        } else if (subtaskCount > 0 && taskCount > 0) {
+            countEl.textContent = `${taskCount} Task${taskCount > 1 ? 's' : ''} + ${subtaskCount} Subitem${subtaskCount > 1 ? 's' : ''} selected`;
+        } else {
+            countEl.textContent = `${taskCount} Task${taskCount > 1 ? 's' : ''} selected`;
+        }
     }
+}
+
+// Subtask checkbox handler
+function onSubtaskCheckboxChange(groupId, taskId, subtaskId, checkbox) {
+    const key = `${groupId}::${taskId}::${subtaskId}`;
+    if (checkbox.checked) {
+        selectedSubtasks.add(key);
+    } else {
+        selectedSubtasks.delete(key);
+    }
+    updateFloatingBar();
+    updateCheckboxStyles();
 }
 
 // TASK 3: Single checkbox selects a specific single task
@@ -365,6 +403,18 @@ function updateCheckboxStyles() {
             cb.classList.remove('cb-selected');
         }
     });
+    // Subtask checkboxes
+    document.querySelectorAll('tr.subtask-row').forEach(row => {
+        const cb = row.querySelector('.subtask-checkbox');
+        if (!cb) return;
+        if (cb.checked) {
+            row.classList.add('task-selected');
+            cb.classList.add('cb-selected');
+        } else {
+            row.classList.remove('task-selected');
+            cb.classList.remove('cb-selected');
+        }
+    });
 }
 
 // ============================================================
@@ -372,30 +422,57 @@ function updateCheckboxStyles() {
 // ============================================================
 function floatingBarDuplicate() {
     const items = getSelectedTaskObjects();
-    if (items.length === 0) return;
+    const subItems = getSelectedSubtaskObjects();
+    if (items.length === 0 && subItems.length === 0) return;
     items.forEach(({ group, task }) => {
         const clone = { ...task, id: newId(), name: task.name + ' (copy)', lastUpdated: nowISO(),
             subtasks: (task.subtasks || []).map(s => ({ ...s, id: newId() })),
             subtasksExpanded: false };
         group.tasks.push(clone);
     });
+    subItems.forEach(({ task, subtask }) => {
+        const clone = { ...subtask, id: newId(), name: subtask.name + ' (copy)', lastUpdated: nowISO() };
+        task.subtasks.push(clone);
+        task.lastUpdated = nowISO();
+    });
     clearSelection();
     renderBoard();
 }
 
 function floatingBarDelete() {
-    floatingBarPermanentDelete();
+    const subItems = getSelectedSubtaskObjects();
+    if (subItems.length > 0 && selectedTasks.size === 0) {
+        floatingBarDeleteSubtasks();
+    } else {
+        floatingBarPermanentDelete();
+    }
+}
+
+function floatingBarDeleteSubtasks() {
+    const subItems = getSelectedSubtaskObjects();
+    const count = subItems.length;
+    if (count === 0) return;
+    if (!confirm(`PERMANENTLY delete ${count} selected subitem(s)? This cannot be undone.`)) return;
+    subItems.forEach(({ task, subtask }) => {
+        task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
+        task.lastUpdated = nowISO();
+    });
+    clearSelection();
+    renderBoard();
+    showToast(`${count} subitem(s) permanently deleted`);
 }
 
 function floatingBarExportCSV() {
     const items = getSelectedTaskObjects();
-    if (items.length === 0) return;
-    const headers = ['Task', 'Owner', 'Status', 'Due Date', 'Priority', 'Notes', 'Budget', 'Timeline Start', 'Timeline End'];
+    const subItems = getSelectedSubtaskObjects();
+    if (items.length === 0 && subItems.length === 0) return;
+    const headers = ['Type', 'Task', 'Owner', 'Status', 'Due Date', 'Priority', 'Notes', 'Budget', 'Timeline Start', 'Timeline End'];
     let csv = headers.join(',') + '\n';
     items.forEach(({ task }) => {
         const status = getStatusInfo(task.status);
         const priority = getPriorityInfo(task.priority);
         csv += [
+            '"Task"',
             `"${(task.name || '').replace(/"/g, '""')}"`,
             `"${task.owner || ''}"`,
             `"${status.label || ''}"`,
@@ -407,19 +484,39 @@ function floatingBarExportCSV() {
             `"${task.timelineEnd || ''}"`
         ].join(',') + '\n';
     });
+    subItems.forEach(({ subtask }) => {
+        const status = getStatusInfo(subtask.status);
+        csv += [
+            '"Subitem"',
+            `"${(subtask.name || '').replace(/"/g, '""')}"`,
+            `"${subtask.owner || ''}"`,
+            `"${status.label || ''}"`,
+            `"${subtask.dueDate || ''}"`,
+            '""',
+            '""',
+            '0',
+            '""',
+            '""'
+        ].join(',') + '\n';
+    });
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     downloadBlob(blob, 'tasks_export.csv');
 }
 
 function floatingBarExportExcel() {
     const items = getSelectedTaskObjects();
-    if (items.length === 0) return;
+    const subItems = getSelectedSubtaskObjects();
+    if (items.length === 0 && subItems.length === 0) return;
     let table = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table>';
-    table += '<tr><th>Task</th><th>Owner</th><th>Status</th><th>Due Date</th><th>Priority</th><th>Notes</th><th>Budget</th><th>Timeline Start</th><th>Timeline End</th></tr>';
+    table += '<tr><th>Type</th><th>Task</th><th>Owner</th><th>Status</th><th>Due Date</th><th>Priority</th><th>Notes</th><th>Budget</th><th>Timeline Start</th><th>Timeline End</th></tr>';
     items.forEach(({ task }) => {
         const status = getStatusInfo(task.status);
         const priority = getPriorityInfo(task.priority);
-        table += `<tr><td>${escapeHtml(task.name)}</td><td>${task.owner || ''}</td><td>${status.label || ''}</td><td>${task.dueDate || ''}</td><td>${priority.label || ''}</td><td>${escapeHtml(task.notes || '')}</td><td>${task.budget || 0}</td><td>${task.timelineStart || ''}</td><td>${task.timelineEnd || ''}</td></tr>`;
+        table += `<tr><td>Task</td><td>${escapeHtml(task.name)}</td><td>${task.owner || ''}</td><td>${status.label || ''}</td><td>${task.dueDate || ''}</td><td>${priority.label || ''}</td><td>${escapeHtml(task.notes || '')}</td><td>${task.budget || 0}</td><td>${task.timelineStart || ''}</td><td>${task.timelineEnd || ''}</td></tr>`;
+    });
+    subItems.forEach(({ subtask }) => {
+        const status = getStatusInfo(subtask.status);
+        table += `<tr><td>Subitem</td><td>${escapeHtml(subtask.name)}</td><td>${subtask.owner || ''}</td><td>${status.label || ''}</td><td>${subtask.dueDate || ''}</td><td></td><td></td><td>0</td><td></td><td></td></tr>`;
     });
     table += '</table></body></html>';
     const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
@@ -442,6 +539,7 @@ function floatingBarArchive() {
 
 function clearSelection() {
     selectedTasks.clear();
+    selectedSubtasks.clear();
     updateFloatingBar();
     updateCheckboxStyles();
 }
@@ -506,6 +604,16 @@ function renderBoard() {
         const row = document.querySelector(`tr[data-task-id="${tid}"][data-group-id="${gid}"]`);
         if (row) {
             const cb = row.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = true;
+        }
+    });
+
+    // Restore subtask checkbox states from selectedSubtasks
+    selectedSubtasks.forEach(key => {
+        const [gid, tid, sid] = key.split('::');
+        const row = document.querySelector(`tr.subtask-row[data-subtask-id="${sid}"][data-parent-task="${tid}"][data-group-id="${gid}"]`);
+        if (row) {
+            const cb = row.querySelector('.subtask-checkbox');
             if (cb) cb.checked = true;
         }
     });
@@ -791,7 +899,7 @@ function renderSubtaskSection(task, group) {
 
         html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></td>
-            <td class="cell-checkbox"><input type="checkbox" class="subtask-checkbox"></td>
+            <td class="cell-checkbox"><input type="checkbox" class="subtask-checkbox" onchange="onSubtaskCheckboxChange('${groupIdStr}', '${taskIdStr}', '${subIdStr}', this)"></td>
             <td colspan="11">
                 <div class="subtask-row-content">
                     <div class="subtask-tree-line ${isLast ? 'last' : ''}"></div>
@@ -2220,8 +2328,10 @@ function boardCtxAction(action, boardId) {
 // ============================================================
 function floatingBarArchive30() {
     const items = getSelectedTaskObjects();
-    if (items.length === 0) return;
-    if (!confirm(`Archive ${items.length} task(s)? They can be restored within 30 days.`)) return;
+    const subItems = getSelectedSubtaskObjects();
+    if (items.length === 0 && subItems.length === 0) return;
+    const totalCount = items.length + subItems.length;
+    if (!confirm(`Archive ${totalCount} item(s)? They can be restored within 30 days.`)) return;
 
     let archived = [];
     try {
@@ -2238,6 +2348,17 @@ function floatingBarArchive30() {
             fromGroupId: group.id
         });
     });
+    subItems.forEach(({ task, subtask }) => {
+        task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
+        task.lastUpdated = nowISO();
+        archived.push({
+            ...subtask,
+            _isSubtask: true,
+            archivedAt: nowISO(),
+            fromParentTask: task.name,
+            fromParentTaskId: task.id
+        });
+    });
 
     try {
         localStorage.setItem('mondayArchivedTasks', JSON.stringify(archived));
@@ -2245,19 +2366,25 @@ function floatingBarArchive30() {
 
     clearSelection();
     renderBoard();
-    showToast(`${items.length} task(s) archived (30-day restore)`);
+    showToast(`${totalCount} item(s) archived (30-day restore)`);
 }
 
 function floatingBarPermanentDelete() {
-    const count = selectedTasks.size;
-    if (!confirm(`PERMANENTLY delete ${count} selected task(s)? This cannot be undone.`)) return;
+    const taskCount = selectedTasks.size;
+    const subItems = getSelectedSubtaskObjects();
+    const totalCount = taskCount + subItems.length;
+    if (!confirm(`PERMANENTLY delete ${totalCount} selected item(s)? This cannot be undone.`)) return;
     const items = getSelectedTaskObjects();
     items.forEach(({ group, task }) => {
         group.tasks = group.tasks.filter(t => t.id !== task.id);
     });
+    subItems.forEach(({ task, subtask }) => {
+        task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
+        task.lastUpdated = nowISO();
+    });
     clearSelection();
     renderBoard();
-    showToast(`${count} task(s) permanently deleted`);
+    showToast(`${totalCount} item(s) permanently deleted`);
 }
 
 // Clean up expired archives (> 30 days)
