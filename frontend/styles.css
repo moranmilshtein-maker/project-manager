@@ -509,6 +509,7 @@ body {
     flex: 1;
     overflow: auto;
     padding: 0 24px 40px 24px;
+    padding-top: 30px;
 }
 
 .table-content::-webkit-scrollbar {
@@ -577,15 +578,40 @@ body {
     background: #fff;
     border-top: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
     padding: 8px 10px;
     font-size: 12px;
     font-weight: 500;
     color: var(--text-secondary);
     text-align: center;
     white-space: nowrap;
-    position: sticky;
+    position: relative;
     top: 0;
     z-index: 5;
+    user-select: none;
+    overflow: visible;
+}
+
+.board-table thead th:last-child {
+    border-right: none;
+}
+
+/* Column resize handle */
+.col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+    background: transparent;
+}
+
+.col-resize-handle:hover,
+.col-resize-handle.active {
+    background: var(--primary-blue);
+    opacity: 0.5;
 }
 
 .board-table thead th:first-child {
@@ -594,8 +620,7 @@ body {
 }
 
 .board-table thead th.col-task {
-    text-align: right;
-    padding-right: 16px;
+    text-align: center;
     min-width: 200px;
 }
 
@@ -603,7 +628,41 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    width: 100%;
+}
+
+.board-table thead th .th-content .th-label {
+    text-align: center;
+}
+
+/* Column header tooltip - rendered via JS into body */
+.col-header-tooltip {
+    position: fixed;
+    background: #333;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 6px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 999999;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.col-header-tooltip.visible {
+    opacity: 1;
+}
+
+.col-header-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #333;
 }
 
 .board-table thead th .th-content .material-icons-outlined {
@@ -645,10 +704,15 @@ body {
 .board-table tbody td {
     padding: 0;
     border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
     height: 38px;
     vertical-align: middle;
     font-size: 13px;
     position: relative;
+}
+
+.board-table tbody td:last-child {
+    border-right: none;
 }
 
 .board-table tbody td.cell-checkbox {
@@ -905,10 +969,11 @@ body {
 /* Last Updated Cell */
 .cell-updated {
     width: 140px;
-    text-align: left;
+    text-align: center;
     font-size: 11px;
     color: var(--text-secondary);
     position: relative;
+    padding: 0 8px !important;
 }
 
 .updated-content {
@@ -917,6 +982,7 @@ body {
     justify-content: flex-start;
     gap: 6px;
     direction: ltr;
+    width: 100%;
 }
 
 .updated-avatar {
@@ -1473,6 +1539,10 @@ tr.subtasks-open > td {
     transition: max-height 0.3s ease;
 }
 
+.group-body:not(.collapsed) {
+    overflow: visible;
+}
+
 .group-body.collapsed {
     max-height: 0 !important;
 }
@@ -2007,6 +2077,7 @@ tr.subtasks-open > td {
 /* Scrollbar for table */
 .table-scroll-wrapper {
     overflow-x: auto;
+    overflow-y: visible;
 }
 
 /* Empty state dot for status/priority */
@@ -2079,6 +2150,8 @@ thead input[type="checkbox"].cb-selected {
 
 .group-body:not(.collapsed) {
     max-height: none !important;
+    overflow: visible;
+}
 }
 
 /* ===== ADMIN DASHBOARD ===== */
@@ -2810,4 +2883,103 @@ thead input[type="checkbox"].cb-selected {
 
 .pw-rule .material-icons-outlined {
     font-size: 14px;
+}
+
+/* ===== Task 16: Column Drag & Drop Visual Feedback ===== */
+.board-table thead th.col-dragging {
+    opacity: 0.4;
+    background: #e0e4ef;
+}
+
+.board-table thead th.col-drag-over {
+    border-left: 2px solid var(--primary-blue);
+}
+
+.board-table tbody td.col-dragging {
+    opacity: 0.4;
+    background: #f0f2f8;
+}
+
+/* ===== Task 16: Row Drag & Drop ===== */
+.board-table tbody tr.row-dragging {
+    opacity: 0.3;
+    background: #e8f4fd !important;
+}
+
+.board-table tbody tr.row-drag-over-top {
+    position: relative;
+}
+
+.board-table tbody tr.row-drag-over-top td {
+    border-top: 2px solid #0073ea !important;
+}
+
+.board-table tbody tr.row-drag-over-bottom {
+    position: relative;
+}
+
+.board-table tbody tr.row-drag-over-bottom td {
+    border-bottom: 2px solid #0073ea !important;
+}
+
+tr.add-task-row.row-drag-over-top td {
+    border-top: 2px solid #0073ea !important;
+    background: #e8f4fd;
+}
+
+/* Row drag handle */
+.row-drag-handle {
+    cursor: grab;
+    opacity: 0;
+    transition: opacity 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    left: -20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    color: var(--text-muted);
+}
+
+.board-table tbody tr:hover .row-drag-handle {
+    opacity: 1;
+}
+
+.row-drag-handle:active {
+    cursor: grabbing;
+}
+
+/* Column ghost element during drag */
+.col-drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.8;
+    background: #fff;
+    border: 2px solid var(--primary-blue);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Row ghost element during drag */
+.row-drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.85;
+    background: #fff;
+    border: 2px solid var(--primary-blue);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    white-space: nowrap;
 }

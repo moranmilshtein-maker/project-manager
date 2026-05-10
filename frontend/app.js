@@ -518,6 +518,102 @@ function renderBoard() {
     saveToStorage();
 }
 
+// ============================================================
+// COLUMN ORDER SYSTEM (Sprint 1.2 Task 16)
+// Columns are rendered in the order defined by columnState.order
+// ============================================================
+
+const DEFAULT_COL_ORDER = ['task', 'owner', 'status', 'duedate', 'priority', 'notes', 'budget', 'files', 'timeline', 'updated'];
+
+function getOrderedColumns() {
+    if (columnState.order && columnState.order.length > 0) {
+        // Filter to only include valid draggable columns (exclude color, checkbox, add)
+        const valid = columnState.order.filter(c => DEFAULT_COL_ORDER.includes(c));
+        // Add any missing columns
+        DEFAULT_COL_ORDER.forEach(c => { if (!valid.includes(c)) valid.push(c); });
+        return valid;
+    }
+    return DEFAULT_COL_ORDER;
+}
+
+function getHeaderHTML(col) {
+    const w = columnState.widths[col] ? ` style="width:${columnState.widths[col]}px;min-width:${columnState.widths[col]}px"` : '';
+    switch(col) {
+        case 'task': return `<th class="col-task" data-col="task" draggable="true"${w}><div class="th-content" data-tooltip="The task name and main identifier">Task</div><div class="col-resize-handle"></div></th>`;
+        case 'owner': return `<th data-col="owner" draggable="true"${w}><div class="th-content" data-tooltip="Person responsible for this task">Owner</div><div class="col-resize-handle"></div></th>`;
+        case 'status': return `<th data-col="status" draggable="true"${w}><div class="th-content" data-tooltip="Current progress status of the task">Status</div><div class="col-resize-handle"></div></th>`;
+        case 'duedate': return `<th data-col="duedate" draggable="true"${w}><div class="th-content" data-tooltip="Deadline for task completion">Due date</div><div class="col-resize-handle"></div></th>`;
+        case 'priority': return `<th data-col="priority" draggable="true"${w}><div class="th-content" data-tooltip="Urgency level: Critical, High, Medium, or Low">Priority</div><div class="col-resize-handle"></div></th>`;
+        case 'notes': return `<th data-col="notes" draggable="true"${w}><div class="th-content" data-tooltip="Additional notes and comments">Notes</div><div class="col-resize-handle"></div></th>`;
+        case 'budget': return `<th data-col="budget" draggable="true"${w}><div class="th-content" data-tooltip="Allocated budget for this task">Budget</div><div class="col-resize-handle"></div></th>`;
+        case 'files': return `<th data-col="files" draggable="true"${w}><div class="th-content" data-tooltip="Attached files and documents">Files</div><div class="col-resize-handle"></div></th>`;
+        case 'timeline': return `<th data-col="timeline" draggable="true"${w}><div class="th-content" data-tooltip="Start and end date range for the task">Timeline</div><div class="col-resize-handle"></div></th>`;
+        case 'updated': return `<th data-col="updated" draggable="true"${w}><div class="th-content" data-tooltip="Time since the last modification">Last updated</div><div class="col-resize-handle"></div></th>`;
+        default: return '';
+    }
+}
+
+function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, priority, dueDateDisplay, hasTimeline, timelineColor, timelineText, expandBtn) {
+    switch(col) {
+        case 'task': return `<td class="cell-task" ${!isViewer ? `ondblclick="editTaskName('${taskIdStr}', '${groupIdStr}', this)"` : ''}>
+                <div class="cell-task-content">
+                    ${expandBtn}
+                    <span class="task-name">${escapeHtml(task.name)}</span>
+                    <div class="task-icons">
+                        <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')">
+                            <span class="material-icons-outlined">open_in_new</span>
+                        </button>
+                        <button class="task-icon-btn" onclick="event.stopPropagation(); openChat('${taskIdStr}')">
+                            <span class="material-icons-outlined">chat_bubble_outline</span>
+                        </button>
+                    </div>
+                </div>
+            </td>`;
+        case 'owner': return `<td class="cell-owner">
+                ${task.owner
+                    ? `<div class="owner-avatar has-owner" ${!isViewer ? `onclick="toggleOwner('${taskIdStr}', '${groupIdStr}')"` : ''}>${escapeHtml(task.owner)}</div>`
+                    : `<div class="owner-avatar no-owner" ${!isViewer ? `onclick="toggleOwner('${taskIdStr}', '${groupIdStr}')"` : ''}><span class="material-icons-outlined">person_add</span></div>`
+                }
+            </td>`;
+        case 'status': return `<td class="cell-status">
+                <div class="status-label" style="background:${status.color}"
+                     ${!isViewer ? `onclick="showStatusDropdown(event, '${taskIdStr}', '${groupIdStr}')"` : ''}>
+                    ${status.label || ''}
+                </div>
+            </td>`;
+        case 'duedate': return `<td class="cell-due-date">
+                <div class="date-display" ${!isViewer ? `ondblclick="editDueDate('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${dueDateDisplay}</div>
+            </td>`;
+        case 'priority': return `<td class="cell-priority">
+                <div class="priority-label" style="background:${priority.color}"
+                     ${!isViewer ? `onclick="showPriorityDropdown(event, '${taskIdStr}', '${groupIdStr}')"` : ''}>
+                    ${priority.label || ''}
+                </div>
+            </td>`;
+        case 'notes': return `<td class="cell-notes" ${!isViewer ? `ondblclick="editNotes('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(task.notes || '')}</td>`;
+        case 'budget': return `<td class="cell-budget" ${!isViewer ? `ondblclick="editBudget('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${task.budget ? '$' + task.budget.toLocaleString() : ''}</td>`;
+        case 'files': return `<td class="cell-files">
+                <div class="file-icon">
+                    ${task.files > 0
+                        ? `<span class="material-icons-outlined" style="color:#0073ea">description</span>`
+                        : `<span class="material-icons-outlined">attach_file</span>`}
+                </div>
+            </td>`;
+        case 'timeline': return `<td class="cell-timeline">
+                ${hasTimeline
+                    ? `<div class="timeline-bar has-dates" style="background:${timelineColor}" ${!isViewer ? `ondblclick="editTimeline('${taskIdStr}', '${groupIdStr}')"` : ''}>${timelineText}</div>`
+                    : `<div class="timeline-bar no-dates" ${!isViewer ? `ondblclick="editTimeline('${taskIdStr}', '${groupIdStr}')"` : ''}>-</div>`}
+            </td>`;
+        case 'updated': return `<td class="cell-updated">
+                <div class="updated-content">
+                    ${task.owner ? `<div class="updated-avatar">${escapeHtml(task.owner)}</div>` : ''}
+                    <span>${formatLastUpdated(task.lastUpdated)}</span>
+                </div>
+            </td>`;
+        default: return '<td></td>';
+    }
+}
+
 function renderGroup(group) {
     const taskCount = group.tasks.length;
     const isCollapsed = group.collapsed;
@@ -566,19 +662,10 @@ function renderGroup(group) {
                 <table class="board-table">
                     <thead>
                         <tr>
-                            <th class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></th>
-                            <th style="width:36px"><input type="checkbox" onchange="toggleGroupCheckbox('${group.id}', this)"></th>
-                            <th class="col-task">Task</th>
-                            <th><div class="th-content">Owner</div></th>
-                            <th><div class="th-content">Status <span class="material-icons-outlined">info_outline</span></div></th>
-                            <th><div class="th-content">Due date <span class="material-icons-outlined">info_outline</span></div></th>
-                            <th>Priority</th>
-                            <th>Notes</th>
-                            <th>Budget</th>
-                            <th>Files</th>
-                            <th><div class="th-content">Timeline <span class="material-icons-outlined">info_outline</span></div></th>
-                            <th>Last updated</th>
-                            <th class="col-add"><span class="material-icons-outlined" style="font-size:16px">add</span></th>
+                            <th class="group-color-cell" data-col="color"><div class="group-color-bar" style="background:${group.color}"></div></th>
+                            <th style="width:36px" data-col="checkbox"><input type="checkbox" onchange="toggleGroupCheckbox('${group.id}', this)"></th>
+                            ${getOrderedColumns().map(col => getHeaderHTML(col)).join('')}
+                            <th class="col-add" data-col="add"><span class="material-icons-outlined" style="font-size:16px">add</span></th>
                         </tr>
                     </thead>
                     <tbody>`;
@@ -655,61 +742,7 @@ function renderTaskRow(task, group) {
         <tr data-task-id="${taskIdStr}" data-group-id="${groupIdStr}" class="${isExpanded ? 'subtasks-open' : ''}">
             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></td>
             <td class="cell-checkbox"><input type="checkbox" onchange="onTaskCheckboxChange('${groupIdStr}', '${taskIdStr}', this)"></td>
-            <td class="cell-task" ${!isViewer ? `ondblclick="editTaskName('${taskIdStr}', '${groupIdStr}', this)"` : ''}>
-                <div class="cell-task-content">
-                    ${expandBtn}
-                    <span class="task-name">${escapeHtml(task.name)}</span>
-                    <div class="task-icons">
-                        <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')">
-                            <span class="material-icons-outlined">open_in_new</span>
-                        </button>
-                        <button class="task-icon-btn" onclick="event.stopPropagation(); openChat('${taskIdStr}')">
-                            <span class="material-icons-outlined">chat_bubble_outline</span>
-                        </button>
-                    </div>
-                </div>
-            </td>
-            <td class="cell-owner">
-                ${task.owner
-                    ? `<div class="owner-avatar has-owner" ${!isViewer ? `onclick="toggleOwner('${taskIdStr}', '${groupIdStr}')"` : ''}>${escapeHtml(task.owner)}</div>`
-                    : `<div class="owner-avatar no-owner" ${!isViewer ? `onclick="toggleOwner('${taskIdStr}', '${groupIdStr}')"` : ''}><span class="material-icons-outlined">person_add</span></div>`
-                }
-            </td>
-            <td class="cell-status">
-                <div class="status-label" style="background:${status.color}"
-                     ${!isViewer ? `onclick="showStatusDropdown(event, '${taskIdStr}', '${groupIdStr}')"` : ''}>
-                    ${status.label || ''}
-                </div>
-            </td>
-            <td class="cell-due-date">
-                <div class="date-display" ${!isViewer ? `ondblclick="editDueDate('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${dueDateDisplay}</div>
-            </td>
-            <td class="cell-priority">
-                <div class="priority-label" style="background:${priority.color}"
-                     ${!isViewer ? `onclick="showPriorityDropdown(event, '${taskIdStr}', '${groupIdStr}')"` : ''}>
-                    ${priority.label || ''}
-                </div>
-            </td>
-            <td class="cell-notes" ${!isViewer ? `ondblclick="editNotes('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(task.notes || '')}</td>
-            <td class="cell-budget" ${!isViewer ? `ondblclick="editBudget('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${task.budget ? '$' + task.budget.toLocaleString() : ''}</td>
-            <td class="cell-files">
-                <div class="file-icon">
-                    ${task.files > 0
-                        ? `<span class="material-icons-outlined" style="color:#0073ea">description</span>`
-                        : `<span class="material-icons-outlined">attach_file</span>`}
-                </div>
-            </td>
-            <td class="cell-timeline">
-                ${hasTimeline
-                    ? `<div class="timeline-bar has-dates" style="background:${timelineColor}" ${!isViewer ? `ondblclick="editTimeline('${taskIdStr}', '${groupIdStr}')"` : ''}>${timelineText}</div>`
-                    : `<div class="timeline-bar no-dates" ${!isViewer ? `ondblclick="editTimeline('${taskIdStr}', '${groupIdStr}')"` : ''}>-</div>`}
-            </td>
-            <td class="cell-updated">
-                <div class="updated-content">
-                    ${task.owner ? `<div class="updated-avatar">${escapeHtml(task.owner)}</div>` : ''}
-                    <span>${formatLastUpdated(task.lastUpdated)}</span>
-                </div>
-            </td>
+            ${getOrderedColumns().map(col => getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, priority, dueDateDisplay, hasTimeline, timelineColor, timelineText, expandBtn)).join('')}
             <td class="cell-add-col"></td>
         </tr>`;
 
@@ -1751,11 +1784,20 @@ async function initApp() {
     cleanExpiredArchives();
 
     // Sprint 1.2 Task 8: Auto-refresh "last updated" column every 30 seconds
+    // Only update text content, don't re-render the whole board (preserves column state)
     setInterval(() => {
-        const updatedCells = document.querySelectorAll('.cell-updated span');
-        if (updatedCells.length > 0) {
-            renderBoard();
-        }
+        document.querySelectorAll('tr[data-task-id]').forEach(row => {
+            const taskId = row.getAttribute('data-task-id');
+            const groupId = row.getAttribute('data-group-id');
+            const group = boardData.groups.find(g => String(g.id) === String(groupId));
+            if (!group) return;
+            const task = group.tasks.find(t => String(t.id) === String(taskId));
+            if (!task) return;
+            const cell = row.querySelector('.cell-updated span');
+            if (cell) {
+                cell.textContent = formatLastUpdated(task.lastUpdated);
+            }
+        });
     }, 30000);
 
     // Close modals on overlay click
@@ -2305,3 +2347,452 @@ function setupPasswordValidation() {
 
 document.addEventListener('DOMContentLoaded', initApp);
 if (document.readyState !== 'loading') initApp();
+
+// ============================================================
+// SPRINT 1.2 TASK 16: Column Resize, Column Drag & Drop, Row Drag & Drop
+// ============================================================
+
+// --- Column state persistence ---
+// Stores column order and widths so they survive re-renders
+let columnState = {
+    order: null, // array of data-col values, e.g. ['color','checkbox','task','owner',...]
+    widths: {}   // { 'owner': 120, 'status': 100, ... }
+};
+
+function loadColumnState() {
+    try {
+        const saved = localStorage.getItem('mondayColumnState');
+        if (saved) columnState = JSON.parse(saved);
+    } catch(e) {}
+}
+
+function saveColumnState() {
+    try {
+        localStorage.setItem('mondayColumnState', JSON.stringify(columnState));
+    } catch(e) {}
+}
+
+// Load column state on startup
+loadColumnState();
+
+// --- Post-render hook: apply widths and init row drag ---
+const _originalRenderBoard = renderBoard;
+renderBoard = function() {
+    _originalRenderBoard.apply(this, arguments);
+    // Apply saved column widths (order is already handled by getOrderedColumns in rendering)
+    if (Object.keys(columnState.widths).length > 0) {
+        document.querySelectorAll('.board-table thead th').forEach(th => {
+            const col = th.getAttribute('data-col');
+            if (col && columnState.widths[col]) {
+                const w = columnState.widths[col];
+                th.style.width = w + 'px';
+                th.style.minWidth = w + 'px';
+            }
+        });
+    }
+    initRowDragAndDrop();
+};
+
+// --- Column Resizing (proportional - uses table-layout:fixed) ---
+(function() {
+    let resizing = false;
+    let resizeTh = null;
+    let startX = 0;
+    let startWidth = 0;
+    let nextTh = null;
+    let nextStartWidth = 0;
+
+    document.addEventListener('mousedown', function(e) {
+        if (!e.target.classList.contains('col-resize-handle')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        resizing = true;
+        resizeTh = e.target.parentElement;
+        nextTh = resizeTh.nextElementSibling;
+        startX = e.clientX;
+        startWidth = resizeTh.offsetWidth;
+        nextStartWidth = nextTh ? nextTh.offsetWidth : 0;
+        e.target.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!resizing || !resizeTh) return;
+        const diff = e.clientX - startX;
+        const newWidth = Math.max(50, startWidth + diff);
+        const newNextWidth = nextTh ? Math.max(50, nextStartWidth - diff) : 0;
+
+        resizeTh.style.width = newWidth + 'px';
+        resizeTh.style.minWidth = newWidth + 'px';
+        if (nextTh && nextTh.getAttribute('data-col') !== 'add') {
+            nextTh.style.width = newNextWidth + 'px';
+            nextTh.style.minWidth = newNextWidth + 'px';
+        }
+    });
+
+    document.addEventListener('mouseup', function(e) {
+        if (!resizing) return;
+        resizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (resizeTh) {
+            const handle = resizeTh.querySelector('.col-resize-handle');
+            if (handle) handle.classList.remove('active');
+            // Save width
+            const col = resizeTh.getAttribute('data-col');
+            if (col) columnState.widths[col] = resizeTh.offsetWidth;
+            if (nextTh) {
+                const nextCol = nextTh.getAttribute('data-col');
+                if (nextCol) columnState.widths[nextCol] = nextTh.offsetWidth;
+            }
+            saveColumnState();
+        }
+        resizeTh = null;
+        nextTh = null;
+    });
+})();
+
+// --- Column Drag & Drop ---
+(function() {
+    let dragColIndex = null;
+    let dragColName = null;
+    let ghost = null;
+
+    document.addEventListener('dragstart', function(e) {
+        const th = e.target.closest('th[draggable="true"]');
+        if (!th) return;
+        if (e.target.classList.contains('col-resize-handle')) { e.preventDefault(); return; }
+        // Don't interfere with row drag
+        if (e.target.closest('tr[data-task-id]')) return;
+        dragColName = th.getAttribute('data-col');
+        dragColIndex = getOrderedColumns().indexOf(dragColName);
+        th.classList.add('col-dragging');
+        ghost = document.createElement('div');
+        ghost.className = 'col-drag-ghost';
+        ghost.textContent = th.textContent.trim();
+        document.body.appendChild(ghost);
+        e.dataTransfer.setDragImage(ghost, 40, 15);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/col-drag', dragColName);
+    });
+
+    document.addEventListener('dragover', function(e) {
+        if (dragColName === null) return;
+        const th = e.target.closest('th[draggable="true"]');
+        if (!th) return;
+        const targetCol = th.getAttribute('data-col');
+        if (!targetCol || !DEFAULT_COL_ORDER.includes(targetCol)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        document.querySelectorAll('th.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+        th.classList.add('col-drag-over');
+    });
+
+    document.addEventListener('dragleave', function(e) {
+        if (dragColName === null) return;
+        const th = e.target.closest('th');
+        if (th) th.classList.remove('col-drag-over');
+    });
+
+    document.addEventListener('drop', function(e) {
+        if (dragColName === null) return;
+        e.preventDefault();
+        const th = e.target.closest('th[draggable="true"]');
+        if (!th) { cleanupColDrag(); return; }
+        const targetCol = th.getAttribute('data-col');
+        if (!targetCol || targetCol === dragColName || !DEFAULT_COL_ORDER.includes(targetCol)) { cleanupColDrag(); return; }
+
+        // Reorder in columnState
+        const cols = getOrderedColumns();
+        const fromIdx = cols.indexOf(dragColName);
+        const toIdx = cols.indexOf(targetCol);
+        if (fromIdx === -1 || toIdx === -1) { cleanupColDrag(); return; }
+        cols.splice(fromIdx, 1);
+        cols.splice(toIdx, 0, dragColName);
+        columnState.order = cols;
+        saveColumnState();
+
+        cleanupColDrag();
+        renderBoard();
+    });
+
+    document.addEventListener('dragend', function(e) {
+        if (dragColName !== null) cleanupColDrag();
+    });
+
+    function cleanupColDrag() {
+        document.querySelectorAll('.col-dragging').forEach(el => el.classList.remove('col-dragging'));
+        document.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+        if (ghost && ghost.parentElement) ghost.remove();
+        ghost = null;
+        dragColIndex = null;
+        dragColName = null;
+    }
+})();
+
+// --- Row Drag & Drop (within and between groups) ---
+// Uses document-level event delegation so it works across different tables/groups
+let _rowDragData = null; // { taskId, groupId }
+
+function initRowDragAndDrop() {
+    // Mark rows as draggable if not already done
+    document.querySelectorAll('tr[data-task-id]').forEach(row => {
+        if (row.getAttribute('data-row-drag-init')) return;
+        row.setAttribute('data-row-drag-init', '1');
+        row.setAttribute('draggable', 'true');
+    });
+}
+
+// Document-level drag handlers for rows (work across all groups/tables)
+document.addEventListener('dragstart', function(e) {
+    const row = e.target.closest('tr[data-task-id]');
+    if (!row) return;
+    // Don't start drag from interactive elements
+    if (e.target.closest('input, button, .status-label, .priority-label, .timeline-bar, .owner-avatar, .col-resize-handle, th[draggable]')) {
+        return;
+    }
+    // Don't conflict with column drag
+    if (e.target.closest('th[draggable="true"]')) return;
+
+    _rowDragData = {
+        taskId: row.getAttribute('data-task-id'),
+        groupId: row.getAttribute('data-group-id')
+    };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/row-drag', JSON.stringify(_rowDragData));
+    row.classList.add('row-dragging');
+
+    // Create visible ghost
+    const ghost = document.createElement('div');
+    ghost.className = 'row-drag-ghost';
+    const taskName = row.querySelector('.task-name');
+    ghost.textContent = taskName ? taskName.textContent.trim() : 'Task';
+    ghost.style.position = 'fixed';
+    ghost.style.top = '-100px';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 40, 15);
+    setTimeout(() => { if (ghost.parentElement) ghost.remove(); }, 0);
+});
+
+document.addEventListener('dragover', function(e) {
+    if (!_rowDragData) return;
+    const row = e.target.closest('tr[data-task-id]');
+    if (!row) {
+        // Check if hovering over an empty group (add-task-row area)
+        const addRow = e.target.closest('tr.add-task-row');
+        if (addRow) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
+                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+            });
+            addRow.classList.add('row-drag-over-top');
+        }
+        return;
+    }
+    // Skip if same row
+    if (row.getAttribute('data-task-id') === _rowDragData.taskId && 
+        row.getAttribute('data-group-id') === _rowDragData.groupId) return;
+
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    // Clear all indicators
+    document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
+        el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+    });
+
+    // Show indicator above or below
+    const rect = row.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    if (e.clientY < midY) {
+        row.classList.add('row-drag-over-top');
+    } else {
+        row.classList.add('row-drag-over-bottom');
+    }
+});
+
+document.addEventListener('dragleave', function(e) {
+    if (!_rowDragData) return;
+    const row = e.target.closest('tr[data-task-id], tr.add-task-row');
+    if (row) {
+        row.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+    }
+});
+
+document.addEventListener('drop', function(e) {
+    if (!_rowDragData) return;
+
+    // Check drop on a task row (any group)
+    let targetRow = e.target.closest('tr[data-task-id]');
+    let targetGroupId, targetTaskId, insertAfter;
+
+    if (targetRow) {
+        targetTaskId = targetRow.getAttribute('data-task-id');
+        targetGroupId = targetRow.getAttribute('data-group-id');
+        if (targetTaskId === _rowDragData.taskId && targetGroupId === _rowDragData.groupId) {
+            cleanupRowDrag(); return;
+        }
+        const rect = targetRow.getBoundingClientRect();
+        insertAfter = e.clientY >= (rect.top + rect.height / 2);
+    } else {
+        // Check if dropped on add-task-row (empty group drop zone)
+        const addRow = e.target.closest('tr.add-task-row');
+        if (addRow) {
+            targetGroupId = addRow.getAttribute('data-add-group');
+            // Insert at end of group
+            const group = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+            if (group && group.tasks.length > 0) {
+                targetTaskId = String(group.tasks[group.tasks.length - 1].id);
+                insertAfter = true;
+            } else {
+                // Empty group - just add
+                targetTaskId = null;
+                insertAfter = true;
+            }
+        } else {
+            cleanupRowDrag(); return;
+        }
+    }
+
+    e.preventDefault();
+
+    if (targetTaskId) {
+        moveTaskBetweenGroups(_rowDragData.taskId, _rowDragData.groupId, targetTaskId, targetGroupId, insertAfter);
+    } else if (targetGroupId) {
+        // Move to empty group
+        moveTaskToEmptyGroup(_rowDragData.taskId, _rowDragData.groupId, targetGroupId);
+    }
+
+    cleanupRowDrag();
+    renderBoard();
+    saveToStorage();
+});
+
+document.addEventListener('dragend', function(e) {
+    if (!_rowDragData) return;
+    cleanupRowDrag();
+});
+
+function cleanupRowDrag() {
+    document.querySelectorAll('.row-dragging').forEach(el => el.classList.remove('row-dragging'));
+    document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
+        el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+    });
+    _rowDragData = null;
+}
+
+// Move task to an empty group (no target task to reference)
+function moveTaskToEmptyGroup(taskId, sourceGroupId, targetGroupId) {
+    let sourceGroup = null;
+    let taskIndex = -1;
+    let task = null;
+
+    for (const g of boardData.groups) {
+        if (String(g.id) === String(sourceGroupId)) {
+            sourceGroup = g;
+            taskIndex = g.tasks.findIndex(t => String(t.id) === String(taskId));
+            if (taskIndex !== -1) task = g.tasks[taskIndex];
+            break;
+        }
+    }
+    if (!sourceGroup || !task) return;
+
+    let targetGroup = null;
+    for (const g of boardData.groups) {
+        if (String(g.id) === String(targetGroupId)) {
+            targetGroup = g;
+            break;
+        }
+    }
+    if (!targetGroup) return;
+
+    sourceGroup.tasks.splice(taskIndex, 1);
+    targetGroup.tasks.push(task);
+    task.lastUpdated = nowISO();
+}
+
+// Move task between groups or within the same group
+function moveTaskBetweenGroups(taskId, sourceGroupId, targetTaskId, targetGroupId, insertAfter) {
+    let sourceGroup = null;
+    let taskIndex = -1;
+    let task = null;
+
+    for (const g of boardData.groups) {
+        if (String(g.id) === String(sourceGroupId)) {
+            sourceGroup = g;
+            taskIndex = g.tasks.findIndex(t => String(t.id) === String(taskId));
+            if (taskIndex !== -1) task = g.tasks[taskIndex];
+            break;
+        }
+    }
+    if (!sourceGroup || !task) return;
+
+    let targetGroup = null;
+    for (const g of boardData.groups) {
+        if (String(g.id) === String(targetGroupId)) {
+            targetGroup = g;
+            break;
+        }
+    }
+    if (!targetGroup) return;
+
+    sourceGroup.tasks.splice(taskIndex, 1);
+
+    let insertIndex = targetGroup.tasks.findIndex(t => String(t.id) === String(targetTaskId));
+    if (insertIndex === -1) insertIndex = targetGroup.tasks.length;
+    else if (insertAfter) insertIndex += 1;
+
+    targetGroup.tasks.splice(insertIndex, 0, task);
+    task.lastUpdated = nowISO();
+}
+
+// ============================================================
+// Column Header Tooltip (JS-based, appended to body)
+// ============================================================
+(function() {
+    let tooltipEl = null;
+    let tooltipTimer = null;
+
+    function createTooltip() {
+        if (tooltipEl) return;
+        tooltipEl = document.createElement('div');
+        tooltipEl.className = 'col-header-tooltip';
+        document.body.appendChild(tooltipEl);
+    }
+
+    function showTooltip(target) {
+        const text = target.getAttribute('data-tooltip');
+        if (!text) return;
+        createTooltip();
+        tooltipEl.textContent = text;
+        tooltipEl.classList.add('visible');
+
+        const rect = target.getBoundingClientRect();
+        const tooltipRect = tooltipEl.getBoundingClientRect();
+        const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+        const top = rect.top - tooltipRect.height - 10;
+
+        tooltipEl.style.left = Math.max(4, left) + 'px';
+        tooltipEl.style.top = Math.max(4, top) + 'px';
+    }
+
+    function hideTooltip() {
+        if (tooltipTimer) { clearTimeout(tooltipTimer); tooltipTimer = null; }
+        if (tooltipEl) tooltipEl.classList.remove('visible');
+    }
+
+    document.addEventListener('mouseenter', function(e) {
+        const thContent = e.target.closest('.th-content[data-tooltip]');
+        if (!thContent) return;
+        hideTooltip();
+        tooltipTimer = setTimeout(function() { showTooltip(thContent); }, 1000);
+    }, true);
+
+    document.addEventListener('mouseleave', function(e) {
+        const thContent = e.target.closest('.th-content[data-tooltip]');
+        if (!thContent) return;
+        hideTooltip();
+    }, true);
+})();
