@@ -113,23 +113,47 @@ function nowISO() {
     return new Date().toISOString();
 }
 
-// Format lastUpdated for display: shows relative time or date
+// Format lastUpdated for display: shows relative time in English (Sprint 1.2 Task 8)
+// Rules:
+// - Less than 1 hour: show minutes only (e.g. "3 minutes")
+// - 1 hour or more but less than 1 day: show hours and minutes (e.g. "2 hours 15 minutes")
+// - 1 day or more: show days and hours (e.g. "3 days 5 hours")
+// - Resets on every new update
 function formatLastUpdated(isoStr) {
     if (!isoStr) return '';
     const d = new Date(isoStr);
     if (isNaN(d.getTime())) return isoStr; // fallback for legacy strings
     const now = new Date();
     const diffMs = now - d;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    return `${day}/${month}`;
+    if (diffMs < 0) return 'Just now';
+
+    const totalMinutes = Math.floor(diffMs / 60000);
+    const totalHours = Math.floor(diffMs / 3600000);
+    const totalDays = Math.floor(diffMs / 86400000);
+
+    if (totalMinutes < 1) return 'Just now';
+
+    // Less than 1 hour: minutes only
+    if (totalHours < 1) {
+        return totalMinutes === 1 ? '1 minute' : `${totalMinutes} minutes`;
+    }
+
+    // Less than 1 day: hours and minutes
+    if (totalDays < 1) {
+        const hours = totalHours;
+        const mins = totalMinutes - (hours * 60);
+        const hoursLabel = hours === 1 ? '1 hour' : `${hours} hours`;
+        if (mins === 0) return hoursLabel;
+        return `${hoursLabel} ${mins} min`;
+    }
+
+    // 1 day or more: days and hours
+    const days = totalDays;
+    const hours = totalHours - (days * 24);
+    const daysLabel = days === 1 ? '1 day' : `${days} days`;
+    if (hours === 0) return daysLabel;
+    const hoursLabel = hours === 1 ? '1 hour' : `${hours} hours`;
+    return `${daysLabel} ${hoursLabel}`;
 }
 
 // Calculate days between two dates
@@ -683,7 +707,7 @@ function renderTaskRow(task, group) {
             <td class="cell-updated">
                 <div class="updated-content">
                     ${task.owner ? `<div class="updated-avatar">${escapeHtml(task.owner)}</div>` : ''}
-                    <span>${task.lastUpdated || ''}</span>
+                    <span>${formatLastUpdated(task.lastUpdated)}</span>
                 </div>
             </td>
             <td class="cell-add-col"></td>
@@ -1725,6 +1749,14 @@ async function initApp() {
     setupPasswordValidation();
     renderBoardSidebar();
     cleanExpiredArchives();
+
+    // Sprint 1.2 Task 8: Auto-refresh "last updated" column every 30 seconds
+    setInterval(() => {
+        const updatedCells = document.querySelectorAll('.cell-updated span');
+        if (updatedCells.length > 0) {
+            renderBoard();
+        }
+    }, 30000);
 
     // Close modals on overlay click
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
