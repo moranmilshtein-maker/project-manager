@@ -784,11 +784,22 @@ function renderGroup(group) {
     let html = `
     <div class="group" data-group-id="${group.id}">
         <div class="group-header" style="color: ${group.color}" onclick="toggleGroup('${group.id}')">
+            <span class="group-drag-handle" draggable="true" title="Drag to reorder group" onclick="event.stopPropagation()">
+                <span class="material-icons-outlined">drag_indicator</span>
+            </span>
             <span class="material-icons-outlined collapse-arrow ${isCollapsed ? 'collapsed' : ''}" 
                   style="color:${group.color}">expand_more</span>
             <span class="group-title" style="color:${group.color}" 
                   onclick="event.stopPropagation(); editGroupName('${group.id}', this)">${escapeHtml(group.name)}</span>
             <span class="group-count">${taskCount} Tasks</span>
+            <span class="group-header-actions" onclick="event.stopPropagation()">
+                <button class="group-action-btn group-add-task-btn" onclick="addTaskInline('${group.id}')" title="Add a task to this group">
+                    <span class="material-icons-outlined">add</span>
+                </button>
+                <button class="group-action-btn group-menu-btn" onclick="showGroupMenu(event, '${group.id}')" title="More section actions">
+                    <span class="material-icons-outlined">more_horiz</span>
+                </button>
+            </span>
         </div>
         <div class="group-body ${isCollapsed ? 'collapsed' : ''}" style="${isCollapsed ? 'max-height:0' : 'max-height:none'}">
             <div class="table-scroll-wrapper">
@@ -873,7 +884,7 @@ function renderTaskRow(task, group) {
 
     let html = `
         <tr data-task-id="${taskIdStr}" data-group-id="${groupIdStr}" class="${isExpanded ? 'subtasks-open' : ''}">
-            <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></td>
+            <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div><span class="row-drag-handle" title="Drag to reorder"><span class="material-icons-outlined">drag_indicator</span></span></td>
             <td class="cell-checkbox"><input type="checkbox" onchange="onTaskCheckboxChange('${groupIdStr}', '${taskIdStr}', this)"></td>
             ${getOrderedColumns().map(col => getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, priority, dueDateDisplay, hasTimeline, timelineColor, timelineText, expandBtn)).join('')}
             <td class="cell-add-col"></td>
@@ -923,7 +934,7 @@ function renderSubtaskSection(task, group) {
         const isLast = idx === task.subtasks.length - 1;
 
         html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
-            <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></td>
+            <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div><span class="row-drag-handle subtask-drag-handle" title="Drag to reorder"><span class="material-icons-outlined">drag_indicator</span></span></td>
             <td class="cell-checkbox"><input type="checkbox" class="subtask-checkbox" onchange="onSubtaskCheckboxChange('${groupIdStr}', '${taskIdStr}', '${subIdStr}', this)"></td>
             <td colspan="11">
                 <div class="subtask-row-content">
@@ -1391,6 +1402,200 @@ function addNewGroup() {
         id: 'g' + newId(), name: 'New Group', color: GROUP_COLORS[colorIndex],
         collapsed: false, tasks: []
     });
+    renderBoard();
+}
+
+// ===== Group Context Menu (3-dot menu) =====
+function showGroupMenu(event, groupId) {
+    event.stopPropagation();
+    // Close any existing group menu
+    closeGroupMenu();
+    
+    const btn = event.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    
+    const menu = document.createElement('div');
+    menu.className = 'group-context-menu';
+    menu.id = 'groupContextMenu';
+    menu.innerHTML = `
+        <div class="group-menu-item" onclick="renameGroupFromMenu('${groupId}')">
+            <span class="material-icons-outlined">edit</span>
+            <span>Rename</span>
+        </div>
+        <div class="group-menu-item has-submenu" data-group-id="${groupId}">
+            <span class="material-icons-outlined">playlist_add</span>
+            <span>Add group</span>
+            <span class="material-icons-outlined submenu-arrow">chevron_right</span>
+        </div>
+        <div class="group-menu-item" onclick="duplicateGroup('${groupId}')">
+            <span class="material-icons-outlined">content_copy</span>
+            <span>Duplicate group</span>
+        </div>
+        <div class="group-menu-divider"></div>
+        <div class="group-menu-item delete-item" onclick="deleteGroup('${groupId}')">
+            <span class="material-icons-outlined">delete</span>
+            <span>Delete group</span>
+        </div>
+    `;
+    
+    document.body.appendChild(menu);
+    
+    // Position the menu
+    const menuRect = menu.getBoundingClientRect();
+    let top = rect.bottom + 4;
+    let left = rect.left;
+    
+    // Adjust if menu goes off screen
+    if (top + menuRect.height > window.innerHeight) {
+        top = rect.top - menuRect.height - 4;
+    }
+    if (left + menuRect.width > window.innerWidth) {
+        left = window.innerWidth - menuRect.width - 8;
+    }
+    
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    
+    // Submenu hover logic
+    const submenuItem = menu.querySelector('.has-submenu');
+    let submenuTimeout = null;
+    
+    submenuItem.addEventListener('mouseenter', () => {
+        clearTimeout(submenuTimeout);
+        showAddGroupSubmenu(submenuItem, groupId);
+    });
+    
+    submenuItem.addEventListener('mouseleave', (e) => {
+        const sub = document.querySelector('.group-submenu');
+        if (sub && sub.contains(e.relatedTarget)) return; // moving to submenu
+        submenuTimeout = setTimeout(() => {
+            const sub = document.querySelector('.group-submenu');
+            if (sub) sub.remove();
+        }, 150);
+    });
+    
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', closeGroupMenuOnClick);
+    }, 10);
+}
+
+function showAddGroupSubmenu(triggerItem, groupId) {
+    // Remove existing submenu
+    const existingSub = document.querySelector('.group-submenu');
+    if (existingSub) existingSub.remove();
+    
+    const rect = triggerItem.getBoundingClientRect();
+    
+    const submenu = document.createElement('div');
+    submenu.className = 'group-context-menu group-submenu';
+    submenu.innerHTML = `
+        <div class="group-menu-item" onclick="addGroupAt('${groupId}', 'above')">
+            <span class="material-icons-outlined">arrow_upward</span>
+            <span>Add group above</span>
+        </div>
+        <div class="group-menu-item" onclick="addGroupAt('${groupId}', 'below')">
+            <span class="material-icons-outlined">arrow_downward</span>
+            <span>Add group below</span>
+        </div>
+    `;
+    
+    document.body.appendChild(submenu);
+    
+    // Position to the right of the parent item
+    const subRect = submenu.getBoundingClientRect();
+    let top = rect.top;
+    let left = rect.right + 4;
+    if (left + subRect.width > window.innerWidth) left = rect.left - subRect.width - 4;
+    if (top + subRect.height > window.innerHeight) top = window.innerHeight - subRect.height - 8;
+    
+    submenu.style.top = top + 'px';
+    submenu.style.left = left + 'px';
+    
+    // When mouse leaves submenu, check if going back to trigger item
+    submenu.addEventListener('mouseleave', (e) => {
+        const mainMenu = document.getElementById('groupContextMenu');
+        if (mainMenu && mainMenu.contains(e.relatedTarget)) {
+            // Moving back to main menu — close submenu only if not on the trigger item
+            const triggerEl = mainMenu.querySelector('.has-submenu');
+            if (!triggerEl || !triggerEl.contains(e.relatedTarget)) {
+                submenu.remove();
+            }
+        } else {
+            // Moving outside both menus
+            submenu.remove();
+        }
+    });
+}
+
+function closeGroupMenuOnClick(e) {
+    const menu = document.getElementById('groupContextMenu');
+    const sub = document.querySelector('.group-submenu');
+    if (menu && menu.contains(e.target)) return;
+    if (sub && sub.contains(e.target)) return;
+    closeGroupMenu();
+}
+
+function closeGroupMenu() {
+    const menu = document.getElementById('groupContextMenu');
+    if (menu) menu.remove();
+    const sub = document.querySelector('.group-submenu');
+    if (sub) sub.remove();
+    document.removeEventListener('click', closeGroupMenuOnClick);
+}
+
+function renameGroupFromMenu(groupId) {
+    closeGroupMenu();
+    const group = boardData.groups.find(g => g.id === groupId);
+    if (!group) return;
+    const titleEl = document.querySelector(`.group[data-group-id="${groupId}"] .group-title`);
+    if (titleEl) editGroupName(groupId, titleEl);
+}
+
+function addGroupAt(groupId, position) {
+    closeGroupMenu();
+    const idx = boardData.groups.findIndex(g => g.id === groupId);
+    if (idx === -1) return;
+    const colorIndex = boardData.groups.length % GROUP_COLORS.length;
+    const newGroup = {
+        id: 'g' + newId(), name: 'New Group', color: GROUP_COLORS[colorIndex],
+        collapsed: false, tasks: []
+    };
+    if (position === 'above') {
+        boardData.groups.splice(idx, 0, newGroup);
+    } else {
+        boardData.groups.splice(idx + 1, 0, newGroup);
+    }
+    renderBoard();
+}
+
+function duplicateGroup(groupId) {
+    closeGroupMenu();
+    const idx = boardData.groups.findIndex(g => g.id === groupId);
+    if (idx === -1) return;
+    const original = boardData.groups[idx];
+    const clone = JSON.parse(JSON.stringify(original));
+    clone.id = 'g' + newId();
+    clone.name = original.name + ' (copy)';
+    // Assign new IDs to all tasks and subtasks
+    clone.tasks.forEach(t => {
+        t.id = newId();
+        if (t.subtasks) t.subtasks.forEach(st => { st.id = newId(); });
+    });
+    boardData.groups.splice(idx + 1, 0, clone);
+    renderBoard();
+}
+
+function deleteGroup(groupId) {
+    closeGroupMenu();
+    const group = boardData.groups.find(g => g.id === groupId);
+    if (!group) return;
+    const taskCount = group.tasks.length;
+    const msg = taskCount > 0 
+        ? `Permanently delete group "${group.name}" and its ${taskCount} task(s)?`
+        : `Permanently delete group "${group.name}"?`;
+    if (!confirm(msg)) return;
+    boardData.groups = boardData.groups.filter(g => g.id !== groupId);
     renderBoard();
 }
 
@@ -2581,6 +2786,7 @@ renderBoard = function() {
         });
     }
     initRowDragAndDrop();
+    initGroupDragAndDrop();
 };
 
 // --- Column Resizing (proportional - uses table-layout:fixed) ---
@@ -2743,6 +2949,30 @@ function initRowDragAndDrop() {
 
 // Document-level drag handlers for rows (work across all groups/tables)
 document.addEventListener('dragstart', function(e) {
+    // Check for group drag (via drag handle)
+    const groupHandle = e.target.closest('.group-drag-handle');
+    if (groupHandle) {
+        const groupEl = groupHandle.closest('.group[data-group-id]');
+        if (groupEl) {
+            const groupId = groupEl.getAttribute('data-group-id');
+            _groupDragData = { groupId };
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('application/group-drag', groupId);
+            groupEl.classList.add('row-dragging');
+            
+            const ghost = document.createElement('div');
+            ghost.className = 'row-drag-ghost';
+            const title = groupEl.querySelector('.group-title');
+            ghost.textContent = title ? title.textContent.trim() : 'Group';
+            ghost.style.position = 'fixed';
+            ghost.style.top = '-100px';
+            document.body.appendChild(ghost);
+            e.dataTransfer.setDragImage(ghost, 40, 15);
+            setTimeout(() => { if (ghost.parentElement) ghost.remove(); }, 0);
+            return;
+        }
+    }
+
     // Check for subtask row drag first
     const subtaskRow = e.target.closest('tr.subtask-row[data-subtask-id]');
     if (subtaskRow) {
@@ -2799,6 +3029,29 @@ document.addEventListener('dragstart', function(e) {
 });
 
 document.addEventListener('dragover', function(e) {
+    // Handle group drag
+    if (_groupDragData) {
+        const groupEl = e.target.closest('.group[data-group-id]');
+        if (!groupEl) return;
+        if (groupEl.getAttribute('data-group-id') === _groupDragData.groupId) return;
+        
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        
+        document.querySelectorAll('.group-drag-over-top, .group-drag-over-bottom').forEach(el => {
+            el.classList.remove('group-drag-over-top', 'group-drag-over-bottom');
+        });
+        
+        const rect = groupEl.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (e.clientY < midY) {
+            groupEl.classList.add('group-drag-over-top');
+        } else {
+            groupEl.classList.add('group-drag-over-bottom');
+        }
+        return;
+    }
+
     // Handle subtask drag
     if (_subtaskDragData) {
         const subtaskRow = e.target.closest('tr.subtask-row[data-subtask-id]');
@@ -2874,14 +3127,37 @@ document.addEventListener('dragover', function(e) {
 });
 
 document.addEventListener('dragleave', function(e) {
-    if (!_rowDragData && !_subtaskDragData) return;
+    if (!_rowDragData && !_subtaskDragData && !_groupDragData) return;
     const row = e.target.closest('tr[data-task-id], tr.add-task-row, tr.subtask-row, tr.subtask-add-row');
     if (row) {
         row.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
     }
+    const groupEl = e.target.closest('.group[data-group-id]');
+    if (groupEl) {
+        groupEl.classList.remove('group-drag-over-top', 'group-drag-over-bottom');
+    }
 });
 
 document.addEventListener('drop', function(e) {
+    // Handle group drop
+    if (_groupDragData) {
+        const groupEl = e.target.closest('.group[data-group-id]');
+        if (!groupEl || groupEl.getAttribute('data-group-id') === _groupDragData.groupId) {
+            cleanupRowDrag(); return;
+        }
+        
+        e.preventDefault();
+        const targetGroupId = groupEl.getAttribute('data-group-id');
+        const rect = groupEl.getBoundingClientRect();
+        const insertAfter = e.clientY >= (rect.top + rect.height / 2);
+        
+        moveGroup(_groupDragData.groupId, targetGroupId, insertAfter);
+        cleanupRowDrag();
+        renderBoard();
+        saveToStorage();
+        return;
+    }
+
     // Handle subtask drop
     if (_subtaskDragData) {
         let targetSubtaskRow = e.target.closest('tr.subtask-row[data-subtask-id]');
@@ -2973,7 +3249,7 @@ document.addEventListener('drop', function(e) {
 });
 
 document.addEventListener('dragend', function(e) {
-    if (_rowDragData || _subtaskDragData) cleanupRowDrag();
+    if (_rowDragData || _subtaskDragData || _groupDragData) cleanupRowDrag();
 });
 
 function cleanupRowDrag() {
@@ -2981,8 +3257,27 @@ function cleanupRowDrag() {
     document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
         el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
     });
+    document.querySelectorAll('.group-drag-over-top, .group-drag-over-bottom').forEach(el => {
+        el.classList.remove('group-drag-over-top', 'group-drag-over-bottom');
+    });
     _rowDragData = null;
     _subtaskDragData = null;
+    _groupDragData = null;
+}
+
+// Move group to a new position
+function moveGroup(sourceGroupId, targetGroupId, insertAfter) {
+    const fromIdx = boardData.groups.findIndex(g => String(g.id) === String(sourceGroupId));
+    if (fromIdx === -1) return;
+    const group = boardData.groups[fromIdx];
+    
+    boardData.groups.splice(fromIdx, 1);
+    
+    let toIdx = boardData.groups.findIndex(g => String(g.id) === String(targetGroupId));
+    if (toIdx === -1) toIdx = boardData.groups.length;
+    else if (insertAfter) toIdx += 1;
+    
+    boardData.groups.splice(toIdx, 0, group);
 }
 
 // Move task to an empty group (no target task to reference)

@@ -2077,6 +2077,8 @@ tr.subtasks-open > td {
 .table-scroll-wrapper {
     overflow-x: auto;
     overflow-y: visible;
+    padding-left: 28px;
+    margin-left: -28px;
 }
 
 /* Empty state dot for status/priority */
@@ -2096,6 +2098,188 @@ tr.subtasks-open > td {
 
 .collapse-arrow.collapsed {
     transform: rotate(-90deg);
+}
+
+/* ===== Group Header Actions (+, ...) ===== */
+.group-header {
+    position: relative;
+}
+
+.group-drag-handle {
+    position: absolute;
+    left: -26px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    cursor: grab;
+    color: #c3c6d4;
+    opacity: 0;
+    transition: opacity 0.15s;
+    border-radius: 4px;
+}
+
+.group-drag-handle:hover {
+    color: #676879;
+    background: rgba(0,0,0,0.05);
+}
+
+.group-drag-handle .material-icons-outlined {
+    font-size: 16px;
+}
+
+.group-header:hover > .group-drag-handle {
+    opacity: 1;
+}
+
+.group-dragging {
+    opacity: 0.5;
+}
+
+.group-drag-over-top {
+    border-top: 2px solid var(--primary-blue, #0073ea) !important;
+}
+
+.group-drag-over-bottom {
+    border-bottom: 2px solid var(--primary-blue, #0073ea) !important;
+}
+
+/* Row drag handle (tasks and subtasks) */
+.row-drag-handle {
+    position: absolute;
+    left: -26px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    cursor: grab;
+    color: #c3c6d4;
+    opacity: 0;
+    transition: opacity 0.15s;
+    border-radius: 4px;
+}
+
+.row-drag-handle:hover {
+    color: #676879;
+    background: rgba(0,0,0,0.05);
+}
+
+.row-drag-handle .material-icons-outlined {
+    font-size: 16px;
+}
+
+tr[data-task-id]:hover > .group-color-cell > .row-drag-handle,
+tr.subtask-row:hover > .group-color-cell > .row-drag-handle {
+    opacity: 1;
+}
+
+.group-color-cell {
+    position: relative;
+}
+
+.group-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 8px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.group-header:hover .group-header-actions {
+    opacity: 1;
+}
+
+.group-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    color: #676879;
+    transition: background 0.15s, color 0.15s;
+}
+
+.group-action-btn:hover {
+    background: rgba(0,0,0,0.08);
+    color: #323338;
+}
+
+.group-action-btn .material-icons-outlined {
+    font-size: 18px;
+}
+
+/* ===== Group Context Menu ===== */
+.group-context-menu {
+    position: fixed;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.08);
+    padding: 6px 0;
+    min-width: 180px;
+    z-index: 9999;
+    direction: ltr;
+    text-align: left;
+}
+
+.group-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #323338;
+    transition: background 0.12s;
+    white-space: nowrap;
+}
+
+.group-menu-item:hover {
+    background: #f5f6f8;
+}
+
+.group-menu-item .material-icons-outlined {
+    font-size: 18px;
+    color: #676879;
+}
+
+.group-menu-item.has-submenu {
+    position: relative;
+}
+
+.group-menu-item .submenu-arrow {
+    margin-left: auto;
+    font-size: 16px;
+    color: #676879;
+}
+
+.group-menu-item.delete-item {
+    color: #e2445c;
+}
+
+.group-menu-item.delete-item .material-icons-outlined {
+    color: #e2445c;
+}
+
+.group-menu-item.delete-item:hover {
+    background: #fef2f2;
+}
+
+.group-menu-divider {
+    height: 1px;
+    background: #e6e9ef;
+    margin: 4px 0;
 }
 
 /* Invite trigger highlight */
@@ -2935,15 +3119,18 @@ tr.add-task-row.row-drag-over-top td {
     align-items: center;
     justify-content: center;
     position: absolute;
-    left: -20px;
+    left: -26px;
     top: 50%;
     transform: translateY(-50%);
-    width: 18px;
-    height: 18px;
-    color: var(--text-muted);
+    width: 20px;
+    height: 20px;
+    color: #c3c6d4;
+    border-radius: 4px;
+}
 }
 
-.board-table tbody tr:hover .row-drag-handle {
+.board-table tbody tr[data-task-id]:hover > .group-color-cell > .row-drag-handle,
+.board-table tbody tr.subtask-row:hover > .group-color-cell > .row-drag-handle {
     opacity: 1;
 }
 
