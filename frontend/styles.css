@@ -572,6 +572,7 @@ body {
     border-collapse: separate;
     border-spacing: 0;
     min-width: 900px;
+    table-layout: fixed;
 }
 
 .board-table thead th {
@@ -622,6 +623,7 @@ body {
 .board-table thead th.col-task {
     text-align: center;
     min-width: 200px;
+    max-width: 600px;
 }
 
 .board-table thead th .th-content {
@@ -732,19 +734,43 @@ body {
     font-weight: 500;
     color: var(--text-primary);
     cursor: pointer;
+    min-width: 200px;
+    max-width: 0;
+    overflow: hidden;
 }
 
 .cell-task-content {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0;
+    width: 100%;
+    overflow: hidden;
+    direction: ltr;
+}
+
+.cell-task-content .subtask-expand-btn {
+    flex-shrink: 0;
+    margin-right: 4px;
 }
 
 .cell-task-content .task-name {
-    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 0 1 auto;
+    min-width: 0;
+    direction: rtl;
+    unicode-bidi: plaintext;
+}
+
+.cell-task-content .subtask-info-badge {
+    flex-shrink: 0;
+    margin-left: 4px;
+}
+
+.cell-task-content .task-icons {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .task-icons {
@@ -1073,25 +1099,44 @@ body {
 }
 
 .subtask-count-badge {
-    position: absolute;
-    top: -4px;
-    right: -6px;
-    background: var(--primary-blue);
-    color: #fff;
-    font-size: 9px;
-    font-weight: 600;
-    min-width: 14px;
-    height: 14px;
-    border-radius: 7px;
-    display: flex;
+    display: none;
+}
+
+/* Subtask info badge - right of task name */
+.subtask-info-badge {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #0073ea;
+    flex-shrink: 0;
+    margin-left: 4px;
+}
+
+.subtask-info-count {
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
     line-height: 1;
+}
+
+.subtask-info-icon {
+    display: none;
 }
 
 tr.subtasks-open > td {
     border-bottom-color: transparent !important;
+}
+
+/* Done/Completed task text grayed out */
+tr.task-done .cell-task .task-name {
+    color: #9a9daa;
+}
+
+tr.subtask-done .subtask-name {
+    color: #9a9daa;
 }
 
 /* Subtask header row */
