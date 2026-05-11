@@ -863,11 +863,11 @@ function renderTaskRow(task, group) {
     const isExpanded = task.subtasksExpanded;
     const subtaskCount = task.subtasks.length;
 
-    // Expand/collapse arrow for subtasks
+    // Expand/collapse arrow for subtasks — uses same pattern as group header collapse-arrow
     const expandBtn = `<button class="subtask-expand-btn ${isExpanded ? 'expanded' : ''} ${hasSubtasks ? 'has-subtasks' : ''}" 
         onclick="event.stopPropagation(); toggleSubtasks('${taskIdStr}', '${groupIdStr}')" 
         title="${hasSubtasks ? (isExpanded ? 'Collapse subitems' : 'Expand subitems') : 'Add subitem'}">
-        <span class="material-icons-outlined">${hasSubtasks ? 'expand_more' : ''}</span>
+        <span class="material-icons-outlined subtask-collapse-arrow ${hasSubtasks && !isExpanded ? 'collapsed' : ''}">${hasSubtasks ? 'expand_more' : ''}</span>
         ${hasSubtasks ? `<span class="subtask-count-badge">${subtaskCount}</span>` : ''}
     </button>`;
 

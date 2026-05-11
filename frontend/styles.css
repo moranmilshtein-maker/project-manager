@@ -1064,13 +1064,12 @@ body {
     transition: transform 0.2s;
 }
 
-.subtask-expand-btn.expanded .material-icons-outlined {
-    transform: rotate(90deg);
-    color: #323338;
+.subtask-expand-btn .subtask-collapse-arrow {
+    transition: transform 0.2s;
 }
 
-.subtask-expand-btn:not(.expanded) .material-icons-outlined {
-    transform: rotate(0deg);
+.subtask-expand-btn .subtask-collapse-arrow.collapsed {
+    transform: rotate(-90deg);
 }
 
 .subtask-count-badge {
@@ -2628,11 +2627,11 @@ thead input[type="checkbox"].cb-selected {
 }
 
 .subtask-expand-btn:not(.expanded) .subtask-arrow-icon {
-    transform: rotate(0deg);
+    transform: rotate(-90deg);
 }
 
 .subtask-expand-btn.expanded .subtask-arrow-icon {
-    transform: rotate(90deg);
+    transform: rotate(0deg);
 }
 
 /* ===== Task 3: Overdue Due Date - Red exclamation ===== */
