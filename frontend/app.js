@@ -672,7 +672,11 @@ function getOrderedColumns() {
 function getHeaderHTML(col) {
     const w = columnState.widths[col] ? ` style="width:${columnState.widths[col]}px;min-width:${columnState.widths[col]}px"` : '';
     switch(col) {
-        case 'task': return `<th class="col-task" data-col="task" draggable="true"${w}><div class="th-content" data-tooltip="The task name and main identifier">Task</div><div class="col-resize-handle"></div></th>`;
+        case 'task': {
+            const tw = columnState.widths[col] ? Math.min(600, Math.max(200, columnState.widths[col])) : null;
+            const taskW = tw ? ` style="width:${tw}px;min-width:200px;max-width:600px"` : ' style="min-width:200px;max-width:600px"';
+            return `<th class="col-task" data-col="task" draggable="true"${taskW}><div class="th-content" data-tooltip="The task name and main identifier">Task</div><div class="col-resize-handle"></div></th>`;
+        }
         case 'owner': return `<th data-col="owner" draggable="true"${w}><div class="th-content" data-tooltip="Person responsible for this task">Owner</div><div class="col-resize-handle"></div></th>`;
         case 'status': return `<th data-col="status" draggable="true"${w}><div class="th-content" data-tooltip="Current progress status of the task">Status</div><div class="col-resize-handle"></div></th>`;
         case 'duedate': return `<th data-col="duedate" draggable="true"${w}><div class="th-content" data-tooltip="Deadline for task completion">Due date</div><div class="col-resize-handle"></div></th>`;
@@ -686,12 +690,13 @@ function getHeaderHTML(col) {
     }
 }
 
-function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, priority, dueDateDisplay, hasTimeline, timelineColor, timelineText, expandBtn) {
+function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, priority, dueDateDisplay, hasTimeline, timelineColor, timelineText, expandBtn, subtaskBadge) {
     switch(col) {
         case 'task': return `<td class="cell-task" ${!isViewer ? `ondblclick="editTaskName('${taskIdStr}', '${groupIdStr}', this)"` : ''}>
                 <div class="cell-task-content">
                     ${expandBtn}
                     <span class="task-name">${escapeHtml(task.name)}</span>
+                    ${subtaskBadge}
                     <div class="task-icons">
                         <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')">
                             <span class="material-icons-outlined">open_in_new</span>
@@ -879,14 +884,18 @@ function renderTaskRow(task, group) {
         onclick="event.stopPropagation(); toggleSubtasks('${taskIdStr}', '${groupIdStr}')" 
         title="${hasSubtasks ? (isExpanded ? 'Collapse subitems' : 'Expand subitems') : 'Add subitem'}">
         <span class="material-icons-outlined subtask-collapse-arrow ${hasSubtasks && !isExpanded ? 'collapsed' : ''}">${hasSubtasks ? 'expand_more' : ''}</span>
-        ${hasSubtasks ? `<span class="subtask-count-badge">${subtaskCount}</span>` : ''}
     </button>`;
 
+    // Subtask count badge — displayed to the right of the task name
+    const subtaskBadge = hasSubtasks ? `<span class="subtask-info-badge">
+        <span class="subtask-info-count">${subtaskCount}</span>
+    </span>` : '';
+
     let html = `
-        <tr data-task-id="${taskIdStr}" data-group-id="${groupIdStr}" class="${isExpanded ? 'subtasks-open' : ''}">
+        <tr data-task-id="${taskIdStr}" data-group-id="${groupIdStr}" class="${isExpanded ? 'subtasks-open' : ''}${task.status === 'done' ? ' task-done' : ''}">
             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div><span class="row-drag-handle" title="Drag to reorder"><span class="material-icons-outlined">drag_indicator</span></span></td>
             <td class="cell-checkbox"><input type="checkbox" onchange="onTaskCheckboxChange('${groupIdStr}', '${taskIdStr}', this)"></td>
-            ${getOrderedColumns().map(col => getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, priority, dueDateDisplay, hasTimeline, timelineColor, timelineText, expandBtn)).join('')}
+            ${getOrderedColumns().map(col => getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, priority, dueDateDisplay, hasTimeline, timelineColor, timelineText, expandBtn, subtaskBadge)).join('')}
             <td class="cell-add-col"></td>
         </tr>`;
 
@@ -933,7 +942,7 @@ function renderSubtaskSection(task, group) {
         const subDateDisplay = sub.dueDate ? formatDate(sub.dueDate) : '';
         const isLast = idx === task.subtasks.length - 1;
 
-        html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
+        html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}${sub.status === 'done' ? ' subtask-done' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div><span class="row-drag-handle subtask-drag-handle" title="Drag to reorder"><span class="material-icons-outlined">drag_indicator</span></span></td>
             <td class="cell-checkbox"><input type="checkbox" class="subtask-checkbox" onchange="onSubtaskCheckboxChange('${groupIdStr}', '${taskIdStr}', '${subIdStr}', this)"></td>
             <td colspan="11">
@@ -1103,9 +1112,9 @@ function showSubtaskStatusDropdown(event, subtaskId, taskId, groupId) {
 }
 
 function setSubtaskStatus(subtaskId, taskId, groupId, statusId) {
-    const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.status = statusId; task.lastUpdated = nowISO(); renderBoard(); }
     document.getElementById('dropdownMenu').classList.remove('active');
+    const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
+    if (subtask) { subtask.status = statusId; task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
 }
 
 // Edit subtask date
@@ -1166,9 +1175,9 @@ function showStatusDropdown(event, taskId, groupId) {
 }
 
 function setTaskStatus(taskId, groupId, statusId) {
-    const { group, task } = findTask(taskId, groupId);
-    if (task) { task.status = statusId; task.lastUpdated = nowISO(); renderBoard(); }
     document.getElementById('dropdownMenu').classList.remove('active');
+    const { group, task } = findTask(taskId, groupId);
+    if (task) { task.status = statusId; task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
 }
 
 // ===== Priority Dropdown =====
@@ -1187,9 +1196,9 @@ function showPriorityDropdown(event, taskId, groupId) {
 }
 
 function setTaskPriority(taskId, groupId, priorityId) {
-    const { group, task } = findTask(taskId, groupId);
-    if (task) { task.priority = priorityId; task.lastUpdated = nowISO(); renderBoard(); }
     document.getElementById('dropdownMenu').classList.remove('active');
+    const { group, task } = findTask(taskId, groupId);
+    if (task) { task.priority = priorityId; task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
 }
 
 // ============================================================
@@ -2816,15 +2825,18 @@ renderBoard = function() {
     document.addEventListener('mousemove', function(e) {
         if (!resizing || !resizeTh) return;
         const diff = e.clientX - startX;
-        const newWidth = Math.max(50, startWidth + diff);
-        const newNextWidth = nextTh ? Math.max(50, nextStartWidth - diff) : 0;
+        const colName = resizeTh.getAttribute('data-col');
+        const minW = colName === 'task' ? 200 : 50;
+        const maxW = colName === 'task' ? 600 : 9999;
+        const newWidth = Math.min(maxW, Math.max(minW, startWidth + diff));
+
+        // If we hit the minimum, don't resize at all (don't grow neighbor)
+        if (newWidth <= minW && diff < 0) return;
+        // If we hit the maximum, stop expanding
+        if (newWidth >= maxW && diff > 0) return;
 
         resizeTh.style.width = newWidth + 'px';
         resizeTh.style.minWidth = newWidth + 'px';
-        if (nextTh && nextTh.getAttribute('data-col') !== 'add') {
-            nextTh.style.width = newNextWidth + 'px';
-            nextTh.style.minWidth = newNextWidth + 'px';
-        }
     });
 
     document.addEventListener('mouseup', function(e) {
