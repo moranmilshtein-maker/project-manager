@@ -315,6 +315,18 @@ body {
 
 .project-item {
     font-size: 13.5px;
+    position: relative;
+}
+
+.project-item .board-menu-trigger {
+    opacity: 0;
+    transition: opacity 0.15s;
+    margin-inline-start: auto;
+    flex-shrink: 0;
+}
+
+.project-item:hover .board-menu-trigger {
+    opacity: 1;
 }
 
 /* ===== Main Content ===== */
@@ -3057,6 +3069,7 @@ thead input[type="checkbox"].cb-selected {
     cursor: pointer;
     border-radius: 4px;
     padding: 2px;
+    font-size: 16px !important;
 }
 
 .board-menu-trigger:hover {

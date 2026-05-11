@@ -1717,6 +1717,7 @@ function showAppScreen() {
         const roleBadge = document.getElementById('userRoleBadge');
         if (roleBadge) roleBadge.textContent = ROLE_LABELS[currentUser.role] || '';
     }
+    renderBoardSidebar();
     renderBoard();
     showAdminLink();
 }
@@ -2473,7 +2474,7 @@ function renderBoardSidebar() {
         html += `<a href="#" class="sidebar-item project-item ${isActive ? 'active' : ''}" data-board="${board.id}" onclick="event.preventDefault(); switchBoard('${board.id}')" oncontextmenu="event.preventDefault(); showBoardContextMenu(event, '${board.id}')">
             <span class="material-icons-outlined">table_chart</span>
             <span class="sidebar-label" dir="rtl">${escapeHtml(board.name)}</span>
-            <span class="board-menu-trigger material-icons-outlined" onclick="event.preventDefault(); event.stopPropagation(); showBoardContextMenu(event, '${board.id}')" style="font-size:16px;margin-right:auto;opacity:0;transition:opacity 0.15s">more_horiz</span>
+            <span class="board-menu-trigger material-icons-outlined" onclick="event.preventDefault(); event.stopPropagation(); showBoardContextMenu(event, '${board.id}')">more_horiz</span>
         </a>`;
     });
     list.innerHTML = html;
