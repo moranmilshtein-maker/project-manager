@@ -197,6 +197,8 @@ function escapeHtml(str) {
 }
 
 // ===== Initial Board Data =====
+// Each board has its own 'groups' array stored inside boardData.boardGroups[boardId]
+// boardData.groups is a REFERENCE to the active board's groups (set by switchBoard)
 let boardData = {
     name: '\u05E0\u05D9\u05E1\u05D9\u05D5\u05DF',
     archivedGroups: [],
@@ -204,48 +206,71 @@ let boardData = {
         { id: 'board1', name: '\u05E0\u05D9\u05E1\u05D9\u05D5\u05DF', color: '#0073ea', archived: false, createdAt: null }
     ],
     activeBoard: 'board1',
-    groups: [
-        {
-            id: 'g1',
-            name: 'To-Do',
-            color: '#784bd1',
-            collapsed: false,
-            tasks: [
-                {
-                    id: 1, name: '\u05E8\u05D0\u05E9\u05D5\u05DF', owner: 'MM', status: 'working',
-                    dueDate: '2025-02-15', priority: 'low', notes: 'Action items',
-                    budget: 100, files: 1, timelineStart: '2025-02-15', timelineEnd: '2025-02-16',
-                    lastUpdated: nowISO(),
-                    subtasks: [],
-                    subtasksExpanded: false
-                },
-                {
-                    id: 2, name: '\u05E9\u05E0\u05D9', owner: '', status: 'done',
-                    dueDate: '2025-02-16', priority: 'high', notes: 'Meeting notes',
-                    budget: 1000, files: 0, timelineStart: '2025-02-17', timelineEnd: '2025-02-18',
-                    lastUpdated: nowISO(),
-                    subtasks: [],
-                    subtasksExpanded: false
-                },
-                {
-                    id: 3, name: '\u05E9\u05DC\u05D9\u05E9\u05D9', owner: '', status: 'stuck',
-                    dueDate: '2025-02-17', priority: 'medium', notes: 'Other',
-                    budget: 500, files: 0, timelineStart: '2025-02-19', timelineEnd: '2025-02-20',
-                    lastUpdated: nowISO(),
-                    subtasks: [],
-                    subtasksExpanded: false
-                }
-            ]
-        },
-        {
-            id: 'g2',
-            name: 'Completed',
-            color: '#00c875',
-            collapsed: false,
-            tasks: []
-        }
-    ]
+    boardGroups: {
+        'board1': [
+            {
+                id: 'g1',
+                name: 'To-Do',
+                color: '#784bd1',
+                collapsed: false,
+                tasks: [
+                    {
+                        id: 1, name: '\u05E8\u05D0\u05E9\u05D5\u05DF', owner: 'MM', status: 'working',
+                        dueDate: '2025-02-15', priority: 'low', notes: 'Action items',
+                        budget: 100, files: 1, timelineStart: '2025-02-15', timelineEnd: '2025-02-16',
+                        lastUpdated: nowISO(),
+                        subtasks: [],
+                        subtasksExpanded: false
+                    },
+                    {
+                        id: 2, name: '\u05E9\u05E0\u05D9', owner: '', status: 'done',
+                        dueDate: '2025-02-16', priority: 'high', notes: 'Meeting notes',
+                        budget: 1000, files: 0, timelineStart: '2025-02-17', timelineEnd: '2025-02-18',
+                        lastUpdated: nowISO(),
+                        subtasks: [],
+                        subtasksExpanded: false
+                    },
+                    {
+                        id: 3, name: '\u05E9\u05DC\u05D9\u05E9\u05D9', owner: '', status: 'stuck',
+                        dueDate: '2025-02-17', priority: 'medium', notes: 'Other',
+                        budget: 500, files: 0, timelineStart: '2025-02-19', timelineEnd: '2025-02-20',
+                        lastUpdated: nowISO(),
+                        subtasks: [],
+                        subtasksExpanded: false
+                    }
+                ]
+            },
+            {
+                id: 'g2',
+                name: 'Completed',
+                color: '#00c875',
+                collapsed: false,
+                tasks: []
+            }
+        ]
+    },
+    groups: [] // Will be set by initBoardGroups()
 };
+
+// Initialize boardData.groups to point to the active board's groups
+function initBoardGroups() {
+    if (!boardData.boardGroups) boardData.boardGroups = {};
+    // Migration: if boardData.groups has data but boardGroups doesn't have the active board, migrate
+    const activeId = boardData.activeBoard || 'board1';
+    if (!boardData.boardGroups[activeId] && boardData.groups && boardData.groups.length > 0) {
+        boardData.boardGroups[activeId] = boardData.groups;
+    }
+    // Ensure all boards have a groups entry
+    if (boardData.boards) {
+        boardData.boards.forEach(b => {
+            if (!boardData.boardGroups[b.id]) {
+                boardData.boardGroups[b.id] = [];
+            }
+        });
+    }
+    // Set active groups reference
+    boardData.groups = boardData.boardGroups[activeId] || [];
+}
 
 // ============================================================
 // TASK 1 FIX: Robust Add Task - No More Overwriting Bug
@@ -1806,13 +1831,28 @@ function setupNewTaskButton() {
 
 // ===== Persist to LocalStorage =====
 function saveToStorage() {
+    // Ensure current board's groups are saved in boardGroups before persisting
+    if (boardData.activeBoard && boardData.boardGroups) {
+        boardData.boardGroups[boardData.activeBoard] = boardData.groups;
+    }
     try { localStorage.setItem('mondayBoardData', JSON.stringify(boardData)); } catch (e) {}
 }
 
 function loadFromStorage() {
     try {
         const data = localStorage.getItem('mondayBoardData');
-        if (data) boardData = JSON.parse(data);
+        if (data) {
+            boardData = JSON.parse(data);
+            // Migration: old format had groups at top level without boardGroups
+            if (!boardData.boardGroups) {
+                boardData.boardGroups = {};
+                const activeId = boardData.activeBoard || 'board1';
+                if (boardData.groups && boardData.groups.length > 0) {
+                    boardData.boardGroups[activeId] = boardData.groups;
+                }
+            }
+            initBoardGroups();
+        }
     } catch (e) {}
 }
 
@@ -1837,6 +1877,7 @@ document.addEventListener('click', (e) => {
 // ===== Initialize =====
 async function initApp() {
     loadFromStorage();
+    initBoardGroups();
     loadAuthToken();
 
     // Check for Google OAuth callback (highest priority)
@@ -2230,7 +2271,15 @@ function renderBoardSidebar() {
 }
 
 function switchBoard(boardId) {
+    // Save current board's groups before switching
+    if (boardData.activeBoard && boardData.boardGroups) {
+        boardData.boardGroups[boardData.activeBoard] = boardData.groups;
+    }
     boardData.activeBoard = boardId;
+    // Load target board's groups
+    if (!boardData.boardGroups) boardData.boardGroups = {};
+    if (!boardData.boardGroups[boardId]) boardData.boardGroups[boardId] = [];
+    boardData.groups = boardData.boardGroups[boardId];
     const board = boardData.boards.find(b => b.id === boardId);
     if (board) {
         const titleEl = document.querySelector('.board-title');
@@ -2287,8 +2336,20 @@ function boardCtxAction(action, boardId) {
             if (newName && newName.trim()) { board.name = newName.trim(); renderBoardSidebar(); saveToStorage(); }
             break;
         case 'duplicate':
-            const dup = { ...board, id: 'board' + newId(), name: board.name + ' (copy)', createdAt: nowISO() };
+            const dupId = 'board' + newId();
+            const dup = { ...board, id: dupId, name: board.name + ' (copy)', createdAt: nowISO() };
             boardData.boards.push(dup);
+            // Deep-clone the source board's groups so the duplicate is fully independent
+            const sourceGroups = boardData.boardGroups[boardId] || boardData.groups;
+            boardData.boardGroups[dupId] = JSON.parse(JSON.stringify(sourceGroups));
+            // Assign new IDs to all groups and tasks in the clone to avoid ID collisions
+            boardData.boardGroups[dupId].forEach(g => {
+                g.id = 'g' + newId();
+                g.tasks.forEach(t => {
+                    t.id = newId();
+                    if (t.subtasks) t.subtasks.forEach(s => { s.id = newId(); });
+                });
+            });
             renderBoardSidebar();
             saveToStorage();
             showToast('Board duplicated');
@@ -2311,6 +2372,8 @@ function boardCtxAction(action, boardId) {
         case 'delete':
             if (boardData.boards.filter(b => !b.archived).length <= 1) { showToast('Cannot delete the last board'); return; }
             if (!confirm('Permanently delete this board?')) return;
+            // Remove board's groups data
+            if (boardData.boardGroups) delete boardData.boardGroups[boardId];
             boardData.boards = boardData.boards.filter(b => b.id !== boardId);
             if (boardData.activeBoard === boardId) {
                 const next = boardData.boards.find(b => !b.archived);
