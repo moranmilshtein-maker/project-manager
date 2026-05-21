@@ -1031,10 +1031,10 @@ function addSubtaskInline(taskId, groupId) {
 
     const addRow = document.querySelector(`tr.subtask-add-row[data-parent-task="${taskId}"][data-group-id="${groupId}"]`);
     if (!addRow) { activeSubtaskInputs.delete(inputKey); return; }
-    const td = addRow.querySelector('td[colspan]');
+    const td = addRow.querySelector('td.cell-task') || addRow.querySelector('td[colspan]');
     if (!td) { activeSubtaskInputs.delete(inputKey); return; }
 
-    td.innerHTML = `<input class="inline-edit-input subtask-inline-input" type="text" placeholder="Enter subitem name..." style="margin-right:16px">`;
+    td.innerHTML = `<input class="inline-edit-input subtask-inline-input" type="text" placeholder="Enter subitem name..." style="margin-right:16px; width:100%;">`;
     const input = td.querySelector('input');
     if (!input) { activeSubtaskInputs.delete(inputKey); return; }
 
