@@ -911,66 +911,90 @@ function renderTaskRow(task, group) {
 // SUBTASKS / SUBITEMS
 // ============================================================
 
-function renderSubtaskSection(task, group) {
-    const taskIdStr = String(task.id);
-    const groupIdStr = String(group.id);
-    const isViewer = currentUser && currentUser.role === 'viewer';
+function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, isViewer) {
+    const subStatus = getStatusInfo(sub.status);
+    const subPriority = getPriorityInfo(sub.priority);
+    const subDateDisplay = sub.dueDate ? formatDate(sub.dueDate) : '';
+    const hasTimeline = sub.timelineStart && sub.timelineEnd;
+    const timelineText = formatTimeline(sub.timelineStart, sub.timelineEnd);
+    let timelineColor = 'linear-gradient(90deg, #00c875, #579bfc)';
+    if (sub.status === 'done') timelineColor = 'linear-gradient(90deg, #00c875 0%, #00c875 100%)';
+    else if (sub.status === 'stuck') timelineColor = '#c4c4c4';
 
-    let html = '';
-
-    // Subtask header row
-    html += `<tr class="subtask-header-row" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
-        <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></td>
-        <td class="cell-checkbox"></td>
-        <td colspan="11">
-            <div class="subtask-header-content">
-                <div class="subtask-header-columns">
-                    <span class="subtask-col-name">Subitem</span>
-                    <span class="subtask-col-owner">Owner</span>
-                    <span class="subtask-col-status">Status</span>
-                    <span class="subtask-col-date">Date</span>
-                    <span class="subtask-col-add"><span class="material-icons-outlined" style="font-size:14px;color:#ccc">add</span></span>
-                </div>
-            </div>
-        </td>
-    </tr>`;
-
-    // Subtask rows with hierarchy tree lines
-    task.subtasks.forEach((sub, idx) => {
-        const subIdStr = String(sub.id);
-        const subStatus = getStatusInfo(sub.status);
-        const subDateDisplay = sub.dueDate ? formatDate(sub.dueDate) : '';
-        const isLast = idx === task.subtasks.length - 1;
-
-        html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}${sub.status === 'done' ? ' subtask-done' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
-            <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div><span class="row-drag-handle subtask-drag-handle" title="Drag to reorder"><span class="material-icons-outlined">drag_indicator</span></span></td>
-            <td class="cell-checkbox"><input type="checkbox" class="subtask-checkbox" onchange="onSubtaskCheckboxChange('${groupIdStr}', '${taskIdStr}', '${subIdStr}', this)"></td>
-            <td colspan="11">
-                <div class="subtask-row-content">
-                    <div class="subtask-tree-line ${isLast ? 'last' : ''}"></div>
-                    <span class="subtask-name" ${!isViewer ? `ondblclick="editSubtaskName('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.name)}</span>
-                    <div class="subtask-owner">
-                        ${sub.owner
-                            ? `<div class="owner-avatar has-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>${escapeHtml(sub.owner)}</div>`
-                            : `<div class="owner-avatar no-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}><span class="material-icons-outlined" style="font-size:16px">person_add</span></div>`
-                        }
-                    </div>
-                    <div class="subtask-status">
-                        <div class="status-label subtask-status-label" style="background:${subStatus.color}"
-                            ${!isViewer ? `onclick="showSubtaskStatusDropdown(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>
-                            ${subStatus.label || ''}
-                        </div>
-                    </div>
-                    <div class="subtask-date">
-                        <div class="date-display" ${!isViewer ? `ondblclick="editSubtaskDate('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${subDateDisplay}</div>
-                    </div>
+    switch(col) {
+        case 'task': return `<td class="cell-task subtask-task-cell">
+                <div class="cell-task-content subtask-task-content">
+                    <span class="task-name subtask-name" ${!isViewer ? `ondblclick="editSubtaskName('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.name)}</span>
                     <div class="subtask-actions">
                         ${!isViewer ? `<button class="subtask-delete-btn" onclick="deleteSubtask('${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Delete subitem">
                             <span class="material-icons-outlined">close</span>
                         </button>` : ''}
                     </div>
                 </div>
-            </td>
+            </td>`;
+        case 'owner': return `<td class="cell-owner">
+                ${sub.owner
+                    ? `<div class="owner-avatar has-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>${escapeHtml(sub.owner)}</div>`
+                    : `<div class="owner-avatar no-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}><span class="material-icons-outlined">person_add</span></div>`
+                }
+            </td>`;
+        case 'status': return `<td class="cell-status">
+                <div class="status-label subtask-status-label" style="background:${subStatus.color}"
+                     ${!isViewer ? `onclick="showSubtaskStatusDropdown(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>
+                    ${subStatus.label || ''}
+                </div>
+            </td>`;
+        case 'duedate': return `<td class="cell-due-date">
+                <div class="date-display" ${!isViewer ? `ondblclick="editSubtaskDate('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${subDateDisplay}</div>
+            </td>`;
+        case 'priority': return `<td class="cell-priority">
+                <div class="priority-label" style="background:${subPriority.color}"
+                     ${!isViewer ? `onclick="showSubtaskPriorityDropdown(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>
+                    ${subPriority.label || ''}
+                </div>
+            </td>`;
+        case 'notes': return `<td class="cell-notes" ${!isViewer ? `ondblclick="editSubtaskNotes('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.notes || '')}</td>`;
+        case 'budget': return `<td class="cell-budget" ${!isViewer ? `ondblclick="editSubtaskBudget('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${sub.budget ? '$' + sub.budget.toLocaleString() : ''}</td>`;
+        case 'files': return `<td class="cell-files">
+                <div class="file-icon">
+                    ${(sub.files || 0) > 0
+                        ? `<span class="material-icons-outlined" style="color:#0073ea">description</span>`
+                        : `<span class="material-icons-outlined">attach_file</span>`}
+                </div>
+            </td>`;
+        case 'timeline': return `<td class="cell-timeline">
+                ${hasTimeline
+                    ? `<div class="timeline-bar has-dates" style="background:${timelineColor}" ${!isViewer ? `ondblclick="editSubtaskTimeline('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>${timelineText}</div>`
+                    : `<div class="timeline-bar no-dates" ${!isViewer ? `ondblclick="editSubtaskTimeline('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>-</div>`}
+            </td>`;
+        case 'updated': return `<td class="cell-updated">
+                <div class="updated-content">
+                    ${sub.owner ? `<div class="updated-avatar">${escapeHtml(sub.owner)}</div>` : ''}
+                    <span>${formatLastUpdated(sub.lastUpdated)}</span>
+                </div>
+            </td>`;
+        default: return '<td></td>';
+    }
+}
+
+function renderSubtaskSection(task, group) {
+    const taskIdStr = String(task.id);
+    const groupIdStr = String(group.id);
+    const isViewer = currentUser && currentUser.role === 'viewer';
+    const columns = getOrderedColumns();
+
+    let html = '';
+
+    // Subtask rows — each subtask uses proper table cells aligned with main task columns
+    task.subtasks.forEach((sub, idx) => {
+        const subIdStr = String(sub.id);
+        const isLast = idx === task.subtasks.length - 1;
+
+        html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}${sub.status === 'done' ? ' subtask-done' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
+            <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div><span class="row-drag-handle subtask-drag-handle" title="Drag to reorder"><span class="material-icons-outlined">drag_indicator</span></span></td>
+            <td class="cell-checkbox"><input type="checkbox" class="subtask-checkbox" onchange="onSubtaskCheckboxChange('${groupIdStr}', '${taskIdStr}', '${subIdStr}', this)"></td>
+            ${columns.map(col => getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, isViewer)).join('')}
+            <td class="cell-add-col"></td>
         </tr>`;
     });
 
@@ -979,11 +1003,9 @@ function renderSubtaskSection(task, group) {
         html += `<tr class="subtask-add-row" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div></td>
             <td class="cell-checkbox"></td>
-            <td colspan="11">
-                <div class="subtask-add-trigger" onclick="addSubtaskInline('${taskIdStr}', '${groupIdStr}')">
-                    + Add subitem
-                </div>
-            </td>
+            <td class="cell-task subtask-task-cell"><div class="subtask-add-trigger" onclick="addSubtaskInline('${taskIdStr}', '${groupIdStr}')">+ Add subitem</div></td>
+            ${columns.slice(1).map(() => '<td></td>').join('')}
+            <td class="cell-add-col"></td>
         </tr>`;
     }
 
@@ -1032,7 +1054,13 @@ function addSubtaskInline(taskId, groupId) {
                     name: name,
                     owner: '',
                     status: '',
+                    priority: '',
                     dueDate: '',
+                    notes: '',
+                    budget: 0,
+                    files: 0,
+                    timelineStart: '',
+                    timelineEnd: '',
                     lastUpdated: nowISO()
                 });
                 task.subtasksExpanded = true;
@@ -1072,7 +1100,9 @@ function editSubtaskName(subtaskId, taskId, groupId, element) {
         const val = input.value.trim();
         if (val && val !== currentName) {
             subtask.name = val;
+            subtask.lastUpdated = nowISO();
             task.lastUpdated = nowISO();
+            saveToStorage();
         }
         renderBoard();
     };
@@ -1091,7 +1121,9 @@ function toggleSubtaskOwner(subtaskId, taskId, groupId) {
     if (subtask) {
         const initials = currentUser ? getInitials(currentUser.fullName || currentUser.email) : 'MM';
         subtask.owner = subtask.owner ? '' : initials;
+        subtask.lastUpdated = nowISO();
         task.lastUpdated = nowISO();
+        saveToStorage();
         renderBoard();
     }
 }
@@ -1114,7 +1146,7 @@ function showSubtaskStatusDropdown(event, subtaskId, taskId, groupId) {
 function setSubtaskStatus(subtaskId, taskId, groupId, statusId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.status = statusId; task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
+    if (subtask) { subtask.status = statusId; subtask.lastUpdated = nowISO(); task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
 }
 
 // Edit subtask date
@@ -1128,7 +1160,9 @@ function editSubtaskDate(subtaskId, taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         subtask.dueDate = input.value;
+        subtask.lastUpdated = nowISO();
         task.lastUpdated = nowISO();
+        saveToStorage();
         renderBoard();
     };
     input.addEventListener('change', save);
@@ -1143,6 +1177,105 @@ function deleteSubtask(subtaskId, taskId, groupId) {
     task.subtasks = task.subtasks.filter(s => String(s.id) !== String(subtaskId));
     task.lastUpdated = nowISO();
     renderBoard();
+}
+
+// Subtask priority dropdown
+function showSubtaskPriorityDropdown(event, subtaskId, taskId, groupId) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('dropdownMenu');
+    let html = '';
+    PRIORITY_OPTIONS.forEach(p => {
+        html += `<div class="dropdown-item" style="background:${p.color}" onclick="setSubtaskPriority('${subtaskId}', '${taskId}', '${groupId}', '${p.id}')">${p.label || '(Empty)'}</div>`;
+    });
+    dropdown.innerHTML = html;
+    const rect = event.target.getBoundingClientRect();
+    dropdown.style.top = (rect.bottom + 4) + 'px';
+    dropdown.style.left = rect.left + 'px';
+    dropdown.classList.add('active');
+}
+
+function setSubtaskPriority(subtaskId, taskId, groupId, priorityId) {
+    document.getElementById('dropdownMenu').classList.remove('active');
+    const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
+    if (subtask) { subtask.priority = priorityId; subtask.lastUpdated = nowISO(); task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
+}
+
+// Subtask notes edit
+function editSubtaskNotes(subtaskId, taskId, groupId, cell) {
+    const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
+    if (!subtask) return;
+    const current = subtask.notes || '';
+    cell.innerHTML = `<input class="inline-edit-input" type="text" value="${escapeHtml(current)}" style="width:100%">`;
+    const input = cell.querySelector('input');
+    let saved = false;
+    const save = () => {
+        if (saved) return;
+        saved = true;
+        subtask.notes = input.value;
+        subtask.lastUpdated = nowISO();
+        task.lastUpdated = nowISO();
+        saveToStorage();
+        renderBoard();
+    };
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { saved = true; renderBoard(); } });
+    input.focus();
+    input.select();
+}
+
+// Subtask budget edit
+function editSubtaskBudget(subtaskId, taskId, groupId, cell) {
+    const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
+    if (!subtask) return;
+    const current = subtask.budget || '';
+    cell.innerHTML = `<input class="inline-edit-input" type="number" value="${current}" style="width:80px" min="0">`;
+    const input = cell.querySelector('input');
+    let saved = false;
+    const save = () => {
+        if (saved) return;
+        saved = true;
+        subtask.budget = input.value ? Number(input.value) : 0;
+        subtask.lastUpdated = nowISO();
+        task.lastUpdated = nowISO();
+        saveToStorage();
+        renderBoard();
+    };
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { saved = true; renderBoard(); } });
+    input.focus();
+    input.select();
+}
+
+// Subtask timeline edit
+function editSubtaskTimeline(subtaskId, taskId, groupId) {
+    const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
+    if (!subtask) return;
+    const start = subtask.timelineStart || '';
+    const end = subtask.timelineEnd || '';
+    const modal = document.createElement('div');
+    modal.className = 'timeline-modal-overlay';
+    modal.innerHTML = `<div class="timeline-modal">
+        <h3 style="margin:0 0 12px">Set Timeline</h3>
+        <label style="font-size:12px;color:#666">Start date</label>
+        <input type="date" id="subTimelineStart" value="${start}" style="width:100%;padding:6px;margin:4px 0 8px;border:1px solid #ddd;border-radius:4px">
+        <label style="font-size:12px;color:#666">End date</label>
+        <input type="date" id="subTimelineEnd" value="${end}" style="width:100%;padding:6px;margin:4px 0 12px;border:1px solid #ddd;border-radius:4px">
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="this.closest('.timeline-modal-overlay').remove()" style="padding:6px 12px;border:1px solid #ddd;border-radius:4px;cursor:pointer;background:#fff">Cancel</button>
+            <button id="subTimelineSave" style="padding:6px 12px;border:none;border-radius:4px;cursor:pointer;background:#0073ea;color:#fff">Save</button>
+        </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    document.getElementById('subTimelineSave').addEventListener('click', () => {
+        subtask.timelineStart = document.getElementById('subTimelineStart').value;
+        subtask.timelineEnd = document.getElementById('subTimelineEnd').value;
+        subtask.lastUpdated = nowISO();
+        task.lastUpdated = nowISO();
+        saveToStorage();
+        renderBoard();
+        modal.remove();
+    });
 }
 
 // ===== Find task by string ID =====
