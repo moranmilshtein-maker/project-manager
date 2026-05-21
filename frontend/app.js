@@ -1883,6 +1883,19 @@ function clearAuthErrors() {
     });
 }
 
+// Password visibility toggle
+function togglePasswordVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const icon = btn.querySelector('.material-icons-outlined');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.textContent = 'visibility';
+    } else {
+        input.type = 'password';
+        icon.textContent = 'visibility_off';
+    }
+}
+
 // Login - all verification happens server-side
 function handleLogin(e) {
     e.preventDefault();
