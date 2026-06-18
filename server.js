@@ -8,7 +8,13 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
-const telegramBot = require('./telegram-bot');
+let telegramBot;
+try {
+  telegramBot = require('./telegram-bot');
+} catch (e) {
+  console.warn('[Telegram] Failed to load telegram-bot module:', e.message);
+  telegramBot = { initScheduler: () => {}, updateBoardData: () => {}, triggerCheck: async () => {}, sendTelegramMessage: async () => {}, getSyncStatus: () => ({ lastSyncTime: null, hasBoardData: false }) };
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
