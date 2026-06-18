@@ -8,6 +8,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const telegramBot = require('./telegram-bot');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -787,6 +788,49 @@ if (process.env.DATABASE_URL) {
     console.warn('Could not load database routes:', err.message);
   }
 }
+
+// ===== Telegram Bot - Due Date Notifications =====
+
+// Sync board data from frontend to server (for due-date checking)
+app.post('/api/board/sync', (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { boardData } = req.body;
+  if (!boardData) return res.status(400).json({ error: 'boardData is required' });
+
+  telegramBot.updateBoardData(boardData);
+  res.json({ success: true, message: 'Board data synced for notifications' });
+});
+
+// Get sync status
+app.get('/api/board/sync-status', (req, res) => {
+  res.json(telegramBot.getSyncStatus());
+});
+
+// Manual trigger for testing (Super Admin only)
+app.post('/api/telegram/check-now', requireSuperAdmin, async (req, res) => {
+  try {
+    await telegramBot.triggerCheck();
+    res.json({ success: true, message: 'Check triggered, notifications sent if applicable' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Test bot connection
+app.post('/api/telegram/test', requireSuperAdmin, async (req, res) => {
+  try {
+    await telegramBot.sendTelegramMessage('🧪 בדיקת חיבור — הבוט פעיל ומחובר!');
+    res.json({ success: true, message: 'Test message sent' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Initialize Telegram bot scheduler
+telegramBot.initScheduler();
 
 app.use(express.static(path.join(__dirname, 'frontend')));
 

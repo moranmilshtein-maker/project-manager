@@ -2197,6 +2197,33 @@ function saveToStorage() {
         boardData.boardGroups[boardData.activeBoard] = boardData.groups;
     }
     try { localStorage.setItem('mondayBoardData', JSON.stringify(boardData)); } catch (e) {}
+    // Sync to server for Telegram due-date notifications
+    syncBoardToServer();
+}
+
+// Sync board data to server for Telegram bot due-date notifications
+let syncTimeout = null;
+function syncBoardToServer() {
+    // Debounce: only sync after 3 seconds of inactivity
+    if (syncTimeout) clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(async () => {
+        if (!authToken) return;
+        try {
+            // Build a lightweight payload with all boards' tasks
+            const allGroups = [];
+            if (boardData.boardGroups) {
+                for (const boardId of Object.keys(boardData.boardGroups)) {
+                    const groups = boardData.boardGroups[boardId];
+                    if (Array.isArray(groups)) allGroups.push(...groups);
+                }
+            }
+            await fetch('/api/board/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+                body: JSON.stringify({ boardData: { groups: allGroups } })
+            });
+        } catch (e) { /* silent fail - notifications are not critical */ }
+    }, 3000);
 }
 
 function loadFromStorage() {
