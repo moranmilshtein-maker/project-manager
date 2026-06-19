@@ -1853,6 +1853,9 @@ function showAppScreen() {
     renderBoardSidebar();
     renderBoard();
     showAdminLink();
+    // Load data from server (async - will re-render if server has newer data)
+    loadFromServer();
+    loadColumnStateFromServer();
 }
 
 function showLoginForm() {
@@ -2202,9 +2205,57 @@ function saveToStorage() {
     if (boardData.activeBoard && boardData.boardGroups) {
         boardData.boardGroups[boardData.activeBoard] = boardData.groups;
     }
+    // Always save to localStorage as immediate cache
     try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch (e) {}
+    // Persist to server (primary storage - survives deploys and browser changes)
+    saveToServer();
     // Sync to server for Telegram due-date notifications
     syncBoardToServer();
+}
+
+// Debounced save to server to avoid excessive API calls
+let serverSaveTimeout = null;
+function saveToServer() {
+    if (serverSaveTimeout) clearTimeout(serverSaveTimeout);
+    serverSaveTimeout = setTimeout(async () => {
+        if (!authToken) return;
+        try {
+            await authFetch('/api/user-data/boards', {
+                method: 'PUT',
+                body: JSON.stringify({ data: boardData })
+            });
+        } catch (e) { /* silent - localStorage is fallback */ }
+    }, 1000);
+}
+
+// Save archived tasks to server
+let archivedSaveTimeout = null;
+function saveArchivedToServer(archived) {
+    if (archivedSaveTimeout) clearTimeout(archivedSaveTimeout);
+    archivedSaveTimeout = setTimeout(async () => {
+        if (!authToken) return;
+        try {
+            await authFetch('/api/user-data/archived', {
+                method: 'PUT',
+                body: JSON.stringify({ data: archived })
+            });
+        } catch (e) { /* silent */ }
+    }, 1000);
+}
+
+// Save column state to server
+let columnSaveTimeout = null;
+function saveColumnStateToServer() {
+    if (columnSaveTimeout) clearTimeout(columnSaveTimeout);
+    columnSaveTimeout = setTimeout(async () => {
+        if (!authToken) return;
+        try {
+            await authFetch('/api/user-data/columns', {
+                method: 'PUT',
+                body: JSON.stringify({ data: columnState })
+            });
+        } catch (e) { /* silent */ }
+    }, 1000);
 }
 
 // Sync board data to server for Telegram bot due-date notifications
@@ -2233,8 +2284,18 @@ function syncBoardToServer() {
 }
 
 function loadFromStorage() {
+    // Load from localStorage as immediate cache (fast, synchronous)
     try {
-        const data = localStorage.getItem('numiBoardData');
+        let data = localStorage.getItem('numiBoardData');
+        // Fallback: try old key in case rename lost the reference
+        if (!data) {
+            data = localStorage.getItem('mondayBoardData');
+            if (data) {
+                // Migrate old key to new key
+                localStorage.setItem('numiBoardData', data);
+                localStorage.removeItem('mondayBoardData');
+            }
+        }
         if (data) {
             boardData = JSON.parse(data);
             // Migration: old format had groups at top level without boardGroups
@@ -2248,6 +2309,83 @@ function loadFromStorage() {
             initBoardGroups();
         }
     } catch (e) {}
+}
+
+// Load from server (called after auth is confirmed)
+async function loadFromServer() {
+    if (!authToken) return;
+    try {
+        const res = await authFetch('/api/user-data/boards');
+        const result = await res.json();
+        if (result.success && result.data) {
+            boardData = result.data;
+            // Migration: old format
+            if (!boardData.boardGroups) {
+                boardData.boardGroups = {};
+                const activeId = boardData.activeBoard || 'board1';
+                if (boardData.groups && boardData.groups.length > 0) {
+                    boardData.boardGroups[activeId] = boardData.groups;
+                }
+            }
+            // Update localStorage cache
+            try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch (e) {}
+            initBoardGroups();
+            renderBoard();
+            renderBoardSidebar();
+            return true;
+        } else {
+            // Server has no data yet - migrate localStorage data to server (first time)
+            if (boardData && boardData.boardGroups && Object.keys(boardData.boardGroups).length > 0) {
+                saveToServer();
+            }
+            // Also migrate archived tasks if they exist in localStorage
+            try {
+                const archivedData = localStorage.getItem('numiArchivedTasks');
+                if (archivedData) {
+                    const archived = JSON.parse(archivedData);
+                    if (archived.length > 0) saveArchivedToServer(archived);
+                }
+            } catch (e) {}
+            // Also migrate column state
+            try {
+                const colData = localStorage.getItem('numiColumnState');
+                if (colData) saveColumnStateToServer();
+            } catch (e) {}
+        }
+    } catch (e) { /* fall back to localStorage data */ }
+    return false;
+}
+
+// Load archived tasks from server
+async function loadArchivedFromServer() {
+    if (!authToken) return [];
+    try {
+        const res = await authFetch('/api/user-data/archived');
+        const result = await res.json();
+        if (result.success && result.data) {
+            // Update localStorage cache
+            try { localStorage.setItem('numiArchivedTasks', JSON.stringify(result.data)); } catch (e) {}
+            return result.data;
+        }
+    } catch (e) { /* fall back */ }
+    // Fallback to localStorage
+    try {
+        const data = localStorage.getItem('numiArchivedTasks');
+        return data ? JSON.parse(data) : [];
+    } catch (e) { return []; }
+}
+
+// Load column state from server
+async function loadColumnStateFromServer() {
+    if (!authToken) return;
+    try {
+        const res = await authFetch('/api/user-data/columns');
+        const result = await res.json();
+        if (result.success && result.data) {
+            columnState = result.data;
+            try { localStorage.setItem('numiColumnState', JSON.stringify(columnState)); } catch (e) {}
+        }
+    } catch (e) { /* fall back to localStorage */ }
 }
 
 // ===== Keyboard Shortcuts =====
@@ -2986,6 +3124,7 @@ function floatingBarArchive30() {
     try {
         localStorage.setItem('numiArchivedTasks', JSON.stringify(archived));
     } catch (e) { /* ignore */ }
+    saveArchivedToServer(archived);
 
     clearSelection();
     renderBoard();
@@ -3021,6 +3160,7 @@ function cleanExpiredArchives() {
         const valid = archived.filter(a => new Date(a.archivedAt) > cutoff);
         if (valid.length !== archived.length) {
             localStorage.setItem('numiArchivedTasks', JSON.stringify(valid));
+            saveArchivedToServer(valid);
         }
     } catch (e) { /* ignore */ }
 }
@@ -3120,6 +3260,7 @@ function saveColumnState() {
     try {
         localStorage.setItem('numiColumnState', JSON.stringify(columnState));
     } catch(e) {}
+    saveColumnStateToServer();
 }
 
 // Load column state on startup
