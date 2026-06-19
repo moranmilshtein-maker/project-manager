@@ -844,10 +844,10 @@ function renderGroup(group) {
                             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}; border-radius: 0 0 4px 0;"></div></td>
                             <td></td><td></td><td></td>
                             <td><div class="summary-colors">${Object.entries(statusCounts).map(([c, n]) => `<span style="background:${c};flex:${n}"></span>`).join('')}</div></td>
-                            <td style="font-size:11px">${summaryDueDate}</td>
+                            <td style="font-size:11px;text-align:center">${summaryDueDate}</td>
                             <td><div class="summary-colors">${Object.entries(priorityCounts).map(([c, n]) => `<span style="background:${c};flex:${n}"></span>`).join('')}</div></td>
                             <td></td>
-                            <td style="font-size:12px">$${totalBudget.toLocaleString()}<br><span style="font-size:10px;color:#aaa">sum</span></td>
+                            <td style="font-size:12px;text-align:center">$${totalBudget.toLocaleString()}<br><span style="font-size:10px;color:#aaa">sum</span></td>
                             <td class="summary-files">${totalFiles}<br><span style="font-size:10px;color:#aaa">files</span></td>
                             <td>${summaryTimeline ? `<div class="summary-timeline"><div class="summary-timeline-bar">${summaryTimeline}</div></div>` : ''}</td>
                             <td></td><td></td>
