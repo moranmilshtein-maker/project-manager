@@ -600,6 +600,134 @@ function floatingBarArchive() {
     floatingBarArchive30();
 }
 
+// Move selected tasks/subtasks to another task as subitems (via picker)
+function floatingBarMove(event) {
+    const items = getSelectedTaskObjects();
+    const subItems = getSelectedSubtaskObjects();
+    if (items.length === 0 && subItems.length === 0) return;
+    
+    closeMoveToMenu();
+    
+    const menu = document.createElement('div');
+    menu.className = 'move-to-menu';
+    menu.id = 'moveToMenu';
+    
+    let html = '<div class="move-to-header">Move as subitem to:</div>';
+    html += '<div class="move-to-search"><input type="text" placeholder="Search task..." id="moveToSearch"></div>';
+    html += '<div class="move-to-list" id="moveToList">';
+    
+    // Collect IDs of selected tasks to exclude them from targets
+    const selectedIds = new Set(items.map(i => String(i.task.id)));
+    
+    boardData.groups.forEach(group => {
+        group.tasks.forEach(t => {
+            if (selectedIds.has(String(t.id))) return; // skip selected tasks as targets
+            html += `<div class="move-to-item" data-task-id="${t.id}" data-group-id="${group.id}" onclick="executeFloatingBarMove('${t.id}', '${group.id}')">
+                <span class="move-to-group-dot" style="background:${group.color}"></span>
+                <span class="move-to-task-name">${escapeHtml(t.name)}</span>
+                <span class="move-to-group-name">${escapeHtml(group.name)}</span>
+            </div>`;
+        });
+    });
+    
+    html += '</div>';
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    
+    // Position near the Move button
+    const btn = event.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    let top = rect.top - 310;
+    let left = rect.left;
+    if (top < 10) top = rect.bottom + 4;
+    if (left + 280 > window.innerWidth) left = window.innerWidth - 288;
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    
+    setTimeout(() => {
+        const searchInput = document.getElementById('moveToSearch');
+        if (searchInput) {
+            searchInput.focus();
+            searchInput.addEventListener('input', function() {
+                filterMoveToList(this.value);
+            });
+        }
+    }, 50);
+    
+    setTimeout(() => document.addEventListener('click', closeMoveToMenuOnClick), 10);
+}
+
+function executeFloatingBarMove(targetTaskId, targetGroupId) {
+    closeMoveToMenu();
+    
+    const items = getSelectedTaskObjects();
+    const subItems = getSelectedSubtaskObjects();
+    
+    // Move selected tasks as subtasks of target
+    items.forEach(({ group, task }) => {
+        convertTaskToSubtask(String(task.id), String(group.id), targetTaskId, targetGroupId);
+    });
+    
+    // Move selected subtasks to target
+    subItems.forEach(({ group, task, subtask }) => {
+        moveSubtaskToTask(String(subtask.id), String(task.id), String(group.id), targetTaskId, targetGroupId);
+    });
+    
+    clearSelection();
+    renderBoard();
+    saveToStorage();
+}
+
+// Convert selected subtasks back to regular tasks (promote to task)
+function floatingBarConvert() {
+    const subItems = getSelectedSubtaskObjects();
+    const items = getSelectedTaskObjects();
+    
+    if (subItems.length === 0 && items.length === 0) return;
+    
+    // Convert subtasks to tasks (promote)
+    subItems.forEach(({ group, task, subtask }) => {
+        if (!task || !task.subtasks) return;
+        const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
+        if (subIdx === -1) return;
+        
+        // Remove from subtasks
+        task.subtasks.splice(subIdx, 1);
+        task.lastUpdated = nowISO();
+        
+        // Add as a regular task in the same group
+        group.tasks.push({
+            id: subtask.id,
+            name: subtask.name,
+            owner: subtask.owner || '',
+            status: subtask.status || '',
+            dueDate: subtask.dueDate || '',
+            priority: subtask.priority || '',
+            notes: subtask.notes || '',
+            budget: subtask.budget || 0,
+            files: subtask.files || 0,
+            timelineStart: subtask.timelineStart || '',
+            timelineEnd: subtask.timelineEnd || '',
+            lastUpdated: nowISO(),
+            subtasks: [],
+            subtasksExpanded: false
+        });
+    });
+    
+    // Convert tasks to subtasks — need a target, use first non-selected task in same group
+    // Actually for tasks: "Convert" doesn't make sense without a target, so just show toast
+    if (items.length > 0 && subItems.length === 0) {
+        showToast('Select subtasks to convert them to tasks, or use "Move" to nest tasks');
+        return;
+    }
+    
+    const count = subItems.length;
+    clearSelection();
+    renderBoard();
+    saveToStorage();
+    showToast(`${count} subitem${count > 1 ? 's' : ''} converted to task${count > 1 ? 's' : ''}`);
+}
+
 function clearSelection() {
     selectedTasks.clear();
     selectedSubtasks.clear();
