@@ -8,6 +8,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const dataStore = require('./data-store');
 let emailService;
 try {
   emailService = require('./email-service');
@@ -50,7 +51,7 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ===== SECURITY: HTTPS enforcement in production =====
@@ -845,6 +846,96 @@ app.post('/api/telegram/test', requireSuperAdmin, async (req, res) => {
 // Initialize Telegram bot scheduler
 telegramBot.initScheduler();
 
+// ===== Board Data Persistence API =====
+// Store/retrieve board data, archived tasks, and column state per user on the server
+// This ensures data survives code deploys, localStorage clears, and browser changes
+
+// GET /api/user-data/boards - Get user's board data
+app.get('/api/user-data/boards', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const data = await dataStore.readUserData(key, 'boards');
+  res.json({ success: true, data: data });
+});
+
+// PUT /api/user-data/boards - Save user's board data
+app.put('/api/user-data/boards', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { data } = req.body;
+  if (!data) return res.status(400).json({ error: 'data is required' });
+
+  const success = await dataStore.writeUserData(key, 'boards', data);
+  if (success) {
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ error: 'Failed to save data' });
+  }
+});
+
+// GET /api/user-data/archived - Get user's archived tasks
+app.get('/api/user-data/archived', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const data = await dataStore.readUserData(key, 'archived');
+  res.json({ success: true, data: data || [] });
+});
+
+// PUT /api/user-data/archived - Save user's archived tasks
+app.put('/api/user-data/archived', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { data } = req.body;
+  if (!Array.isArray(data) && data !== null) return res.status(400).json({ error: 'data must be an array' });
+
+  const success = await dataStore.writeUserData(key, 'archived', data || []);
+  if (success) {
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ error: 'Failed to save data' });
+  }
+});
+
+// GET /api/user-data/columns - Get user's column state
+app.get('/api/user-data/columns', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const data = await dataStore.readUserData(key, 'columns');
+  res.json({ success: true, data: data });
+});
+
+// PUT /api/user-data/columns - Save user's column state
+app.put('/api/user-data/columns', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { data } = req.body;
+  if (!data) return res.status(400).json({ error: 'data is required' });
+
+  const success = await dataStore.writeUserData(key, 'columns', data);
+  if (success) {
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ error: 'Failed to save data' });
+  }
+});
+
+// GET /api/user-data/status - Get storage status (admin/debug)
+app.get('/api/user-data/status', (req, res) => {
+  res.json(dataStore.getStatus());
+});
+
 // ===== Email & Invite System =====
 
 // Invite store: token -> { email, inviterEmail, orgName, boardId, createdAt, expiresAt, used }
@@ -1013,12 +1104,15 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'frontend', 'index.html'));
 });
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`CORS origin: ${ALLOWED_ORIGIN || '(dev: all origins allowed)'}`);
   console.log(`Security: bcrypt(${BCRYPT_ROUNDS} rounds), rate-limit(5/min auth, 100/min API), helmet`);
   console.log(`Users in store: ${users.size}`);
+  // Initialize database tables
+  await dataStore.initDatabase();
+  console.log(`Storage: ${dataStore.getStatus().type}`);
 });
 
 process.on('SIGTERM', () => {
