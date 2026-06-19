@@ -2379,6 +2379,8 @@ function loadFromStorage() {
                 }
             }
             initBoardGroups();
+            // Run migration after loading from storage
+            migrateWolbySetupGroup();
         }
     } catch (e) {}
 }
@@ -2435,13 +2437,27 @@ async function loadFromServer() {
 // One-time migration: ensure 'וולבי - הקמה' group exists with all 26 tasks
 function migrateWolbySetupGroup() {
     if (!boardData || !boardData.boardGroups) return;
-    const boardId = boardData.activeBoard || 'board1';
+    // Check migration flag first
+    try { if (localStorage.getItem('numi_wolby_migrated_v2') === '1') return; } catch(e) {}
+    
+    // Check ALL boards - if the group already exists in any board, skip
+    let alreadyExists = false;
+    for (const bId of Object.keys(boardData.boardGroups)) {
+        const bGroups = boardData.boardGroups[bId];
+        if (Array.isArray(bGroups) && bGroups.some(g => g.id === 'g_wolby_setup' || g.name === '\u05D5\u05D5\u05DC\u05D1\u05D9 - \u05D4\u05E7\u05DE\u05D4')) {
+            alreadyExists = true;
+            break;
+        }
+    }
+    if (alreadyExists) {
+        try { localStorage.setItem('numi_wolby_migrated_v2', '1'); } catch(e) {}
+        return;
+    }
+
+    // Insert into the ACTIVE board
+    const boardId = boardData.activeBoard || Object.keys(boardData.boardGroups)[0] || 'board1';
     if (!boardData.boardGroups[boardId]) boardData.boardGroups[boardId] = [];
     const groups = boardData.boardGroups[boardId];
-    // Check if already exists
-    if (groups.some(g => g.id === 'g_wolby_setup' || g.name === '\u05D5\u05D5\u05DC\u05D1\u05D9 - \u05D4\u05E7\u05DE\u05D4')) return;
-    // Check migration flag
-    try { if (localStorage.getItem('numi_wolby_migrated') === '1') return; } catch(e) {}
 
     const wolbyGroup = {
         id: 'g_wolby_setup',
@@ -2487,7 +2503,7 @@ function migrateWolbySetupGroup() {
     }
 
     // Set migration flag so it doesn't repeat
-    try { localStorage.setItem('numi_wolby_migrated', '1'); } catch(e) {}
+    try { localStorage.setItem('numi_wolby_migrated_v2', '1'); } catch(e) {}
     // Save to server immediately
     saveToServer();
 }
