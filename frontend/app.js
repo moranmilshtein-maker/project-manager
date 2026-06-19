@@ -374,9 +374,9 @@ function onTaskCheckboxChange(groupId, taskId, checkbox) {
 function updateGroupHeaderCheckbox(groupId) {
     const group = boardData.groups.find(g => g.id === groupId);
     if (!group) return;
-    const groupEl = document.querySelector(`.group[data-group-id="${groupId}"]`);
+    const groupEl = document.querySelector(`.group-tbody[data-group-id="${groupId}"]`);
     if (!groupEl) return;
-    const headerCb = groupEl.querySelector('thead input[type="checkbox"]');
+    const headerCb = groupEl.querySelector('.group-select-checkbox');
     if (!headerCb) return;
     const allChecked = group.tasks.length > 0 && group.tasks.every(t => isTaskSelected(groupId, t.id));
     const someChecked = group.tasks.some(t => isTaskSelected(groupId, t.id));
@@ -385,6 +385,21 @@ function updateGroupHeaderCheckbox(groupId) {
 }
 
 // TASK 2: Master checkbox toggles all tasks in the group
+function toggleAllGroupsCheckbox(checkbox) {
+    boardData.groups.forEach(group => {
+        group.tasks.forEach(t => {
+            const key = getSelectedKey(group.id, t.id);
+            if (checkbox.checked) selectedTasks.add(key);
+            else selectedTasks.delete(key);
+        });
+    });
+    document.querySelectorAll('tbody tr[data-task-id] input[type="checkbox"]').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateFloatingBar();
+    updateCheckboxStyles();
+}
+
 function toggleGroupCheckbox(groupId, checkbox) {
     const group = boardData.groups.find(g => g.id === groupId);
     if (!group) return;
@@ -395,11 +410,25 @@ function toggleGroupCheckbox(groupId, checkbox) {
         } else {
             selectedTasks.delete(key);
         }
+        // Also select/deselect subtasks
+        if (t.subtasks) {
+            t.subtasks.forEach(sub => {
+                const subKey = `${groupId}::${t.id}::${sub.id}`;
+                if (checkbox.checked) {
+                    selectedSubtasks.add(subKey);
+                } else {
+                    selectedSubtasks.delete(subKey);
+                }
+            });
+        }
     });
     // Update individual checkboxes in DOM
-    const groupEl = document.querySelector(`.group[data-group-id="${groupId}"]`);
+    const groupEl = document.querySelector(`.group-tbody[data-group-id="${groupId}"]`);
     if (groupEl) {
         groupEl.querySelectorAll('tbody tr[data-task-id] input[type="checkbox"]').forEach(cb => {
+            cb.checked = checkbox.checked;
+        });
+        groupEl.querySelectorAll('tbody tr.subtask-row .subtask-checkbox').forEach(cb => {
             cb.checked = checkbox.checked;
         });
     }
@@ -612,9 +641,24 @@ function renderBoard() {
 
     let html = '';
 
+    // Single table with sticky thead + all groups as tbody sections
+    html += `<div class="table-scroll-wrapper">
+        <table class="board-table" id="mainBoardTable">
+            ${getColGroupHTML()}
+            <thead class="sticky-thead">
+                <tr>
+                    <th class="group-color-cell" data-col="color"><div class="group-color-bar" style="background:transparent"></div></th>
+                    <th style="width:36px" data-col="checkbox"></th>
+                    ${getOrderedColumns().map(col => getHeaderHTML(col)).join('')}
+                    <th class="col-add" data-col="add"><span class="material-icons-outlined" style="font-size:16px">add</span></th>
+                </tr>
+            </thead>`;
+
     boardData.groups.forEach(group => {
         html += renderGroup(group);
     });
+
+    html += `</table></div>`;
 
     if (canEdit()) {
         html += `
@@ -673,12 +717,32 @@ function getOrderedColumns() {
     return DEFAULT_COL_ORDER;
 }
 
+const COL_WIDTHS = {
+    color: 6, checkbox: 36, task: 400, owner: 80, status: 120,
+    duedate: 100, priority: 110, notes: 120, budget: 90,
+    files: 70, timeline: 140, updated: 140, add: 36
+};
+
+function getColGroupHTML() {
+    const cols = getOrderedColumns();
+    let html = '<colgroup>';
+    html += `<col style="width:${COL_WIDTHS.color}px">`;
+    html += `<col style="width:${COL_WIDTHS.checkbox}px">`;
+    cols.forEach(col => {
+        const w = columnState.widths[col] || COL_WIDTHS[col] || 100;
+        html += `<col style="width:${w}px">`;
+    });
+    html += `<col style="width:${COL_WIDTHS.add}px">`;
+    html += '</colgroup>';
+    return html;
+}
+
 function getHeaderHTML(col) {
     const w = columnState.widths[col] ? ` style="width:${columnState.widths[col]}px;min-width:${columnState.widths[col]}px"` : '';
     switch(col) {
         case 'task': {
-            const tw = columnState.widths[col] ? Math.min(600, Math.max(200, columnState.widths[col])) : null;
-            const taskW = tw ? ` style="width:${tw}px;min-width:200px;max-width:600px"` : ' style="min-width:200px;max-width:600px"';
+            const tw = columnState.widths[col] ? Math.min(750, Math.max(180, columnState.widths[col])) : null;
+            const taskW = tw ? ` style="width:${tw}px;min-width:180px;max-width:750px"` : ' style="min-width:180px;max-width:750px"';
             return `<th class="col-task" data-col="task" draggable="true"${taskW}><div class="th-content" data-tooltip="The task name and main identifier">Task</div><div class="col-resize-handle"></div></th>`;
         }
         case 'owner': return `<th data-col="owner" draggable="true"${w}><div class="th-content" data-tooltip="Person responsible for this task">Owner</div><div class="col-resize-handle"></div></th>`;
@@ -790,38 +854,33 @@ function renderGroup(group) {
     const summaryDueDate = minDue && maxDue
         ? `${formatDate(minDue.toISOString())} - ${formatDate(maxDue.toISOString()).split(' ')[1]}` : '';
 
+    const numCols = getOrderedColumns().length + 3; // color + checkbox + columns + add
+
     let html = `
-    <div class="group" data-group-id="${group.id}">
-        <div class="group-header" style="color: ${group.color}" onclick="toggleGroup('${group.id}')">
-            <span class="group-drag-handle" draggable="true" title="Drag to reorder group" onclick="event.stopPropagation()">
-                <span class="material-icons-outlined">drag_indicator</span>
-            </span>
-            <span class="material-icons-outlined collapse-arrow ${isCollapsed ? 'collapsed' : ''}" 
-                  style="color:${group.color}">expand_more</span>
-            <span class="group-title" style="color:${group.color}" 
-                  onclick="event.stopPropagation(); editGroupName('${group.id}', this)">${escapeHtml(group.name)}</span>
-            <span class="group-count">${taskCount} Tasks</span>
-            <span class="group-header-actions" onclick="event.stopPropagation()">
-                <button class="group-action-btn group-add-task-btn" onclick="addTaskInline('${group.id}')" title="Add a task to this group">
-                    <span class="material-icons-outlined">add</span>
-                </button>
-                <button class="group-action-btn group-menu-btn" onclick="showGroupMenu(event, '${group.id}')" title="More section actions">
-                    <span class="material-icons-outlined">more_horiz</span>
-                </button>
-            </span>
-        </div>
-        <div class="group-body ${isCollapsed ? 'collapsed' : ''}" style="${isCollapsed ? 'max-height:0' : 'max-height:none'}">
-            <div class="table-scroll-wrapper">
-                <table class="board-table">
-                    <thead>
-                        <tr>
-                            <th class="group-color-cell" data-col="color"><div class="group-color-bar" style="background:${group.color}"></div></th>
-                            <th style="width:36px" data-col="checkbox"><input type="checkbox" onchange="toggleGroupCheckbox('${group.id}', this)"></th>
-                            ${getOrderedColumns().map(col => getHeaderHTML(col)).join('')}
-                            <th class="col-add" data-col="add"><span class="material-icons-outlined" style="font-size:16px">add</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
+            <tbody class="group-tbody ${isCollapsed ? 'group-collapsed' : ''}" data-group-id="${group.id}">
+                <tr class="group-header-row" onclick="toggleGroup('${group.id}')">
+                    <td colspan="${numCols}" class="group-header-cell" style="color: ${group.color}">
+                        <div class="group-header-inner">
+                            <span class="group-drag-handle" draggable="true" title="Drag to reorder group" onclick="event.stopPropagation()">
+                                <span class="material-icons-outlined">drag_indicator</span>
+                            </span>
+                            <input type="checkbox" class="group-select-checkbox" onclick="event.stopPropagation(); toggleGroupCheckbox('${group.id}', this)" title="Select all in section">
+                            <span class="material-icons-outlined collapse-arrow ${isCollapsed ? 'collapsed' : ''}" 
+                                  style="color:${group.color}">expand_more</span>
+                            <span class="group-title" style="color:${group.color}" 
+                                  onclick="event.stopPropagation(); editGroupName('${group.id}', this)">${escapeHtml(group.name)}</span>
+                            <span class="group-count">${taskCount} Tasks</span>
+                            <span class="group-header-actions" onclick="event.stopPropagation()">
+                                <button class="group-action-btn group-add-task-btn" onclick="addTaskInline('${group.id}')" title="Add a task to this group">
+                                    <span class="material-icons-outlined">add</span>
+                                </button>
+                                <button class="group-action-btn group-menu-btn" onclick="showGroupMenu(event, '${group.id}')" title="More section actions">
+                                    <span class="material-icons-outlined">more_horiz</span>
+                                </button>
+                            </span>
+                        </div>
+                    </td>
+                </tr>`;
 
     group.tasks.forEach(task => {
         html += renderTaskRow(task, group);
@@ -858,7 +917,7 @@ function renderGroup(group) {
                         </tr>`;
     }
 
-    html += `</tbody></table></div></div></div>`;
+    html += `</tbody>`;
     return html;
 }
 
@@ -3336,7 +3395,7 @@ renderBoard = function() {
     initGroupDragAndDrop();
 };
 
-// --- Column Resizing (proportional - uses table-layout:fixed) ---
+// --- Column Resizing (updates colgroup across all tables) ---
 (function() {
     let resizing = false;
     let resizeTh = null;
@@ -3344,6 +3403,23 @@ renderBoard = function() {
     let startWidth = 0;
     let nextTh = null;
     let nextStartWidth = 0;
+
+    const COL_MIN = { task: 180, owner: 60, status: 80, duedate: 80, priority: 80, notes: 80, budget: 70, files: 50, timeline: 100, updated: 100 };
+    const COL_MAX = { task: 750, owner: 200, status: 200, duedate: 180, priority: 180, notes: 300, budget: 180, files: 120, timeline: 250, updated: 250 };
+
+    function updateAllColWidths(colName, width) {
+        // Update colgroup cols in all board-tables
+        const tables = document.querySelectorAll('.board-table');
+        const columns = getOrderedColumns();
+        const colIndex = columns.indexOf(colName);
+        if (colIndex === -1) return;
+        // col index in colgroup: 0=color, 1=checkbox, then ordered columns..., last=add
+        const colGroupIndex = colIndex + 2;
+        tables.forEach(table => {
+            const col = table.querySelector(`colgroup`)?.children[colGroupIndex];
+            if (col) col.style.width = width + 'px';
+        });
+    }
 
     document.addEventListener('mousedown', function(e) {
         if (!e.target.classList.contains('col-resize-handle')) return;
@@ -3364,17 +3440,16 @@ renderBoard = function() {
         if (!resizing || !resizeTh) return;
         const diff = e.clientX - startX;
         const colName = resizeTh.getAttribute('data-col');
-        const minW = colName === 'task' ? 200 : 50;
-        const maxW = colName === 'task' ? 600 : 9999;
+        const minW = COL_MIN[colName] || 50;
+        const maxW = COL_MAX[colName] || 400;
         const newWidth = Math.min(maxW, Math.max(minW, startWidth + diff));
 
-        // If we hit the minimum, don't resize at all (don't grow neighbor)
         if (newWidth <= minW && diff < 0) return;
-        // If we hit the maximum, stop expanding
         if (newWidth >= maxW && diff > 0) return;
 
         resizeTh.style.width = newWidth + 'px';
         resizeTh.style.minWidth = newWidth + 'px';
+        updateAllColWidths(colName, newWidth);
     });
 
     document.addEventListener('mouseup', function(e) {
@@ -3388,10 +3463,6 @@ renderBoard = function() {
             // Save width
             const col = resizeTh.getAttribute('data-col');
             if (col) columnState.widths[col] = resizeTh.offsetWidth;
-            if (nextTh) {
-                const nextCol = nextTh.getAttribute('data-col');
-                if (nextCol) columnState.widths[nextCol] = nextTh.offsetWidth;
-            }
             saveColumnState();
         }
         resizeTh = null;
@@ -3502,7 +3573,7 @@ document.addEventListener('dragstart', function(e) {
     // Check for group drag (via drag handle)
     const groupHandle = e.target.closest('.group-drag-handle');
     if (groupHandle) {
-        const groupEl = groupHandle.closest('.group[data-group-id]');
+        const groupEl = groupHandle.closest('.group-tbody[data-group-id]');
         if (groupEl) {
             const groupId = groupEl.getAttribute('data-group-id');
             _groupDragData = { groupId };
@@ -3581,7 +3652,7 @@ document.addEventListener('dragstart', function(e) {
 document.addEventListener('dragover', function(e) {
     // Handle group drag
     if (_groupDragData) {
-        const groupEl = e.target.closest('.group[data-group-id]');
+        const groupEl = e.target.closest('.group-tbody[data-group-id]');
         if (!groupEl) return;
         if (groupEl.getAttribute('data-group-id') === _groupDragData.groupId) return;
         
@@ -3682,7 +3753,7 @@ document.addEventListener('dragleave', function(e) {
     if (row) {
         row.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
     }
-    const groupEl = e.target.closest('.group[data-group-id]');
+    const groupEl = e.target.closest('.group-tbody[data-group-id]');
     if (groupEl) {
         groupEl.classList.remove('group-drag-over-top', 'group-drag-over-bottom');
     }
@@ -3691,7 +3762,7 @@ document.addEventListener('dragleave', function(e) {
 document.addEventListener('drop', function(e) {
     // Handle group drop
     if (_groupDragData) {
-        const groupEl = e.target.closest('.group[data-group-id]');
+        const groupEl = e.target.closest('.group-tbody[data-group-id]');
         if (!groupEl || groupEl.getAttribute('data-group-id') === _groupDragData.groupId) {
             cleanupRowDrag(); return;
         }
