@@ -213,31 +213,40 @@ let boardData = {
                 name: 'To-Do',
                 color: '#784bd1',
                 collapsed: false,
+                tasks: []
+            },
+            {
+                id: 'g_wolby_setup',
+                name: '\u05D5\u05D5\u05DC\u05D1\u05D9 - \u05D4\u05E7\u05DE\u05D4',
+                color: '#784bd1',
+                collapsed: false,
                 tasks: [
-                    {
-                        id: 1, name: '\u05E8\u05D0\u05E9\u05D5\u05DF', owner: 'MM', status: 'working',
-                        dueDate: '2025-02-15', priority: 'low', notes: 'Action items',
-                        budget: 100, files: 1, timelineStart: '2025-02-15', timelineEnd: '2025-02-16',
-                        lastUpdated: nowISO(),
-                        subtasks: [],
-                        subtasksExpanded: false
-                    },
-                    {
-                        id: 2, name: '\u05E9\u05E0\u05D9', owner: '', status: 'done',
-                        dueDate: '2025-02-16', priority: 'high', notes: 'Meeting notes',
-                        budget: 1000, files: 0, timelineStart: '2025-02-17', timelineEnd: '2025-02-18',
-                        lastUpdated: nowISO(),
-                        subtasks: [],
-                        subtasksExpanded: false
-                    },
-                    {
-                        id: 3, name: '\u05E9\u05DC\u05D9\u05E9\u05D9', owner: '', status: 'stuck',
-                        dueDate: '2025-02-17', priority: 'medium', notes: 'Other',
-                        budget: 500, files: 0, timelineStart: '2025-02-19', timelineEnd: '2025-02-20',
-                        lastUpdated: nowISO(),
-                        subtasks: [],
-                        subtasksExpanded: false
-                    }
+                    { id: 101, name: '\u05E9\u05D9\u05D5\u05DA \u05D2\u05D5\u05D2\u05DC \u05D0\u05E0\u05DC\u05D9\u05D8\u05D9\u05E7\u05E1', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 102, name: '\u05D4\u05E7\u05DE\u05EA \u05D2\u05D5\u05D2\u05DC \u05D8\u05D0\u05D2 \u05DE\u05E0\u05D2\u05F3\u05E8', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 103, name: '\u05E9\u05D9\u05D5\u05DA \u05D2\u05D5\u05D2\u05DC \u05D0\u05D3\u05E1', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 104, name: '\u05D4\u05E7\u05DE\u05EA \u05D2\u05D5\u05D2\u05DC \u05DE\u05E8\u05E6\u05F3\u05E0\u05D8', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 105, name: '\u05D4\u05E7\u05DE\u05EA \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7 \u05D1\u05D9\u05D6\u05E0\u05E1', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 106, name: '\u05D0\u05D9\u05DE\u05D5\u05EA \u05D3\u05D5\u05DE\u05D9\u05D9\u05DF \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 107, name: '\u05D7\u05D9\u05D1\u05D5\u05E8 \u05D2\u05D5\u05D2\u05DC \u05E1\u05E8\u05E6\u05F3 \u05E7\u05D5\u05E0\u05E1\u05D5\u05DC', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 108, name: '\u05D4\u05D8\u05DE\u05E2\u05EA \u05E7\u05DC\u05D0\u05E8\u05D9\u05D8\u05D9', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 109, name: '\u05D7\u05D9\u05D1\u05D5\u05E8 \u05D1\u05D5\u05E1 \u05E7\u05D5 \u05E4\u05D9\u05D9\u05DC\u05D5\u05D8', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 110, name: '\u05D4\u05E7\u05DE\u05EA \u05E2\u05E8\u05D5\u05E5 \u05D9\u05D5\u05D8\u05D9\u05D5\u05D1', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 111, name: '\u05D4\u05E7\u05DE\u05EA \u05E2\u05E8\u05D5\u05E5 \u05D8\u05D9\u05E7\u05D8\u05D5\u05E7', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 112, name: '\u05E9\u05D9\u05D5\u05DA \u05D0\u05D9\u05E0\u05E1\u05D8\u05D2\u05E8\u05DD', owner: '', status: 'done', dueDate: '2025-06-16', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 113, name: '\u05E9\u05D9\u05D5\u05DA \u05E2\u05DE\u05D5\u05D3 \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7 \u05E2\u05E1\u05E7\u05D9', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 114, name: '\u05D4\u05E7\u05DE\u05EA \u05D2\u05D5\u05D2\u05DC \u05E2\u05E1\u05E7\u05D9\u05DD', owner: '', status: 'working', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 115, name: '\u05D4\u05E7\u05DE\u05EA \u05D0\u05E4\u05DC \u05DE\u05E4\u05D5\u05EA', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 116, name: '\u05D4\u05E7\u05DE\u05EA \u05DB\u05DC\u05D9 \u05D5\u05D5\u05D1\u05DE\u05D0\u05E1\u05D8\u05E8 \u05E9\u05DC \u05D1\u05D9\u05E0\u05D2', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 117, name: '\u05D4\u05E7\u05DE\u05EA \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7 \u05DE\u05E8\u05E6\u05F3\u05E0\u05D8', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 118, name: '\u05E9\u05D9\u05DE\u05D5\u05E9 \u05D1\u05DB\u05DC\u05D9 \u05DC\u05EA\u05E7\u05E0\u05D4 13', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 119, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D3\u05E3 \u05DE\u05D3\u05D9\u05E0\u05D9\u05D5\u05EA \u05E4\u05E8\u05D8\u05D9\u05D5\u05EA', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 120, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D3\u05E3 \u05EA\u05E7\u05E0\u05D5\u05DF', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 121, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D3\u05E3 \u05DE\u05D3\u05D9\u05E0\u05D9\u05D5\u05EA \u05D4\u05D7\u05D6\u05E8\u05D9\u05DD', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 122, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D4\u05E6\u05D4\u05E8\u05EA \u05E0\u05D2\u05D9\u05E9\u05D5\u05EA', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 123, name: '\u05D4\u05EA\u05E7\u05E0\u05EA \u05E4\u05D9\u05D3 \u05D3\u05D9\u05E0\u05D0\u05DE\u05D9 \u05DC\u05D2\u05D5\u05D2\u05DC \u05D5\u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 124, name: '\u05D4\u05E7\u05DE\u05EA \u05D7\u05E9\u05D1\u05D5\u05DF \u05DE\u05D5\u05D3\u05E2\u05D5\u05EA \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 125, name: '\u05D0\u05D9\u05E8\u05D5\u05E2 \u05D4\u05DE\u05E8\u05D4 \u05D8\u05DC\u05E4\u05D5\u05DF | \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
+                    { id: 126, name: '\u05D0\u05D9\u05E8\u05D5\u05E2 \u05D4\u05DE\u05E8\u05D4 \u05D5\u05D5\u05D0\u05D8\u05E1\u05D0\u05E4 | \u05E7\u05D0\u05E1\u05D8\u05D5\u05DD \u05E2\u05DD \u05D8\u05D0\u05D2 \u05DE\u05E0\u05D2\u05F3\u05E8 | \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false }
                 ]
             },
             {
