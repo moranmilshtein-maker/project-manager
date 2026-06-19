@@ -606,6 +606,10 @@ function canEdit() {
 function renderBoard() {
     const container = document.getElementById('tableContent');
     if (!container) return;
+
+    // Update board title to match active board
+    updateBoardTitle();
+
     let html = '';
 
     boardData.groups.forEach(group => {
@@ -847,8 +851,8 @@ function renderGroup(group) {
                             <td style="font-size:11px;text-align:center">${summaryDueDate}</td>
                             <td><div class="summary-colors">${Object.entries(priorityCounts).map(([c, n]) => `<span style="background:${c};flex:${n}"></span>`).join('')}</div></td>
                             <td></td>
-                            <td style="font-size:12px;text-align:center">$${totalBudget.toLocaleString()}<br><span style="font-size:10px;color:#aaa">sum</span></td>
-                            <td class="summary-files">${totalFiles}<br><span style="font-size:10px;color:#aaa">files</span></td>
+                            <td class="summary-budget"><span class="summary-value">$${totalBudget.toLocaleString()}</span><span class="summary-label">sum</span></td>
+                            <td class="summary-files"><span class="summary-value">${totalFiles}</span><span class="summary-label">files</span></td>
                             <td>${summaryTimeline ? `<div class="summary-timeline"><div class="summary-timeline-bar">${summaryTimeline}</div></div>` : ''}</td>
                             <td></td><td></td>
                         </tr>`;
@@ -2937,6 +2941,53 @@ async function sendBulkNotificationEmail() {
 // ============================================================
 // BOARD SIDEBAR + CONTEXT MENU (Sprint 1.2 Tasks 12-13)
 // ============================================================
+// Update the board title in the header to match the active board
+function updateBoardTitle() {
+    const titleEl = document.querySelector('.board-title');
+    if (!titleEl) return;
+    const board = boardData.boards ? boardData.boards.find(b => b.id === boardData.activeBoard) : null;
+    const name = board ? board.name : (boardData.name || 'ניסיון');
+    titleEl.textContent = name;
+}
+
+// Inline edit board title on click
+function startBoardTitleEdit() {
+    const titleEl = document.querySelector('.board-title');
+    if (!titleEl) return;
+    const board = boardData.boards ? boardData.boards.find(b => b.id === boardData.activeBoard) : null;
+    if (!board) return;
+    if (!canEdit()) return;
+
+    const currentName = board.name;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.className = 'board-title-input';
+    input.dir = 'rtl';
+    input.style.cssText = 'font-size:24px;font-weight:700;color:#323338;border:none;border-bottom:2px solid #6161ff;outline:none;background:transparent;padding:0;margin:0;width:100%;font-family:inherit;';
+
+    titleEl.textContent = '';
+    titleEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    function finishEdit() {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            board.name = newName;
+            renderBoardSidebar();
+            saveToStorage();
+        }
+        titleEl.textContent = board.name;
+    }
+
+    input.addEventListener('blur', finishEdit);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+    });
+}
+
 function renderBoardSidebar() {
     if (!boardData.boards) {
         boardData.boards = [{ id: 'board1', name: boardData.name || 'ניסיון', color: '#0073ea', archived: false, createdAt: nowISO() }];
@@ -3031,7 +3082,7 @@ function boardCtxAction(action, boardId) {
             break;
         case 'rename':
             const newName = prompt('Board name:', board.name);
-            if (newName && newName.trim()) { board.name = newName.trim(); renderBoardSidebar(); saveToStorage(); }
+            if (newName && newName.trim()) { board.name = newName.trim(); updateBoardTitle(); renderBoardSidebar(); saveToStorage(); }
             break;
         case 'duplicate':
             const dupId = 'board' + newId();

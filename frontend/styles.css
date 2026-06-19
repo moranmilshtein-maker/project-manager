@@ -725,6 +725,40 @@ body {
     position: relative;
 }
 
+/* Universal vertical centering for all cell content including subtask rows */
+.board-table tbody td .file-icon,
+.board-table tbody td .updated-content,
+.board-table tbody td .cell-task-content {
+    height: 100%;
+    min-height: 38px;
+}
+
+.board-table tbody td.cell-owner,
+.board-table tbody td.cell-files,
+.board-table tbody td.cell-due-date,
+.board-table tbody td.cell-notes,
+.board-table tbody td.cell-budget,
+.board-table tbody td.cell-updated,
+.board-table tbody td.cell-status,
+.board-table tbody td.cell-priority,
+.board-table tbody td.cell-timeline,
+.board-table tbody td.cell-checkbox,
+.board-table tbody td.cell-add-col {
+    vertical-align: middle;
+}
+
+.board-table tbody td.cell-notes,
+.board-table tbody td.cell-budget,
+.board-table tbody td.cell-due-date {
+    line-height: 38px;
+}
+
+.subtask-row td.cell-notes,
+.subtask-row td.cell-budget,
+.subtask-row td.cell-due-date {
+    line-height: 38px;
+}
+
 .board-table tbody td:last-child {
     border-right: none;
 }
@@ -756,6 +790,8 @@ body {
     align-items: center;
     gap: 0;
     width: 100%;
+    height: 100%;
+    min-height: 38px;
     overflow: hidden;
     direction: ltr;
 }
@@ -962,6 +998,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
 }
 
 .file-icon:hover {
@@ -1017,7 +1054,7 @@ body {
 .updated-content {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     gap: 6px;
     direction: ltr;
     width: 100%;
@@ -1159,6 +1196,8 @@ tr.subtask-done .date-display {
 .subtask-row td {
     background: #f7f8fa !important;
     border-bottom: 1px solid #ecedf0 !important;
+    height: 38px;
+    vertical-align: middle;
 }
 
 .subtask-row:hover td {
@@ -1265,7 +1304,10 @@ tr.subtask-done .date-display {
     font-size: 12px;
     font-weight: 500;
     color: var(--text-secondary);
-    height: 36px !important;
+    height: 38px !important;
+    vertical-align: middle;
+    text-align: center;
+    padding: 4px 6px !important;
 }
 
 .summary-colors {
@@ -1274,7 +1316,7 @@ tr.subtask-done .date-display {
     border-radius: 3px;
     overflow: hidden;
     width: 80%;
-    margin: 0 auto;
+    margin: auto;
 }
 
 .summary-colors span {
@@ -1286,6 +1328,8 @@ tr.subtask-done .date-display {
     display: flex;
     align-items: center;
     justify-content: center;
+    height: 100%;
+    min-height: 38px;
 }
 
 .summary-timeline-bar {
@@ -1302,11 +1346,30 @@ tr.subtask-done .date-display {
 }
 
 .summary-files {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
+    text-align: center;
+    vertical-align: middle;
     font-size: 11px;
+    line-height: 1.3;
+}
+
+.summary-budget {
+    text-align: center;
+    vertical-align: middle;
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.summary-value {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.summary-label {
+    display: block;
+    font-size: 10px;
+    color: #aaa;
 }
 
 /* Add New Group */
