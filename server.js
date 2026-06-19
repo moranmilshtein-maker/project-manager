@@ -8,6 +8,13 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+let emailService;
+try {
+  emailService = require('./email-service');
+} catch (e) {
+  console.warn('[Email] Failed to load email-service module:', e.message);
+  emailService = { sendInviteEmail: async () => ({ success: false, error: 'Module not loaded' }), sendNotificationEmail: async () => ({ success: false, error: 'Module not loaded' }), sendBulkNotification: async () => [] };
+}
 let telegramBot;
 try {
   telegramBot = require('./telegram-bot');
@@ -837,6 +844,157 @@ app.post('/api/telegram/test', requireSuperAdmin, async (req, res) => {
 
 // Initialize Telegram bot scheduler
 telegramBot.initScheduler();
+
+// ===== Email & Invite System =====
+
+// Invite store: token -> { email, inviterEmail, orgName, boardId, createdAt, expiresAt, used }
+const invites = new Map();
+
+// Email preferences store: userKey -> { invites: bool, notifications: bool, updates: bool }
+const emailPreferences = new Map();
+
+// Send invite email (Super Admin only)
+app.post('/api/invites/send', requireSuperAdmin, async (req, res) => {
+  const { email, orgName, boardId } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const inviteToken = crypto.randomBytes(24).toString('hex');
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+
+  invites.set(inviteToken, {
+    email: email.toLowerCase().trim(),
+    inviterEmail: req.caller.email,
+    inviterName: req.caller.fullName,
+    orgName: orgName || 'Main workspace',
+    boardId: boardId || null,
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    used: false
+  });
+
+  const result = await emailService.sendInviteEmail(
+    email,
+    req.caller.fullName,
+    orgName || 'Main workspace',
+    inviteToken
+  );
+
+  if (result.success) {
+    res.json({ success: true, message: `Invite sent to ${email}`, inviteToken, expiresAt });
+  } else {
+    res.status(500).json({ error: `Failed to send invite: ${result.error}` });
+  }
+});
+
+// Verify invite token
+app.get('/api/invites/verify/:token', (req, res) => {
+  const invite = invites.get(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invalid invite link' });
+  if (invite.used) return res.status(410).json({ error: 'Invite already used' });
+  if (new Date(invite.expiresAt) < new Date()) return res.status(410).json({ error: 'Invite expired' });
+
+  res.json({
+    valid: true,
+    email: invite.email,
+    orgName: invite.orgName,
+    inviterName: invite.inviterName
+  });
+});
+
+// Mark invite as used (called after successful registration with invite)
+app.post('/api/invites/use/:token', (req, res) => {
+  const invite = invites.get(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invalid invite' });
+  invite.used = true;
+  res.json({ success: true });
+});
+
+// Get all pending invites (Super Admin)
+app.get('/api/invites', requireSuperAdmin, (req, res) => {
+  const list = [];
+  invites.forEach((invite, token) => {
+    list.push({ ...invite, token: token.substring(0, 8) + '...' });
+  });
+  list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(list);
+});
+
+// Send notification email (Super Admin)
+app.post('/api/email/send-notification', requireSuperAdmin, async (req, res) => {
+  const { recipients, subject, bodyText, orgName, ctaText, ctaLink } = req.body;
+  if (!recipients || !recipients.length || !subject || !bodyText) {
+    return res.status(400).json({ error: 'recipients, subject, and bodyText are required' });
+  }
+
+  // Build recipient list with email preferences
+  const recipientList = recipients.map(r => {
+    const prefs = emailPreferences.get(userKey(r.email, r.provider || 'local'));
+    return { ...r, emailPrefs: prefs || {} };
+  });
+
+  const results = await emailService.sendBulkNotification(recipientList, subject, bodyText, orgName, ctaText, ctaLink);
+  res.json({ success: true, results });
+});
+
+// Get email preferences for a user
+app.get('/api/email/preferences', (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const prefs = emailPreferences.get(key) || { invites: true, notifications: true, updates: true };
+  res.json(prefs);
+});
+
+// Update email preferences
+app.put('/api/email/preferences', (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { invites: inv, notifications, updates } = req.body;
+  const prefs = emailPreferences.get(key) || { invites: true, notifications: true, updates: true };
+  
+  if (typeof inv === 'boolean') prefs.invites = inv;
+  if (typeof notifications === 'boolean') prefs.notifications = notifications;
+  if (typeof updates === 'boolean') prefs.updates = updates;
+  
+  emailPreferences.set(key, prefs);
+  res.json({ success: true, preferences: prefs });
+});
+
+// Get all users' email preferences (Super Admin - for admin dashboard)
+app.get('/api/admin/email-preferences', requireSuperAdmin, (req, res) => {
+  const result = [];
+  users.forEach((user, key) => {
+    const prefs = emailPreferences.get(key) || { invites: true, notifications: true, updates: true };
+    result.push({
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      emailPrefs: prefs
+    });
+  });
+  res.json(result);
+});
+
+// Update a user's email preferences (Super Admin)
+app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => {
+  const email = req.params.email.toLowerCase().trim();
+  const user = findUserByEmail(email);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const key = userKey(user.email, user.provider || 'local');
+  const { invites: inv, notifications, updates } = req.body;
+  const prefs = emailPreferences.get(key) || { invites: true, notifications: true, updates: true };
+
+  if (typeof inv === 'boolean') prefs.invites = inv;
+  if (typeof notifications === 'boolean') prefs.notifications = notifications;
+  if (typeof updates === 'boolean') prefs.updates = updates;
+
+  emailPreferences.set(key, prefs);
+  res.json({ success: true, preferences: prefs });
+});
 
 app.use(express.static(path.join(__dirname, 'frontend')));
 

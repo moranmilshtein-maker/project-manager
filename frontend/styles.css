@@ -70,7 +70,7 @@ body {
     gap: 12px;
 }
 
-.monday-logo {
+.numi-logo {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -2807,6 +2807,183 @@ thead input[type="checkbox"].cb-selected {
     font-size: 13px;
     color: #676879;
     padding: 0 12px;
+}
+
+/* Admin Tabs */
+.admin-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 24px;
+    border-bottom: 1px solid #ecedf0;
+    background: #f9fafb;
+}
+
+.admin-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 20px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #676879;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+
+.admin-tab:hover {
+    color: #323338;
+    background: rgba(0,0,0,0.03);
+}
+
+.admin-tab.active {
+    color: #0073ea;
+    border-bottom-color: #0073ea;
+}
+
+.admin-tab .material-icons-outlined {
+    font-size: 18px;
+}
+
+/* Admin Email Section */
+.admin-email-section {
+    padding: 20px 24px;
+    border-bottom: 1px solid #ecedf0;
+}
+
+.admin-email-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #323338;
+    margin: 0 0 12px;
+}
+
+.admin-email-section h3 .material-icons-outlined {
+    font-size: 20px;
+    color: #0073ea;
+}
+
+.admin-email-desc {
+    font-size: 13px;
+    color: #676879;
+    margin: 0 0 12px;
+}
+
+.admin-invite-form {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.admin-invite-fields {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+}
+
+.admin-input {
+    padding: 8px 12px;
+    border: 1px solid #d0d4e4;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    flex: 1;
+    min-width: 180px;
+}
+
+.admin-input:focus {
+    outline: none;
+    border-color: #0073ea;
+    box-shadow: 0 0 0 2px rgba(0,115,234,0.1);
+}
+
+.admin-textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d0d4e4;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    margin-bottom: 8px;
+}
+
+.admin-textarea:focus {
+    outline: none;
+    border-color: #0073ea;
+    box-shadow: 0 0 0 2px rgba(0,115,234,0.1);
+}
+
+.admin-btn-primary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #0073ea;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.admin-btn-primary:hover {
+    background: #0060c2;
+}
+
+.admin-btn-primary .material-icons-outlined {
+    font-size: 16px;
+}
+
+.admin-invite-result {
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+.admin-email-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.admin-email-table thead th {
+    text-align: right;
+    padding: 8px 12px;
+    background: #f5f6f8;
+    font-weight: 500;
+    color: #676879;
+    border-bottom: 1px solid #ecedf0;
+}
+
+.admin-email-table tbody td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #323338;
+}
+
+.admin-email-table input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.admin-notification-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.admin-notification-form .admin-btn-primary {
+    align-self: flex-start;
 }
 
 /* Responsive */

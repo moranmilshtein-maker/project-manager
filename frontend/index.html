@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>monday work management</title>
+    <title>numi work management</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -22,7 +22,7 @@
                     <circle cx="18" cy="18" r="4" fill="#00ca72"/>
                 </svg>
                 <div>
-                    <span class="auth-logo-text">monday</span>
+                    <span class="auth-logo-text">numi</span>
                     <span class="auth-logo-suffix">work management</span>
                 </div>
             </div>
@@ -145,13 +145,13 @@
         <!-- Top Header Bar -->
         <header class="top-header">
             <div class="header-right">
-                <div class="monday-logo">
+                <div class="numi-logo">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                         <circle cx="6" cy="18" r="4" fill="#ff3d57"/>
                         <circle cx="12" cy="8" r="4" fill="#ffcb00"/>
                         <circle cx="18" cy="18" r="4" fill="#00ca72"/>
                     </svg>
-                    <span class="logo-text">monday</span>
+                    <span class="logo-text">numi</span>
                     <span class="logo-suffix">work management</span>
                 </div>
                 <div class="header-divider"></div>
@@ -183,7 +183,7 @@
                     <a href="#" class="sidebar-item"><span class="material-icons-outlined">more_horiz</span><span class="sidebar-label">More</span></a>
                 </nav>
                 <div class="sidebar-section">
-                    <div class="sidebar-section-header"><span>monday AI</span><span class="material-icons-outlined" style="font-size:16px">expand_more</span></div>
+                    <div class="sidebar-section-header"><span>numi AI</span><span class="material-icons-outlined" style="font-size:16px">expand_more</span></div>
                     <a href="#" class="sidebar-item sub-item"><span class="material-icons-outlined">auto_awesome</span><span class="sidebar-label">AI Sidekick</span></a>
                     <a href="#" class="sidebar-item sub-item"><span class="material-icons-outlined">brush</span><span class="sidebar-label">Vibe</span></a>
                     <a href="#" class="sidebar-item sub-item"><span class="material-icons-outlined">account_tree</span><span class="sidebar-label">AI Workflows</span></a>
@@ -418,12 +418,25 @@
             <div class="admin-header">
                 <div class="admin-header-right">
                     <span class="material-icons-outlined" style="font-size:28px;color:#0073ea">admin_panel_settings</span>
-                    <h2>Admin Dashboard — User Management</h2>
+                    <h2>Admin Dashboard</h2>
                 </div>
                 <button class="admin-close-btn" onclick="closeAdminDashboard()">
                     <span class="material-icons-outlined">close</span>
                 </button>
             </div>
+
+            <!-- Tabs -->
+            <div class="admin-tabs">
+                <button class="admin-tab active" onclick="switchAdminTab('users')" id="adminTabUsers">
+                    <span class="material-icons-outlined">people</span> Users
+                </button>
+                <button class="admin-tab" onclick="switchAdminTab('email')" id="adminTabEmail">
+                    <span class="material-icons-outlined">email</span> Email & Invites
+                </button>
+            </div>
+
+            <!-- Users Tab -->
+            <div id="adminUsersTab" class="admin-tab-content">
 
             <!-- Filters Row -->
             <div class="admin-filters">
@@ -499,6 +512,51 @@
 
             <!-- Pagination -->
             <div class="admin-pagination" id="adminPagination"></div>
+            </div><!-- end adminUsersTab -->
+
+            <!-- Email & Invites Tab -->
+            <div id="adminEmailTab" class="admin-tab-content" style="display:none">
+                <!-- Invite Section -->
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">person_add</span> Send Invite</h3>
+                    <div class="admin-invite-form">
+                        <div class="admin-invite-fields">
+                            <input type="email" id="inviteEmail" class="admin-input" placeholder="Email address">
+                            <input type="text" id="inviteOrgName" class="admin-input" placeholder="Organization name (optional)" value="Main workspace">
+                        </div>
+                        <button class="admin-btn-primary" onclick="sendInviteEmail()">
+                            <span class="material-icons-outlined">send</span> Send Invite
+                        </button>
+                    </div>
+                    <div id="inviteResult" class="admin-invite-result"></div>
+                </div>
+
+                <!-- Pending Invites -->
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">pending</span> Pending Invites</h3>
+                    <div id="pendingInvitesList" class="admin-invites-list">Loading...</div>
+                </div>
+
+                <!-- Email Preferences -->
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">tune</span> Email Preferences (per user)</h3>
+                    <p class="admin-email-desc">Control which emails each user receives:</p>
+                    <div id="emailPreferencesTable" class="admin-email-prefs-table">Loading...</div>
+                </div>
+
+                <!-- Send Notification -->
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">notifications</span> Send Notification to All</h3>
+                    <div class="admin-notification-form">
+                        <input type="text" id="notifSubject" class="admin-input" placeholder="Subject">
+                        <textarea id="notifBody" class="admin-textarea" placeholder="Message body..." rows="3"></textarea>
+                        <button class="admin-btn-primary" onclick="sendBulkNotificationEmail()">
+                            <span class="material-icons-outlined">send</span> Send to All Users
+                        </button>
+                    </div>
+                    <div id="notifResult" class="admin-invite-result"></div>
+                </div>
+            </div><!-- end adminEmailTab -->
         </div>
     </div>
 
