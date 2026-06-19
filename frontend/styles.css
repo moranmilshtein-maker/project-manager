@@ -521,7 +521,7 @@ body {
     flex: 1;
     overflow: auto;
     padding: 0 24px 40px 24px;
-    padding-top: 30px;
+    position: relative;
 }
 
 .table-content::-webkit-scrollbar {
@@ -552,6 +552,14 @@ body {
     user-select: none;
 }
 
+.group-select-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--primary-blue);
+    flex-shrink: 0;
+}
+
 .group-toggle {
     width: 20px;
     height: 20px;
@@ -580,11 +588,37 @@ body {
 
 /* ===== Table ===== */
 .board-table {
-    width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    min-width: 900px;
     table-layout: fixed;
+    width: 100%;
+    min-width: 800px;
+}
+
+/* ===== Sticky Left Columns (Color + Checkbox + Task) on Horizontal Scroll ===== */
+/* Only thead cells get sticky left positioning - body rows scroll normally */
+.board-table thead th.group-color-cell {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 210;
+    background: #fff;
+}
+
+.board-table thead th[data-col="checkbox"] {
+    position: sticky;
+    top: 0;
+    left: 6px;
+    z-index: 210;
+    background: #fff;
+}
+
+.board-table thead th.col-task {
+    position: sticky;
+    top: 0;
+    left: 42px;
+    z-index: 210;
+    background: #fff;
 }
 
 .board-table thead th {
@@ -598,9 +632,9 @@ body {
     color: var(--text-secondary);
     text-align: center;
     white-space: nowrap;
-    position: relative;
+    position: sticky;
     top: 0;
-    z-index: 5;
+    z-index: 200;
     user-select: none;
     overflow: visible;
 }
@@ -613,8 +647,8 @@ body {
 .col-resize-handle {
     position: absolute;
     top: 0;
-    right: -3px;
-    width: 6px;
+    right: 0;
+    width: 5px;
     height: 100%;
     cursor: col-resize;
     z-index: 10;
@@ -624,7 +658,6 @@ body {
 .col-resize-handle:hover,
 .col-resize-handle.active {
     background: var(--primary-blue);
-    opacity: 0.5;
 }
 
 .board-table thead th:first-child {
@@ -634,8 +667,8 @@ body {
 
 .board-table thead th.col-task {
     text-align: center;
-    min-width: 200px;
-    max-width: 600px;
+    min-width: 180px;
+    max-width: 750px;
 }
 
 .board-table thead th .th-content {
@@ -780,8 +813,6 @@ body {
     font-weight: 500;
     color: var(--text-primary);
     cursor: pointer;
-    min-width: 200px;
-    max-width: 0;
     overflow: hidden;
 }
 
@@ -904,7 +935,7 @@ body {
     font-size: 12px;
     font-weight: 500;
     color: #fff;
-    min-width: 90px;
+    width: 110px;
     cursor: pointer;
     height: 28px;
     user-select: none;
@@ -949,7 +980,7 @@ body {
     font-size: 12px;
     font-weight: 500;
     color: #fff;
-    min-width: 80px;
+    width: 110px;
     cursor: pointer;
     height: 28px;
     user-select: none;
@@ -1053,11 +1084,14 @@ body {
 
 .updated-content {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 6px;
-    direction: ltr;
     width: 100%;
+    height: 100%;
+    min-height: 38px;
+    padding-left: 12px;
 }
 
 .updated-avatar {
@@ -2166,8 +2200,67 @@ tr.subtask-done .date-display {
 
 /* Scrollbar for table */
 .table-scroll-wrapper {
-    overflow-x: auto;
-    overflow-y: visible;
+    padding-left: 28px;
+    margin-left: -28px;
+}
+
+/* Sticky thead */
+.sticky-thead {
+    z-index: 200;
+    background: #fff;
+}
+
+.sticky-thead th {
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    background: #fff !important;
+    border-bottom: 2px solid var(--border-color) !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* Group header row inside table */
+.group-header-row td {
+    background: #fff;
+    border: none !important;
+    padding: 8px 0 !important;
+    height: auto !important;
+}
+
+.group-header-cell {
+    cursor: pointer;
+    user-select: none;
+}
+
+.group-header-inner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    padding-left: 16px;
+}
+
+.group-drag-handle {
+    position: absolute;
+    left: -8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    cursor: grab;
+    color: #c3c6d4;
+    opacity: 0;
+    transition: opacity 0.15s;
+    border-radius: 4px;
+}
+
+/* Collapsed group - hide all rows except header */
+.group-tbody.group-collapsed tr:not(.group-header-row) {
+    display: none;
+}
+
+.groups-container {
     padding-left: 28px;
     margin-left: -28px;
 }
@@ -2192,25 +2285,8 @@ tr.subtask-done .date-display {
 }
 
 /* ===== Group Header Actions (+, ...) ===== */
-.group-header {
-    position: relative;
-}
-
-.group-drag-handle {
-    position: absolute;
-    left: -26px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    cursor: grab;
-    color: #c3c6d4;
-    opacity: 0;
-    transition: opacity 0.15s;
-    border-radius: 4px;
+.group-header-row:hover .group-drag-handle {
+    opacity: 1;
 }
 
 .group-drag-handle:hover {
@@ -2222,6 +2298,7 @@ tr.subtask-done .date-display {
     font-size: 16px;
 }
 
+.group-header-row:hover .group-drag-handle,
 .group-header:hover > .group-drag-handle {
     opacity: 1;
 }
