@@ -2956,7 +2956,7 @@ thead input[type="checkbox"].cb-selected {
 }
 
 .admin-email-table thead th {
-    text-align: right;
+    text-align: center;
     padding: 8px 12px;
     background: #f5f6f8;
     font-weight: 500;
@@ -2968,6 +2968,7 @@ thead input[type="checkbox"].cb-selected {
     padding: 8px 12px;
     border-bottom: 1px solid #f0f0f0;
     color: #323338;
+    text-align: center;
 }
 
 .admin-email-table input[type="checkbox"] {
