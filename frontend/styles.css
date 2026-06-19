@@ -3451,6 +3451,146 @@ tr.add-task-row.row-drag-over-top td {
     background: #e8f4fd;
 }
 
+/* Nest indicator - when dragging a task into another task's middle zone */
+.board-table tbody tr.row-drag-over-nest {
+    position: relative;
+}
+
+.board-table tbody tr.row-drag-over-nest td {
+    background: #e8f4fd !important;
+    border-top: 2px solid #0073ea !important;
+    border-bottom: 2px solid #0073ea !important;
+}
+
+.board-table tbody tr.row-drag-over-nest td:first-child::before {
+    content: '\e5d8';
+    font-family: 'Material Icons Outlined';
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: #0073ea;
+}
+
+/* Move to menu */
+.move-to-menu {
+    position: fixed;
+    z-index: 3000;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    width: 280px;
+    max-height: 350px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #e6e9ef;
+}
+
+.move-to-header {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #676879;
+    border-bottom: 1px solid #e6e9ef;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.move-to-search {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e6e9ef;
+}
+
+.move-to-search input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #d0d4e4;
+    border-radius: 4px;
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+}
+
+.move-to-search input:focus {
+    border-color: #0073ea;
+}
+
+.move-to-list {
+    overflow-y: auto;
+    max-height: 260px;
+    padding: 4px 0;
+}
+
+.move-to-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 13px;
+}
+
+.move-to-item:hover {
+    background: #f0f3ff;
+}
+
+.move-to-item.move-to-current {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+}
+
+.move-to-group-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.move-to-task-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #323338;
+}
+
+.move-to-group-name {
+    font-size: 11px;
+    color: #9699a6;
+    flex-shrink: 0;
+}
+
+/* Subtask action btn (move icon) */
+.subtask-action-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    color: #676879;
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.subtask-action-btn .material-icons-outlined {
+    font-size: 16px;
+}
+
+.subtask-action-btn:hover {
+    color: #0073ea;
+    background: #e8f4fd;
+}
+
+tr.subtask-row:hover .subtask-action-btn {
+    opacity: 1;
+}
+
 /* Row drag handle */
 .row-drag-handle {
     cursor: grab;

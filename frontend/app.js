@@ -775,6 +775,9 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
                     <span class="task-name">${escapeHtml(task.name)}</span>
                     ${subtaskBadge}
                     <div class="task-icons">
+                        <button class="task-icon-btn" onclick="event.stopPropagation(); showMoveToMenu(event, '${taskIdStr}', '${groupIdStr}')" title="Move as subitem">
+                            <span class="material-icons-outlined">drive_file_move_outline</span>
+                        </button>
                         <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')">
                             <span class="material-icons-outlined">open_in_new</span>
                         </button>
@@ -998,6 +1001,9 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
                 <div class="cell-task-content subtask-task-content">
                     <span class="task-name subtask-name" ${!isViewer ? `ondblclick="editSubtaskName('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.name)}</span>
                     <div class="subtask-actions">
+                        ${!isViewer ? `<button class="subtask-action-btn" onclick="event.stopPropagation(); showMoveSubtaskToMenu(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Move to another task">
+                            <span class="material-icons-outlined">drive_file_move_outline</span>
+                        </button>` : ''}
                         ${!isViewer ? `<button class="subtask-delete-btn" onclick="deleteSubtask('${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Delete subitem">
                             <span class="material-icons-outlined">close</span>
                         </button>` : ''}
@@ -3762,31 +3768,54 @@ document.addEventListener('dragover', function(e) {
         return;
     }
 
-    // Handle subtask drag
+    // Handle subtask drag — allow dropping on any task row (to move between parents) or reorder within same parent
     if (_subtaskDragData) {
+        // Allow dropping on a task row (to move subtask to a different parent)
+        const taskRow = e.target.closest('tr[data-task-id]');
+        if (taskRow) {
+            const targetTaskId = taskRow.getAttribute('data-task-id');
+            // Don't drop on itself's parent if it's the same
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
+            });
+            taskRow.classList.add('row-drag-over-nest');
+            return;
+        }
+
         const subtaskRow = e.target.closest('tr.subtask-row[data-subtask-id]');
         if (!subtaskRow) {
             // Allow drop on subtask-add-row area (end of list)
             const addRow = e.target.closest('tr.subtask-add-row');
-            if (addRow && addRow.getAttribute('data-parent-task') === _subtaskDragData.taskId) {
+            if (addRow) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
-                document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
-                    el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+                document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+                    el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
                 });
                 addRow.classList.add('row-drag-over-top');
             }
             return;
         }
-        // Only allow reorder within same parent task
-        if (subtaskRow.getAttribute('data-parent-task') !== _subtaskDragData.taskId) return;
+        // Allow reorder within same parent task
+        if (subtaskRow.getAttribute('data-parent-task') !== _subtaskDragData.taskId) {
+            // Dropping on a subtask of a different parent — treat as moving to that parent
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
+            });
+            subtaskRow.classList.add('row-drag-over-nest');
+            return;
+        }
         if (subtaskRow.getAttribute('data-subtask-id') === _subtaskDragData.subtaskId) return;
 
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
 
-        document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
-            el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+        document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+            el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
         });
 
         const rect = subtaskRow.getBoundingClientRect();
@@ -3807,8 +3836,8 @@ document.addEventListener('dragover', function(e) {
         if (addRow) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
-            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
-                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
             });
             addRow.classList.add('row-drag-over-top');
         }
@@ -3822,17 +3851,20 @@ document.addEventListener('dragover', function(e) {
     e.dataTransfer.dropEffect = 'move';
 
     // Clear all indicators
-    document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
-        el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+    document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+        el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
     });
 
-    // Show indicator above or below
+    // Three zones: top 25% = above, bottom 25% = below, middle 50% = nest as subtask
     const rect = row.getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    if (e.clientY < midY) {
+    const relY = e.clientY - rect.top;
+    const height = rect.height;
+    if (relY < height * 0.25) {
         row.classList.add('row-drag-over-top');
-    } else {
+    } else if (relY > height * 0.75) {
         row.classList.add('row-drag-over-bottom');
+    } else {
+        row.classList.add('row-drag-over-nest');
     }
 });
 
@@ -3840,7 +3872,7 @@ document.addEventListener('dragleave', function(e) {
     if (!_rowDragData && !_subtaskDragData && !_groupDragData) return;
     const row = e.target.closest('tr[data-task-id], tr.add-task-row, tr.subtask-row, tr.subtask-add-row');
     if (row) {
-        row.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+        row.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
     }
     const groupEl = e.target.closest('.group-tbody[data-group-id]');
     if (groupEl) {
@@ -3870,12 +3902,35 @@ document.addEventListener('drop', function(e) {
 
     // Handle subtask drop
     if (_subtaskDragData) {
+        // Check if dropped on a task row (move subtask to different parent)
+        const taskRow = e.target.closest('tr[data-task-id]');
+        if (taskRow) {
+            const targetTaskId = taskRow.getAttribute('data-task-id');
+            const targetGroupId = taskRow.getAttribute('data-group-id');
+            // Move subtask to this task as a subtask
+            e.preventDefault();
+            moveSubtaskToTask(_subtaskDragData.subtaskId, _subtaskDragData.taskId, _subtaskDragData.groupId, targetTaskId, targetGroupId);
+            cleanupRowDrag();
+            renderBoard();
+            saveToStorage();
+            return;
+        }
+
+        // Check if dropped on a subtask row of a different parent
         let targetSubtaskRow = e.target.closest('tr.subtask-row[data-subtask-id]');
         let insertAfter = false;
 
         if (targetSubtaskRow) {
-            if (targetSubtaskRow.getAttribute('data-parent-task') !== _subtaskDragData.taskId) {
-                cleanupRowDrag(); return;
+            const targetParentTask = targetSubtaskRow.getAttribute('data-parent-task');
+            if (targetParentTask !== _subtaskDragData.taskId) {
+                // Move to the different parent task
+                const targetGroupId = targetSubtaskRow.getAttribute('data-group-id');
+                e.preventDefault();
+                moveSubtaskToTask(_subtaskDragData.subtaskId, _subtaskDragData.taskId, _subtaskDragData.groupId, targetParentTask, targetGroupId);
+                cleanupRowDrag();
+                renderBoard();
+                saveToStorage();
+                return;
             }
             if (targetSubtaskRow.getAttribute('data-subtask-id') === _subtaskDragData.subtaskId) {
                 cleanupRowDrag(); return;
@@ -3901,6 +3956,12 @@ document.addEventListener('drop', function(e) {
                     _subtaskDragData.taskId,
                     _subtaskDragData.groupId
                 );
+            } else if (addRow) {
+                // Move to a different parent via add row
+                const targetTaskId = addRow.getAttribute('data-parent-task');
+                const targetGroupId = addRow.getAttribute('data-group-id');
+                e.preventDefault();
+                moveSubtaskToTask(_subtaskDragData.subtaskId, _subtaskDragData.taskId, _subtaskDragData.groupId, targetTaskId, targetGroupId);
             }
         }
 
@@ -3922,8 +3983,22 @@ document.addEventListener('drop', function(e) {
         if (targetTaskId === _rowDragData.taskId && targetGroupId === _rowDragData.groupId) {
             cleanupRowDrag(); return;
         }
+
+        // Check if dropping in the MIDDLE zone (nest as subtask)
         const rect = targetRow.getBoundingClientRect();
-        insertAfter = e.clientY >= (rect.top + rect.height / 2);
+        const relY = e.clientY - rect.top;
+        const height = rect.height;
+        if (relY >= height * 0.25 && relY <= height * 0.75) {
+            // NEST: Convert dragged task to a subtask of the target task
+            e.preventDefault();
+            convertTaskToSubtask(_rowDragData.taskId, _rowDragData.groupId, targetTaskId, targetGroupId);
+            cleanupRowDrag();
+            renderBoard();
+            saveToStorage();
+            return;
+        }
+
+        insertAfter = relY > height * 0.75;
     } else {
         // Check if dropped on add-task-row (empty group drop zone)
         const addRow = e.target.closest('tr.add-task-row');
@@ -3964,8 +4039,8 @@ document.addEventListener('dragend', function(e) {
 
 function cleanupRowDrag() {
     document.querySelectorAll('.row-dragging').forEach(el => el.classList.remove('row-dragging'));
-    document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom').forEach(el => {
-        el.classList.remove('row-drag-over-top', 'row-drag-over-bottom');
+    document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+        el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
     });
     document.querySelectorAll('.group-drag-over-top, .group-drag-over-bottom').forEach(el => {
         el.classList.remove('group-drag-over-top', 'group-drag-over-bottom');
@@ -4088,6 +4163,230 @@ function moveSubtaskToEnd(subtaskId, taskId, groupId) {
     task.subtasks.splice(fromIdx, 1);
     task.subtasks.push(subtask);
     task.lastUpdated = nowISO();
+}
+
+// Convert a task to a subtask of another task (drag task onto another task's middle zone)
+function convertTaskToSubtask(taskId, sourceGroupId, targetTaskId, targetGroupId) {
+    // Find and remove source task
+    const sourceGroup = boardData.groups.find(g => String(g.id) === String(sourceGroupId));
+    if (!sourceGroup) return;
+    const taskIdx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
+    if (taskIdx === -1) return;
+    const task = sourceGroup.tasks[taskIdx];
+    
+    // Find target task
+    const targetGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+    if (!targetGroup) return;
+    const targetTask = targetGroup.tasks.find(t => String(t.id) === String(targetTaskId));
+    if (!targetTask) return;
+    
+    // Don't allow nesting into itself
+    if (String(task.id) === String(targetTask.id)) return;
+    
+    // Remove from source
+    sourceGroup.tasks.splice(taskIdx, 1);
+    
+    // Convert task to subtask format
+    if (!targetTask.subtasks) targetTask.subtasks = [];
+    targetTask.subtasks.push({
+        id: task.id,
+        name: task.name,
+        owner: task.owner || '',
+        status: task.status || '',
+        priority: task.priority || '',
+        dueDate: task.dueDate || '',
+        notes: task.notes || '',
+        budget: task.budget || 0,
+        files: task.files || 0,
+        timelineStart: task.timelineStart || '',
+        timelineEnd: task.timelineEnd || '',
+        lastUpdated: nowISO()
+    });
+    targetTask.subtasksExpanded = true;
+    targetTask.lastUpdated = nowISO();
+    
+    showToast(`"${task.name}" moved as subitem of "${targetTask.name}"`);
+}
+
+// Move a subtask from one parent task to another
+function moveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, targetTaskId, targetGroupId) {
+    // Find source task and subtask
+    const { task: sourceTask } = findTask(sourceTaskId, sourceGroupId);
+    if (!sourceTask || !sourceTask.subtasks) return;
+    const subIdx = sourceTask.subtasks.findIndex(s => String(s.id) === String(subtaskId));
+    if (subIdx === -1) return;
+    const subtask = sourceTask.subtasks[subIdx];
+    
+    // Don't move to same parent
+    if (String(sourceTaskId) === String(targetTaskId)) return;
+    
+    // Find target task
+    const targetGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+    if (!targetGroup) return;
+    const targetTask = targetGroup.tasks.find(t => String(t.id) === String(targetTaskId));
+    if (!targetTask) return;
+    
+    // Remove from source
+    sourceTask.subtasks.splice(subIdx, 1);
+    sourceTask.lastUpdated = nowISO();
+    
+    // Add to target
+    if (!targetTask.subtasks) targetTask.subtasks = [];
+    subtask.lastUpdated = nowISO();
+    targetTask.subtasks.push(subtask);
+    targetTask.subtasksExpanded = true;
+    targetTask.lastUpdated = nowISO();
+    
+    showToast(`Subitem moved to "${targetTask.name}"`);
+}
+
+// ============================================================
+// "Move to..." Context Menu for tasks and subtasks
+// ============================================================
+function showMoveToMenu(event, taskId, groupId) {
+    event.stopPropagation();
+    closeMoveToMenu();
+    
+    const { group: sourceGroup, task: sourceTask } = findTask(taskId, groupId);
+    if (!sourceTask) return;
+    
+    const menu = document.createElement('div');
+    menu.className = 'move-to-menu';
+    menu.id = 'moveToMenu';
+    
+    let html = '<div class="move-to-header">Move as subitem to:</div>';
+    html += '<div class="move-to-search"><input type="text" placeholder="Search task..." id="moveToSearch"></div>';
+    html += '<div class="move-to-list" id="moveToList">';
+    
+    boardData.groups.forEach(group => {
+        group.tasks.forEach(t => {
+            if (String(t.id) === String(taskId) && String(group.id) === String(groupId)) return; // skip self
+            html += `<div class="move-to-item" data-task-id="${t.id}" data-group-id="${group.id}" onclick="executeMoveToTask('${taskId}', '${groupId}', '${t.id}', '${group.id}')">
+                <span class="move-to-group-dot" style="background:${group.color}"></span>
+                <span class="move-to-task-name">${escapeHtml(t.name)}</span>
+                <span class="move-to-group-name">${escapeHtml(group.name)}</span>
+            </div>`;
+        });
+    });
+    
+    html += '</div>';
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    
+    // Position near the event
+    const rect = event.target.getBoundingClientRect();
+    let top = rect.bottom + 4;
+    let left = rect.left;
+    if (top + 300 > window.innerHeight) top = rect.top - 300;
+    if (left + 280 > window.innerWidth) left = window.innerWidth - 288;
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    
+    // Focus search
+    setTimeout(() => {
+        const searchInput = document.getElementById('moveToSearch');
+        if (searchInput) {
+            searchInput.focus();
+            searchInput.addEventListener('input', function() {
+                filterMoveToList(this.value);
+            });
+        }
+    }, 50);
+    
+    // Close on outside click
+    setTimeout(() => document.addEventListener('click', closeMoveToMenuOnClick), 10);
+}
+
+function showMoveSubtaskToMenu(event, subtaskId, taskId, groupId) {
+    event.stopPropagation();
+    closeMoveToMenu();
+    
+    const { subtask } = findSubtask(subtaskId, taskId, groupId);
+    if (!subtask) return;
+    
+    const menu = document.createElement('div');
+    menu.className = 'move-to-menu';
+    menu.id = 'moveToMenu';
+    
+    let html = '<div class="move-to-header">Move subitem to:</div>';
+    html += '<div class="move-to-search"><input type="text" placeholder="Search task..." id="moveToSearch"></div>';
+    html += '<div class="move-to-list" id="moveToList">';
+    
+    boardData.groups.forEach(group => {
+        group.tasks.forEach(t => {
+            if (String(t.id) === String(taskId) && String(group.id) === String(groupId)) {
+                // Same parent — show but mark
+                html += `<div class="move-to-item move-to-current" data-task-id="${t.id}" data-group-id="${group.id}">
+                    <span class="move-to-group-dot" style="background:${group.color}"></span>
+                    <span class="move-to-task-name">${escapeHtml(t.name)} (current)</span>
+                </div>`;
+            } else {
+                html += `<div class="move-to-item" data-task-id="${t.id}" data-group-id="${group.id}" onclick="executeMoveSubtaskToTask('${subtaskId}', '${taskId}', '${groupId}', '${t.id}', '${group.id}')">
+                    <span class="move-to-group-dot" style="background:${group.color}"></span>
+                    <span class="move-to-task-name">${escapeHtml(t.name)}</span>
+                    <span class="move-to-group-name">${escapeHtml(group.name)}</span>
+                </div>`;
+            }
+        });
+    });
+    
+    html += '</div>';
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    
+    const rect = event.target.getBoundingClientRect();
+    let top = rect.bottom + 4;
+    let left = rect.left;
+    if (top + 300 > window.innerHeight) top = rect.top - 300;
+    if (left + 280 > window.innerWidth) left = window.innerWidth - 288;
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    
+    setTimeout(() => {
+        const searchInput = document.getElementById('moveToSearch');
+        if (searchInput) {
+            searchInput.focus();
+            searchInput.addEventListener('input', function() {
+                filterMoveToList(this.value);
+            });
+        }
+    }, 50);
+    
+    setTimeout(() => document.addEventListener('click', closeMoveToMenuOnClick), 10);
+}
+
+function filterMoveToList(query) {
+    const items = document.querySelectorAll('#moveToList .move-to-item');
+    const q = query.toLowerCase();
+    items.forEach(item => {
+        const name = item.querySelector('.move-to-task-name').textContent.toLowerCase();
+        item.style.display = name.includes(q) ? '' : 'none';
+    });
+}
+
+function executeMoveToTask(taskId, sourceGroupId, targetTaskId, targetGroupId) {
+    closeMoveToMenu();
+    convertTaskToSubtask(taskId, sourceGroupId, targetTaskId, targetGroupId);
+    renderBoard();
+    saveToStorage();
+}
+
+function executeMoveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, targetTaskId, targetGroupId) {
+    closeMoveToMenu();
+    moveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, targetTaskId, targetGroupId);
+    renderBoard();
+    saveToStorage();
+}
+
+function closeMoveToMenuOnClick(e) {
+    const menu = document.getElementById('moveToMenu');
+    if (menu && !menu.contains(e.target)) closeMoveToMenu();
+}
+
+function closeMoveToMenu() {
+    const menu = document.getElementById('moveToMenu');
+    if (menu) menu.remove();
+    document.removeEventListener('click', closeMoveToMenuOnClick);
 }
 
 // ============================================================
