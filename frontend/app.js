@@ -64,16 +64,16 @@ function getAvatarHTML(user, size, extraClass) {
 function saveAuthToken() {
     try {
         if (authToken) {
-            localStorage.setItem('mondayAuthToken', authToken);
+            localStorage.setItem('numiAuthToken', authToken);
         } else {
-            localStorage.removeItem('mondayAuthToken');
+            localStorage.removeItem('numiAuthToken');
         }
     } catch (e) { /* ignore */ }
 }
 
 function loadAuthToken() {
     try {
-        authToken = localStorage.getItem('mondayAuthToken') || null;
+        authToken = localStorage.getItem('numiAuthToken') || null;
     } catch (e) { authToken = null; }
 }
 
@@ -1946,6 +1946,12 @@ function handleRegister(e) {
                 authToken = data.token;
                 currentUser = data.user;
                 saveAuthToken();
+                // Mark invite as used if registering via invite
+                if (window._pendingInviteToken) {
+                    fetch(`/api/invites/use/${window._pendingInviteToken}`, { method: 'POST' }).catch(() => {});
+                    delete window._pendingInviteToken;
+                    window.history.replaceState({}, '', window.location.pathname);
+                }
                 showAppScreen();
             } else {
                 showAuthError('regError', data.error || 'Registration failed');
@@ -2196,7 +2202,7 @@ function saveToStorage() {
     if (boardData.activeBoard && boardData.boardGroups) {
         boardData.boardGroups[boardData.activeBoard] = boardData.groups;
     }
-    try { localStorage.setItem('mondayBoardData', JSON.stringify(boardData)); } catch (e) {}
+    try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch (e) {}
     // Sync to server for Telegram due-date notifications
     syncBoardToServer();
 }
@@ -2228,7 +2234,7 @@ function syncBoardToServer() {
 
 function loadFromStorage() {
     try {
-        const data = localStorage.getItem('mondayBoardData');
+        const data = localStorage.getItem('numiBoardData');
         if (data) {
             boardData = JSON.parse(data);
             // Migration: old format had groups at top level without boardGroups
@@ -2303,9 +2309,33 @@ async function initApp() {
 
     // Check URL for invite links
     const params = new URLSearchParams(window.location.search);
-    if (params.get('invite')) {
+    const inviteToken = params.get('invite');
+    if (inviteToken) {
         showAuthScreen();
         showRegisterForm();
+        // Verify invite and pre-fill email
+        try {
+            const res = await fetch(`/api/invites/verify/${inviteToken}`);
+            if (res.ok) {
+                const invite = await res.json();
+                const emailInput = document.getElementById('regEmail');
+                if (emailInput && invite.email) {
+                    emailInput.value = invite.email;
+                    emailInput.readOnly = true;
+                    emailInput.style.background = '#f5f6f8';
+                }
+                // Store invite token for registration
+                window._pendingInviteToken = inviteToken;
+                // Show invite banner
+                const regForm = document.getElementById('registerForm');
+                if (regForm) {
+                    const banner = document.createElement('div');
+                    banner.style.cssText = 'background:#e8f5e9;border:1px solid #c8e6c9;border-radius:8px;padding:12px;margin-bottom:16px;text-align:center;font-size:13px;color:#2e7d32;';
+                    banner.innerHTML = `<strong>${invite.inviterName}</strong> מזמין אותך להצטרף ל-<strong>${invite.orgName}</strong>`;
+                    regForm.insertBefore(banner, regForm.firstChild.nextSibling);
+                }
+            }
+        } catch (e) { /* silent */ }
         return;
     }
 
@@ -2631,6 +2661,141 @@ if (!document.getElementById('adminSpinStyle')) {
     document.head.appendChild(style);
 }
 
+// ===== Admin Dashboard - Tab Switching =====
+function switchAdminTab(tab) {
+    document.getElementById('adminUsersTab').style.display = tab === 'users' ? '' : 'none';
+    document.getElementById('adminEmailTab').style.display = tab === 'email' ? '' : 'none';
+    document.getElementById('adminTabUsers').classList.toggle('active', tab === 'users');
+    document.getElementById('adminTabEmail').classList.toggle('active', tab === 'email');
+    if (tab === 'email') {
+        loadPendingInvites();
+        loadEmailPreferences();
+    }
+}
+
+// ===== Admin - Send Invite =====
+async function sendInviteEmail() {
+    const email = document.getElementById('inviteEmail').value.trim();
+    const orgName = document.getElementById('inviteOrgName').value.trim() || 'Main workspace';
+    const resultDiv = document.getElementById('inviteResult');
+
+    if (!email) { resultDiv.innerHTML = '<span style="color:#e2445c">Please enter an email address</span>'; return; }
+    resultDiv.innerHTML = '<span style="color:#676879">Sending...</span>';
+
+    try {
+        const res = await authFetch('/api/invites/send', {
+            method: 'POST',
+            body: JSON.stringify({ email, orgName })
+        });
+        const data = await res.json();
+        if (data.success) {
+            resultDiv.innerHTML = `<span style="color:#00c875">✅ Invite sent to ${email}</span>`;
+            document.getElementById('inviteEmail').value = '';
+            loadPendingInvites();
+        } else {
+            resultDiv.innerHTML = `<span style="color:#e2445c">❌ ${data.error}</span>`;
+        }
+    } catch (e) {
+        resultDiv.innerHTML = '<span style="color:#e2445c">Connection error</span>';
+    }
+}
+
+// ===== Admin - Load Pending Invites =====
+async function loadPendingInvites() {
+    const container = document.getElementById('pendingInvitesList');
+    try {
+        const res = await authFetch('/api/invites');
+        const invites = await res.json();
+        if (!invites.length) {
+            container.innerHTML = '<p style="color:#999;font-size:13px">No pending invites</p>';
+            return;
+        }
+        let html = '<table class="admin-email-table"><thead><tr><th>Email</th><th>Organization</th><th>Status</th><th>Sent</th></tr></thead><tbody>';
+        invites.forEach(inv => {
+            const status = inv.used ? '<span style="color:#00c875">Used</span>' :
+                           new Date(inv.expiresAt) < new Date() ? '<span style="color:#e2445c">Expired</span>' :
+                           '<span style="color:#fdab3d">Pending</span>';
+            const date = new Date(inv.createdAt).toLocaleDateString('he-IL');
+            html += `<tr><td>${inv.email}</td><td>${inv.orgName}</td><td>${status}</td><td>${date}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<p style="color:#e2445c">Failed to load invites</p>';
+    }
+}
+
+// ===== Admin - Email Preferences =====
+async function loadEmailPreferences() {
+    const container = document.getElementById('emailPreferencesTable');
+    try {
+        const res = await authFetch('/api/admin/email-preferences');
+        const users = await res.json();
+        if (!users.length) {
+            container.innerHTML = '<p style="color:#999">No users</p>';
+            return;
+        }
+        let html = '<table class="admin-email-table"><thead><tr><th>User</th><th>Email</th><th>Invites</th><th>Notifications</th><th>Updates</th></tr></thead><tbody>';
+        users.forEach(u => {
+            const p = u.emailPrefs;
+            html += `<tr>
+                <td>${u.fullName}</td>
+                <td>${u.email}</td>
+                <td><input type="checkbox" ${p.invites !== false ? 'checked' : ''} onchange="updateUserEmailPref('${u.email}', 'invites', this.checked)"></td>
+                <td><input type="checkbox" ${p.notifications !== false ? 'checked' : ''} onchange="updateUserEmailPref('${u.email}', 'notifications', this.checked)"></td>
+                <td><input type="checkbox" ${p.updates !== false ? 'checked' : ''} onchange="updateUserEmailPref('${u.email}', 'updates', this.checked)"></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<p style="color:#e2445c">Failed to load preferences</p>';
+    }
+}
+
+async function updateUserEmailPref(email, field, value) {
+    try {
+        await authFetch(`/api/admin/email-preferences/${encodeURIComponent(email)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ [field]: value })
+        });
+    } catch (e) { /* silent */ }
+}
+
+// ===== Admin - Send Bulk Notification =====
+async function sendBulkNotificationEmail() {
+    const subject = document.getElementById('notifSubject').value.trim();
+    const bodyText = document.getElementById('notifBody').value.trim();
+    const resultDiv = document.getElementById('notifResult');
+
+    if (!subject || !bodyText) { resultDiv.innerHTML = '<span style="color:#e2445c">Subject and message are required</span>'; return; }
+    resultDiv.innerHTML = '<span style="color:#676879">Sending...</span>';
+
+    try {
+        // Get all users first
+        const usersRes = await authFetch('/api/admin/users');
+        const usersData = await usersRes.json();
+        const recipients = (usersData.users || []).map(u => ({ email: u.email, fullName: u.fullName, provider: u.provider }));
+
+        const res = await authFetch('/api/email/send-notification', {
+            method: 'POST',
+            body: JSON.stringify({ recipients, subject, bodyText, orgName: 'Main workspace' })
+        });
+        const data = await res.json();
+        if (data.success) {
+            const sent = data.results.filter(r => r.success).length;
+            const skipped = data.results.filter(r => r.skipped).length;
+            resultDiv.innerHTML = `<span style="color:#00c875">✅ Sent: ${sent} | Skipped (opted out): ${skipped}</span>`;
+            document.getElementById('notifSubject').value = '';
+            document.getElementById('notifBody').value = '';
+        } else {
+            resultDiv.innerHTML = `<span style="color:#e2445c">❌ ${data.error}</span>`;
+        }
+    } catch (e) {
+        resultDiv.innerHTML = '<span style="color:#e2445c">Connection error</span>';
+    }
+}
+
 // ============================================================
 // BOARD SIDEBAR + CONTEXT MENU (Sprint 1.2 Tasks 12-13)
 // ============================================================
@@ -2793,7 +2958,7 @@ function floatingBarArchive30() {
 
     let archived = [];
     try {
-        const data = localStorage.getItem('mondayArchivedTasks');
+        const data = localStorage.getItem('numiArchivedTasks');
         if (data) archived = JSON.parse(data);
     } catch (e) { /* ignore */ }
 
@@ -2819,7 +2984,7 @@ function floatingBarArchive30() {
     });
 
     try {
-        localStorage.setItem('mondayArchivedTasks', JSON.stringify(archived));
+        localStorage.setItem('numiArchivedTasks', JSON.stringify(archived));
     } catch (e) { /* ignore */ }
 
     clearSelection();
@@ -2848,14 +3013,14 @@ function floatingBarPermanentDelete() {
 // Clean up expired archives (> 30 days)
 function cleanExpiredArchives() {
     try {
-        const data = localStorage.getItem('mondayArchivedTasks');
+        const data = localStorage.getItem('numiArchivedTasks');
         if (!data) return;
         const archived = JSON.parse(data);
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - 30);
         const valid = archived.filter(a => new Date(a.archivedAt) > cutoff);
         if (valid.length !== archived.length) {
-            localStorage.setItem('mondayArchivedTasks', JSON.stringify(valid));
+            localStorage.setItem('numiArchivedTasks', JSON.stringify(valid));
         }
     } catch (e) { /* ignore */ }
 }
@@ -2946,14 +3111,14 @@ let columnState = {
 
 function loadColumnState() {
     try {
-        const saved = localStorage.getItem('mondayColumnState');
+        const saved = localStorage.getItem('numiColumnState');
         if (saved) columnState = JSON.parse(saved);
     } catch(e) {}
 }
 
 function saveColumnState() {
     try {
-        localStorage.setItem('mondayColumnState', JSON.stringify(columnState));
+        localStorage.setItem('numiColumnState', JSON.stringify(columnState));
     } catch(e) {}
 }
 
