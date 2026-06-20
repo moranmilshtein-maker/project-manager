@@ -375,6 +375,31 @@ function onTaskCheckboxChange(groupId, taskId, checkbox) {
     } else {
         selectedTasks.delete(key);
     }
+    // Also select/deselect subtasks of this task
+    const group = boardData.groups.find(g => String(g.id) === String(groupId));
+    if (group) {
+        const task = group.tasks.find(t => String(t.id) === String(taskId));
+        if (task && task.subtasks) {
+            task.subtasks.forEach(sub => {
+                const subKey = `${groupId}::${taskId}::${sub.id}`;
+                if (checkbox.checked) {
+                    selectedSubtasks.add(subKey);
+                } else {
+                    selectedSubtasks.delete(subKey);
+                }
+            });
+            // Update subtask checkboxes in DOM
+            const taskRow = document.querySelector(`tr[data-task-id="${taskId}"][data-group-id="${groupId}"]`);
+            if (taskRow) {
+                let sibling = taskRow.nextElementSibling;
+                while (sibling && sibling.classList.contains('subtask-row')) {
+                    const cb = sibling.querySelector('.subtask-checkbox');
+                    if (cb) cb.checked = checkbox.checked;
+                    sibling = sibling.nextElementSibling;
+                }
+            }
+        }
+    }
     updateFloatingBar();
     updateGroupHeaderCheckbox(groupId);
     updateCheckboxStyles();
@@ -903,13 +928,10 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
                     <span class="task-name">${escapeHtml(task.name)}</span>
                     ${subtaskBadge}
                     <div class="task-icons">
-                        <button class="task-icon-btn" onclick="event.stopPropagation(); showMoveToMenu(event, '${taskIdStr}', '${groupIdStr}')" title="Move as subitem">
-                            <span class="material-icons-outlined">drive_file_move_outline</span>
-                        </button>
-                        <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')">
+                        <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')" title="Expand details">
                             <span class="material-icons-outlined">open_in_new</span>
                         </button>
-                        <button class="task-icon-btn" onclick="event.stopPropagation(); openChat('${taskIdStr}')">
+                        <button class="task-icon-btn" onclick="event.stopPropagation(); openChat('${taskIdStr}')" title="Open chat">
                             <span class="material-icons-outlined">chat_bubble_outline</span>
                         </button>
                     </div>
@@ -1129,9 +1151,6 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
                 <div class="cell-task-content subtask-task-content">
                     <span class="task-name subtask-name" ${!isViewer ? `ondblclick="editSubtaskName('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.name)}</span>
                     <div class="subtask-actions">
-                        ${!isViewer ? `<button class="subtask-action-btn" onclick="event.stopPropagation(); showMoveSubtaskToMenu(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Move to another task">
-                            <span class="material-icons-outlined">drive_file_move_outline</span>
-                        </button>` : ''}
                         ${!isViewer ? `<button class="subtask-delete-btn" onclick="deleteSubtask('${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Delete subitem">
                             <span class="material-icons-outlined">close</span>
                         </button>` : ''}
