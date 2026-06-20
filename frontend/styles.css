@@ -813,7 +813,6 @@ body {
     font-weight: 500;
     color: var(--text-primary);
     cursor: pointer;
-    overflow: hidden;
 }
 
 .cell-task-content {
@@ -823,7 +822,6 @@ body {
     width: 100%;
     height: 100%;
     min-height: 38px;
-    overflow: hidden;
     direction: ltr;
 }
 
@@ -2363,7 +2361,7 @@ tr.subtask-row:hover > .group-color-cell > .row-drag-handle {
     transition: opacity 0.15s;
 }
 
-.group-header:hover .group-header-actions {
+.group-header-row:hover .group-header-actions {
     opacity: 1;
 }
 

@@ -797,6 +797,7 @@ function canEdit() {
 function renderBoard() {
     const container = document.getElementById('tableContent');
     if (!container) return;
+    activeAddTaskInputs.clear();
 
     // Update board title to match active board
     updateBoardTitle();
@@ -1033,10 +1034,10 @@ function renderGroup(group) {
                                   onclick="event.stopPropagation(); editGroupName('${group.id}', this)">${escapeHtml(group.name)}</span>
                             <span class="group-count">${taskCount} Tasks</span>
                             <span class="group-header-actions" onclick="event.stopPropagation()">
-                                <button class="group-action-btn group-add-task-btn" onclick="addTaskInline('${group.id}')" title="Add a task to this group">
+                                <button class="group-action-btn group-add-task-btn" onclick="event.stopPropagation(); addTaskInline('${group.id}')" title="Add a task to this group">
                                     <span class="material-icons-outlined">add</span>
                                 </button>
-                                <button class="group-action-btn group-menu-btn" onclick="showGroupMenu(event, '${group.id}')" title="More section actions">
+                                <button class="group-action-btn group-menu-btn" onclick="event.stopPropagation(); showGroupMenu(event, '${group.id}')" title="More section actions">
                                     <span class="material-icons-outlined">more_horiz</span>
                                 </button>
                             </span>
@@ -1513,6 +1514,8 @@ function findTask(taskId, groupId) {
 
 // ===== Toggle group collapse =====
 function toggleGroup(groupId) {
+    // Don't toggle if click came from an action button
+    if (event && event.target && event.target.closest('.group-header-actions')) return;
     const group = boardData.groups.find(g => g.id === groupId);
     if (group) { group.collapsed = !group.collapsed; renderBoard(); }
 }
@@ -1719,7 +1722,7 @@ function addTaskInline(groupId) {
 
         const name = input.value.trim();
         if (name) {
-            const group = boardData.groups.find(g => g.id === groupId);
+            const group = boardData.groups.find(g => String(g.id) === String(groupId));
             if (group) {
                 group.tasks.push({
                     id: newId(),
@@ -1913,15 +1916,15 @@ function closeGroupMenu() {
 
 function renameGroupFromMenu(groupId) {
     closeGroupMenu();
-    const group = boardData.groups.find(g => g.id === groupId);
+    const group = boardData.groups.find(g => String(g.id) === String(groupId));
     if (!group) return;
-    const titleEl = document.querySelector(`.group[data-group-id="${groupId}"] .group-title`);
+    const titleEl = document.querySelector(`.group-tbody[data-group-id="${groupId}"] .group-title`);
     if (titleEl) editGroupName(groupId, titleEl);
 }
 
 function addGroupAt(groupId, position) {
     closeGroupMenu();
-    const idx = boardData.groups.findIndex(g => g.id === groupId);
+    const idx = boardData.groups.findIndex(g => String(g.id) === String(groupId));
     if (idx === -1) return;
     const colorIndex = boardData.groups.length % GROUP_COLORS.length;
     const newGroup = {
@@ -1938,7 +1941,7 @@ function addGroupAt(groupId, position) {
 
 function duplicateGroup(groupId) {
     closeGroupMenu();
-    const idx = boardData.groups.findIndex(g => g.id === groupId);
+    const idx = boardData.groups.findIndex(g => String(g.id) === String(groupId));
     if (idx === -1) return;
     const original = boardData.groups[idx];
     const clone = JSON.parse(JSON.stringify(original));
@@ -1955,14 +1958,14 @@ function duplicateGroup(groupId) {
 
 function deleteGroup(groupId) {
     closeGroupMenu();
-    const group = boardData.groups.find(g => g.id === groupId);
+    const group = boardData.groups.find(g => String(g.id) === String(groupId));
     if (!group) return;
     const taskCount = group.tasks.length;
     const msg = taskCount > 0 
         ? `Permanently delete group "${group.name}" and its ${taskCount} task(s)?`
         : `Permanently delete group "${group.name}"?`;
     if (!confirm(msg)) return;
-    boardData.groups = boardData.groups.filter(g => g.id !== groupId);
+    boardData.groups = boardData.groups.filter(g => String(g.id) !== String(groupId));
     renderBoard();
 }
 
