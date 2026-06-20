@@ -855,6 +855,7 @@ body {
 .task-icons {
     display: flex;
     gap: 4px;
+    align-items: center;
     opacity: 0;
     transition: opacity 0.15s;
 }
@@ -877,7 +878,6 @@ body {
 }
 
 .task-icon-btn:hover {
-    background: #dde;
     color: var(--text-primary);
 }
 
@@ -1115,6 +1115,9 @@ body {
     text-align: center;
     cursor: pointer;
     color: var(--text-muted);
+    border-right: none !important;
+    background: transparent !important;
+    pointer-events: none;
 }
 
 .cell-add-col:hover {
@@ -1275,7 +1278,7 @@ tr.subtask-done .date-display {
 .subtask-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
     opacity: 0;
     transition: opacity 0.15s;
     margin-left: auto;
