@@ -2358,11 +2358,13 @@ tr.subtask-row:hover > .group-color-cell > .row-drag-handle {
     gap: 4px;
     margin-right: 8px;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.15s;
 }
 
 .group-header-row:hover .group-header-actions {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .group-action-btn {
