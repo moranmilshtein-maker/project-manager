@@ -1087,6 +1087,12 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
   res.json({ success: true, preferences: prefs });
 });
 
+// ===== VERSION ENDPOINT (for update popup) =====
+const APP_VERSION = '18';
+app.get('/api/version', (req, res) => {
+  res.json({ version: APP_VERSION });
+});
+
 app.use(express.static(path.join(__dirname, 'frontend')));
 
 app.get('*', (req, res, next) => {

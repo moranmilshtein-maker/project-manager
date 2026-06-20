@@ -4587,3 +4587,54 @@ function closeMoveToMenu() {
         hideTooltip();
     }, true);
 })();
+
+// ===== VERSION UPDATE CHECKER =====
+const CURRENT_APP_VERSION = '18';
+const VERSION_CHECK_INTERVAL = 300000; // Check every 5 minutes
+const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
+
+function checkForUpdates() {
+    fetch('/api/version')
+        .then(res => res.json())
+        .then(data => {
+            if (data.version && data.version !== CURRENT_APP_VERSION) {
+                // Check if user dismissed within last 24 hours
+                const dismissedAt = localStorage.getItem(VERSION_DISMISS_KEY);
+                if (dismissedAt) {
+                    const dismissTime = parseInt(dismissedAt, 10);
+                    const now = Date.now();
+                    const twentyFourHours = 24 * 60 * 60 * 1000;
+                    if (now - dismissTime < twentyFourHours) {
+                        return; // Still within dismiss window
+                    }
+                }
+                showVersionUpdatePopup();
+            }
+        })
+        .catch(() => {}); // Silent fail - no network errors shown
+}
+
+function showVersionUpdatePopup() {
+    const popup = document.getElementById('versionUpdatePopup');
+    if (popup) {
+        popup.style.display = 'block';
+    }
+}
+
+function dismissVersionUpdate() {
+    const popup = document.getElementById('versionUpdatePopup');
+    if (popup) {
+        popup.style.display = 'none';
+    }
+    localStorage.setItem(VERSION_DISMISS_KEY, Date.now().toString());
+}
+
+function applyVersionUpdate() {
+    window.location.reload(true);
+}
+
+// Start version checking after page loads
+setTimeout(() => {
+    checkForUpdates();
+    setInterval(checkForUpdates, VERSION_CHECK_INTERVAL);
+}, 5000); // Wait 5 seconds after page load before first check
