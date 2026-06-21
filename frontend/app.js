@@ -4924,7 +4924,7 @@ function openWorkspaceSettings() {
     
     // Load members
     loadWorkspaceMembers();
-    loadPendingInvites();
+    loadWsPendingInvites();
     
     // Reset to general tab
     switchWsTab('ws-general');
@@ -5093,7 +5093,7 @@ async function sendWorkspaceInvite() {
         if (data.success) {
             document.getElementById('wsInviteEmail').value = '';
             alert(`Invite sent to ${email}!\n\nInvite link: ${window.location.origin}/?invite=${data.invite.token}`);
-            loadPendingInvites();
+            loadWsPendingInvites();
         } else {
             alert(data.error || 'Failed to send invite');
         }
@@ -5102,7 +5102,7 @@ async function sendWorkspaceInvite() {
     }
 }
 
-async function loadPendingInvites() {
+async function loadWsPendingInvites() {
     if (!settingsWorkspaceId) return;
     const token = localStorage.getItem('authToken');
     try {
@@ -5145,7 +5145,7 @@ async function revokeInvite(token) {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
-        loadPendingInvites();
+        loadWsPendingInvites();
     } catch (e) {
         // Silent
     }
