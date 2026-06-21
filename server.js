@@ -1519,3 +1519,14 @@ process.on('SIGTERM', () => {
   console.log('SIGTERM: closing server');
   server.close(() => process.exit(0));
 });
+
+// Prevent crash from unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception:', err.message, err.stack);
+  // Give time to log, then exit gracefully
+  setTimeout(() => process.exit(1), 1000);
+});
