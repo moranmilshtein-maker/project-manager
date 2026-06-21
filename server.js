@@ -961,17 +961,19 @@ telegramBot.initScheduler();
 // Store/retrieve board data, archived tasks, and column state per user on the server
 // This ensures data survives code deploys, localStorage clears, and browser changes
 
-// GET /api/user-data/boards - Get user's board data
+// GET /api/user-data/boards - Get user's board data (supports ?workspaceId=X)
 app.get('/api/user-data/boards', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
-  const data = await dataStore.readUserData(key, 'boards');
+  const wsId = req.query.workspaceId;
+  const dataKey = wsId ? `ws_${wsId}_boards` : 'boards';
+  const data = await dataStore.readUserData(key, dataKey);
   res.json({ success: true, data: data });
 });
 
-// PUT /api/user-data/boards - Save user's board data
+// PUT /api/user-data/boards - Save user's board data (supports ?workspaceId=X)
 app.put('/api/user-data/boards', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
@@ -980,7 +982,28 @@ app.put('/api/user-data/boards', async (req, res) => {
   const { data } = req.body;
   if (!data) return res.status(400).json({ error: 'data is required' });
 
-  const success = await dataStore.writeUserData(key, 'boards', data);
+  const wsId = req.query.workspaceId || req.body.workspaceId;
+  const dataKey = wsId ? `ws_${wsId}_boards` : 'boards';
+  
+  // SAFETY: Never overwrite real data with empty/default data
+  const hasRealContent = data.boardGroups && Object.keys(data.boardGroups).length > 0 &&
+    Object.values(data.boardGroups).some(groups => groups && groups.length > 0 && 
+      groups.some(g => g.tasks && g.tasks.length > 0));
+  
+  if (!hasRealContent) {
+    // Check if there's existing data we'd be overwriting
+    const existing = await dataStore.readUserData(key, dataKey);
+    if (existing && existing.boardGroups) {
+      const existingHasContent = Object.values(existing.boardGroups).some(groups => 
+        groups && groups.length > 0 && groups.some(g => g.tasks && g.tasks.length > 0));
+      if (existingHasContent) {
+        console.log(`[Safety] Blocked empty overwrite of ${dataKey} - existing data has tasks`);
+        return res.json({ success: true, blocked: true });
+      }
+    }
+  }
+  
+  const success = await dataStore.writeUserData(key, dataKey, data);
   if (success) {
     res.json({ success: true });
   } else {
@@ -1141,19 +1164,24 @@ app.get('/api/workspaces', requireAuth, (req, res) => {
 
 // POST /api/workspaces - Create a new workspace
 app.post('/api/workspaces', requireAuth, async (req, res) => {
-  const { name, description } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Workspace name is required' });
+  try {
+    const { name, description } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Workspace name is required' });
 
-  const workspace = workspaceStore.createWorkspace(
-    req.user.id,
-    req.user.fullName,
-    req.user.email,
-    name,
-    description || ''
-  );
+    const workspace = workspaceStore.createWorkspace(
+      req.user.id,
+      req.user.fullName,
+      req.user.email,
+      name,
+      description || ''
+    );
 
-  await workspaceStore.persistWorkspaces();
-  res.json({ success: true, workspace });
+    await workspaceStore.persistWorkspaces();
+    res.json({ success: true, workspace });
+  } catch (e) {
+    console.error('[Workspace] Create error:', e);
+    res.status(500).json({ success: false, error: 'Failed to create workspace: ' + e.message });
+  }
 });
 
 // POST /api/workspaces/join/:token - Accept workspace invitation (MUST be before :workspaceId)
@@ -1535,7 +1563,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '21';
+const APP_VERSION = '23';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
