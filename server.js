@@ -224,9 +224,18 @@ async function loadUsers() {
     if (data && typeof data === 'object') {
       let count = 0;
       for (const [key, userData] of Object.entries(data)) {
-        if (!users.has(key)) { // Don't overwrite seeded super admin
+        if (!users.has(key)) {
           users.set(key, userData);
           count++;
+        } else {
+          // Merge persisted login data into seeded user (keep seed role/password)
+          const existing = users.get(key);
+          if (userData.lastLoginAt) existing.lastLoginAt = userData.lastLoginAt;
+          if (userData.lastLoginIP) existing.lastLoginIP = userData.lastLoginIP;
+          if (userData.lastLoginMethod) existing.lastLoginMethod = userData.lastLoginMethod;
+          if (userData.loginHistory) existing.loginHistory = userData.loginHistory;
+          if (userData.activeWorkspaceId) existing.activeWorkspaceId = userData.activeWorkspaceId;
+          if (userData.id) existing.id = userData.id; // Keep consistent UUID
         }
       }
       console.log(`[Users] Restored ${count} users from persistent storage`);
