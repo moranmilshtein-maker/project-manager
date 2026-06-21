@@ -2084,11 +2084,11 @@ function showAppScreen() {
     renderBoardSidebar();
     renderBoard();
     showAdminLink();
+    // Initialize workspace system first (sets activeWorkspaceId from localStorage)
+    initWorkspaces();
     // Load data from server (async - will re-render if server has newer data)
     loadFromServer();
     loadColumnStateFromServer();
-    // Initialize workspace system
-    initWorkspaces();
     processPendingInvite();
 }
 
@@ -2460,12 +2460,43 @@ function saveToServer() {
     serverSaveTimeout = setTimeout(async () => {
         if (!authToken) return;
         try {
-            await authFetch('/api/user-data/boards', {
+            const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+            await authFetch('/api/user-data/boards' + wsParam, {
                 method: 'PUT',
                 body: JSON.stringify({ data: boardData })
             });
         } catch (e) { /* silent - localStorage is fallback */ }
     }, 1000);
+}
+
+// Immediate save - used before switching workspaces to ensure no data loss
+async function saveToServerImmediate(dataToSave, workspaceId) {
+    if (!authToken) {
+        console.error('[Save] Cannot save - no auth token');
+        return false;
+    }
+    if (!dataToSave || (!dataToSave.boards && !dataToSave.boardGroups)) {
+        console.warn('[Save] Skipping save - no meaningful data to save');
+        return false;
+    }
+    try {
+        const wsParam = workspaceId ? `?workspaceId=${workspaceId}` : '';
+        const res = await authFetch('/api/user-data/boards' + wsParam, {
+            method: 'PUT',
+            body: JSON.stringify({ data: dataToSave })
+        });
+        const result = await res.json();
+        if (result.success) {
+            console.log(`[Save] ✓ Saved workspace ${workspaceId || 'default'} (${JSON.stringify(dataToSave).length} bytes)`);
+            return true;
+        } else {
+            console.error(`[Save] ✗ Server rejected save for workspace ${workspaceId}:`, result.error);
+            return false;
+        }
+    } catch (e) {
+        console.error('[Save] ✗ Immediate save failed:', e);
+        return false;
+    }
 }
 
 // Save archived tasks to server
@@ -2558,7 +2589,8 @@ function loadFromStorage() {
 async function loadFromServer() {
     if (!authToken) return;
     try {
-        const res = await authFetch('/api/user-data/boards');
+        const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+        const res = await authFetch('/api/user-data/boards' + wsParam);
         const result = await res.json();
         if (result.success && result.data) {
             boardData = result.data;
@@ -2580,6 +2612,11 @@ async function loadFromServer() {
             serverDataLoaded = true; // Allow saves now that real data is loaded
             return true;
         } else {
+            // No data for this workspace — check if legacy (non-workspace) data exists to migrate
+            if (activeWorkspaceId) {
+                const migrated = await migrateFromLegacyData();
+                if (migrated) return true;
+            }
             // Server has no data yet - migrate localStorage data to server (first time)
             // One-time migration: restore 'וולבי - הקמה' group if missing
             migrateWolbySetupGroup();
@@ -2587,6 +2624,9 @@ async function loadFromServer() {
             if (boardData && boardData.boardGroups && Object.keys(boardData.boardGroups).length > 0) {
                 saveToServer();
             }
+            initBoardGroups();
+            renderBoard();
+            renderBoardSidebar();
             // Also migrate archived tasks if they exist in localStorage
             try {
                 const archivedData = localStorage.getItem('numiArchivedTasks');
@@ -2602,6 +2642,43 @@ async function loadFromServer() {
             } catch (e) {}
         }
     } catch (e) { /* fall back to localStorage data */ }
+    return false;
+}
+
+// One-time migration: copy legacy data (stored without workspace ID) to the first workspace
+async function migrateFromLegacyData() {
+    try {
+        const migrationKey = `numi_ws_migrated_${activeWorkspaceId}`;
+        if (localStorage.getItem(migrationKey)) return false;
+        
+        // Check if legacy data exists (without workspace param)
+        const legacyRes = await authFetch('/api/user-data/boards');
+        const legacyResult = await legacyRes.json();
+        if (legacyResult.success && legacyResult.data) {
+            boardData = legacyResult.data;
+            if (!boardData.boardGroups) {
+                boardData.boardGroups = {};
+                const activeId = boardData.activeBoard || 'board1';
+                if (boardData.groups && boardData.groups.length > 0) {
+                    boardData.boardGroups[activeId] = boardData.groups;
+                }
+            }
+            migrateWolbySetupGroup();
+            try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch (e) {}
+            initBoardGroups();
+            renderBoard();
+            renderBoardSidebar();
+            serverDataLoaded = true;
+            // Save to workspace-scoped key immediately
+            await saveToServerImmediate(boardData, activeWorkspaceId);
+            // Mark migration as done
+            try { localStorage.setItem(migrationKey, '1'); } catch (e) {}
+            console.log(`[Workspace] Migrated legacy data to workspace ${activeWorkspaceId}`);
+            return true;
+        }
+    } catch (e) {
+        console.error('[Workspace] Migration failed:', e);
+    }
     return false;
 }
 
@@ -4813,19 +4890,25 @@ let userWorkspaces = [];
 let activeWorkspaceId = null;
 
 async function loadWorkspaces() {
-    const token = localStorage.getItem('authToken');
-    if (!token) return;
+    if (!authToken) return;
     try {
         const res = await fetch('/api/workspaces', {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
         if (!res.ok) return;
         const data = await res.json();
         userWorkspaces = data.workspaces || [];
         
-        // Set active workspace
-        if (!activeWorkspaceId && userWorkspaces.length > 0) {
+        // Set active workspace — validate that saved workspace still exists
+        if (activeWorkspaceId) {
+            const exists = userWorkspaces.find(ws => ws.id === activeWorkspaceId);
+            if (!exists && userWorkspaces.length > 0) {
+                activeWorkspaceId = userWorkspaces[0].id;
+                localStorage.setItem('activeWorkspaceId', activeWorkspaceId);
+            }
+        } else if (userWorkspaces.length > 0) {
             activeWorkspaceId = userWorkspaces[0].id;
+            localStorage.setItem('activeWorkspaceId', activeWorkspaceId);
         }
         
         renderWorkspaceList();
@@ -4843,22 +4926,115 @@ function renderWorkspaceList() {
         return;
     }
     
-    container.innerHTML = userWorkspaces.map(ws => `
-        <div class="workspace-item ${ws.id === activeWorkspaceId ? 'active' : ''}" 
-             onclick="switchWorkspace('${ws.id}')" title="${escapeHtml(ws.name)} (${ws.role})">
+    // Separate inactive workspaces (shown as small items) from active one
+    const inactiveWs = userWorkspaces.filter(ws => ws.id !== activeWorkspaceId);
+    const activeWs = userWorkspaces.find(ws => ws.id === activeWorkspaceId);
+    
+    let html = '';
+    
+    // Show inactive workspaces as small clickable items
+    inactiveWs.forEach(ws => {
+        html += `<div class="workspace-item" onclick="switchWorkspace('${ws.id}')" title="${escapeHtml(ws.name)} (${ws.role})">
             <div class="workspace-item-icon" style="background:${ws.color || '#0073ea'}">${ws.initial || ws.name.charAt(0).toUpperCase()}</div>
             <span class="workspace-item-name">${escapeHtml(ws.name)}</span>
             <span class="workspace-item-role">${ws.role}</span>
-        </div>
-    `).join('');
+        </div>`;
+    });
+    
+    container.innerHTML = html;
+    
+    // Update the active workspace display in the project section
+    renderActiveWorkspaceHeader(activeWs);
 }
 
-function switchWorkspace(workspaceId) {
+function renderActiveWorkspaceHeader(activeWs) {
+    // Update the active workspace name shown above the board list
+    const activeWsEl = document.getElementById('activeWorkspaceName');
+    if (activeWsEl && activeWs) {
+        activeWsEl.textContent = activeWs.name;
+        activeWsEl.title = `${activeWs.name} (${activeWs.role})`;
+    }
+    const activeWsIcon = document.getElementById('activeWorkspaceIcon');
+    if (activeWsIcon && activeWs) {
+        activeWsIcon.style.background = activeWs.color || '#0073ea';
+        activeWsIcon.textContent = activeWs.initial || activeWs.name.charAt(0).toUpperCase();
+    }
+}
+
+async function switchWorkspace(workspaceId) {
+    if (workspaceId === activeWorkspaceId) return;
+    console.log(`[Workspace] Switching from ${activeWorkspaceId} to ${workspaceId}`);
+    
+    // CRITICAL: Save current workspace data IMMEDIATELY before switching
+    // Must capture current state BEFORE changing anything
+    const previousWsId = activeWorkspaceId;
+    if (previousWsId && serverDataLoaded && boardData) {
+        // Cancel any pending debounced save
+        if (serverSaveTimeout) { clearTimeout(serverSaveTimeout); serverSaveTimeout = null; }
+        // Ensure current board's groups are saved in boardGroups
+        if (boardData.activeBoard && boardData.boardGroups) {
+            boardData.boardGroups[boardData.activeBoard] = boardData.groups;
+        }
+        // Save immediately with the CURRENT workspace ID and CURRENT data
+        const dataSnapshot = JSON.parse(JSON.stringify(boardData));
+        console.log(`[Workspace] Saving ${previousWsId}: ${dataSnapshot.boards?.length || 0} boards, ${Object.keys(dataSnapshot.boardGroups || {}).length} boardGroups`);
+        await saveToServerImmediate(dataSnapshot, previousWsId);
+    } else {
+        console.log(`[Workspace] Skip save: previousWsId=${previousWsId}, serverDataLoaded=${serverDataLoaded}, boardData=${!!boardData}`);
+    }
+    
+    // Now switch to new workspace
     activeWorkspaceId = workspaceId;
     localStorage.setItem('activeWorkspaceId', workspaceId);
-    renderWorkspaceList();
-    // Reload board data for this workspace context
-    loadFromServer();
+    serverDataLoaded = false;
+    
+    // Load new workspace data from server
+    const wsParam = `?workspaceId=${workspaceId}`;
+    try {
+        const res = await authFetch('/api/user-data/boards' + wsParam);
+        const result = await res.json();
+        if (result.success && result.data) {
+            // Workspace has saved data - use it
+            console.log(`[Workspace] Loaded ${workspaceId}: ${result.data.boards?.length || 0} boards`);
+            boardData = result.data;
+            if (!boardData.boardGroups) {
+                boardData.boardGroups = {};
+                const activeId = boardData.activeBoard || 'board1';
+                if (boardData.groups && boardData.groups.length > 0) {
+                    boardData.boardGroups[activeId] = boardData.groups;
+                }
+            }
+            initBoardGroups();
+            renderBoard();
+            renderBoardSidebar();
+            serverDataLoaded = true;
+        } else {
+            // No data for this workspace - try legacy migration
+            let migrated = false;
+            if (activeWorkspaceId) {
+                migrated = await migrateFromLegacyData();
+            }
+            if (!migrated) {
+                // Truly empty workspace - create default board
+                boardData = { boards: null, boardGroups: {}, groups: [], activeBoard: null };
+                initBoardGroups();
+                renderBoardSidebar();
+                renderBoard();
+                serverDataLoaded = true;
+            }
+        }
+    } catch (e) {
+        console.error('[Workspace] Failed to load workspace data:', e);
+        // Don't overwrite - keep previous state indicator
+        boardData = { boards: null, boardGroups: {}, groups: [], activeBoard: null };
+        initBoardGroups();
+        renderBoardSidebar();
+        renderBoard();
+        serverDataLoaded = true;
+    }
+    
+    // Refresh workspace list UI
+    await loadWorkspaces();
 }
 
 // Create workspace
@@ -4878,24 +5054,30 @@ async function createWorkspace() {
     const description = document.getElementById('newWorkspaceDesc').value.trim();
     if (!name) return alert('Please enter a workspace name');
     
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return alert('Not authenticated. Please log in again.');
     try {
         const res = await fetch('/api/workspaces', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, description })
         });
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            return alert(errData.error || `Server error (${res.status})`);
+        }
         const data = await res.json();
         if (data.success) {
             closeCreateWorkspaceModal();
-            activeWorkspaceId = data.workspace.id;
-            localStorage.setItem('activeWorkspaceId', data.workspace.id);
+            // Must await switchWorkspace so it fully completes (loads data + re-renders)
+            await switchWorkspace(data.workspace.id);
+            // Safety: ensure workspace list UI is up-to-date after creation
             await loadWorkspaces();
         } else {
             alert(data.error || 'Failed to create workspace');
         }
     } catch (e) {
-        alert('Error creating workspace');
+        console.error('Error creating workspace:', e);
+        alert('Error creating workspace: ' + (e.message || e));
     }
 }
 
@@ -4903,8 +5085,12 @@ async function createWorkspace() {
 let settingsWorkspaceId = null;
 let settingsWorkspaceRole = null;
 
-function openWorkspaceSettings() {
+async function openWorkspaceSettings() {
     if (!activeWorkspaceId) return;
+    // Ensure workspaces are loaded
+    if (userWorkspaces.length === 0) {
+        await loadWorkspaces();
+    }
     settingsWorkspaceId = activeWorkspaceId;
     const ws = userWorkspaces.find(w => w.id === activeWorkspaceId);
     if (!ws) return;
@@ -4948,11 +5134,11 @@ async function saveWorkspaceSettings() {
     const description = document.getElementById('wsSettingsDesc').value.trim();
     if (!name) return alert('Name is required');
     
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return alert('Not authenticated. Please log in again.');
     try {
         const res = await fetch(`/api/workspaces/${settingsWorkspaceId}`, {
             method: 'PUT',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, description })
         });
         const data = await res.json();
@@ -4971,11 +5157,11 @@ async function deleteWorkspaceConfirm() {
     const ws = userWorkspaces.find(w => w.id === settingsWorkspaceId);
     if (!confirm(`Are you sure you want to delete "${ws?.name}"? This cannot be undone.`)) return;
     
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return alert('Not authenticated. Please log in again.');
     try {
         const res = await fetch(`/api/workspaces/${settingsWorkspaceId}`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
         const data = await res.json();
         if (data.success) {
@@ -4994,10 +5180,10 @@ async function deleteWorkspaceConfirm() {
 // Members management
 async function loadWorkspaceMembers() {
     if (!settingsWorkspaceId) return;
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return;
     try {
         const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/members`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
         const data = await res.json();
         if (data.success) {
@@ -5042,11 +5228,11 @@ function renderMembers(members) {
 }
 
 async function changeMemberRole(userId, newRole) {
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return alert('Not authenticated. Please log in again.');
     try {
         const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/members/${userId}/role`, {
             method: 'PUT',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ role: newRole })
         });
         const data = await res.json();
@@ -5059,11 +5245,11 @@ async function changeMemberRole(userId, newRole) {
 
 async function removeMember(userId, name) {
     if (!confirm(`Remove ${name} from this workspace?`)) return;
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return alert('Not authenticated. Please log in again.');
     try {
         const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/members/${userId}`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
         const data = await res.json();
         if (data.success) {
@@ -5082,11 +5268,11 @@ async function sendWorkspaceInvite() {
     const role = document.getElementById('wsInviteRole').value;
     if (!email) return alert('Please enter an email address');
     
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return alert('Not authenticated. Please log in again.');
     try {
         const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/invite`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, role })
         });
         const data = await res.json();
@@ -5104,10 +5290,10 @@ async function sendWorkspaceInvite() {
 
 async function loadWsPendingInvites() {
     if (!settingsWorkspaceId) return;
-    const token = localStorage.getItem('authToken');
+    if (!authToken) return;
     try {
         const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/invites`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
         const data = await res.json();
         if (data.success) {
@@ -5138,10 +5324,10 @@ function renderPendingInvites(invites) {
     `).join('');
 }
 
-async function revokeInvite(token) {
-    const authToken = localStorage.getItem('authToken');
+async function revokeInvite(inviteToken) {
+    if (!authToken) return;
     try {
-        await fetch(`/api/workspaces/${settingsWorkspaceId}/invites/${token}`, {
+        await fetch(`/api/workspaces/${settingsWorkspaceId}/invites/${inviteToken}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
@@ -5157,7 +5343,6 @@ async function checkInviteLink() {
     const inviteToken = params.get('invite');
     if (!inviteToken) return;
     
-    const authToken = localStorage.getItem('authToken');
     if (!authToken) {
         // Save invite token for after login
         localStorage.setItem('pendingInviteToken', inviteToken);
@@ -5204,7 +5389,6 @@ async function processPendingInvite() {
     if (!inviteToken) return;
     localStorage.removeItem('pendingInviteToken');
     
-    const authToken = localStorage.getItem('authToken');
     if (!authToken) return;
     
     try {
@@ -5238,7 +5422,7 @@ function initWorkspaces() {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '21';
+const CURRENT_APP_VERSION = '23';
 const VERSION_CHECK_INTERVAL = 300000; // Check every 5 minutes
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

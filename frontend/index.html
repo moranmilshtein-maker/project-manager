@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=21">
+    <link rel="stylesheet" href="styles.css?v=23">
 </head>
 <body>
 
@@ -207,15 +207,14 @@
                         <span class="material-icons-outlined" style="font-size:16px">add</span>
                         <span>Add workspace</span>
                     </button>
+                    <!-- Active workspace indicator -->
+                    <div class="active-workspace-header" onclick="openWorkspaceSettings()" title="Click to manage workspace">
+                        <div class="active-workspace-icon" id="activeWorkspaceIcon">M</div>
+                        <span class="active-workspace-name" id="activeWorkspaceName">Marketing</span>
+                        <span class="material-icons-outlined" style="font-size:14px;opacity:0.6">settings</span>
+                    </div>
                     <div class="sidebar-project-list">
-                        <a href="#" class="sidebar-item project-item active" data-board="board1">
-                            <span class="material-icons-outlined">table_chart</span>
-                            <span class="sidebar-label" dir="rtl">&#x5E0;&#x5D9;&#x5E1;&#x5D9;&#x5D5;&#x5DF;</span>
-                        </a>
-                        <a href="#" class="sidebar-item project-item" data-board="board2">
-                            <span class="material-icons-outlined">dashboard</span>
-                            <span class="sidebar-label">Dashboard and reporting</span>
-                        </a>
+                        <!-- Boards rendered dynamically by renderBoardSidebar() -->
                     </div>
                 </div>
                 <!-- User info at bottom -->
@@ -709,6 +708,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=21"></script>
+    <script src="app.js?v=23"></script>
 </body>
 </html>
