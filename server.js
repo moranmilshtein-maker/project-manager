@@ -228,14 +228,16 @@ async function loadUsers() {
           users.set(key, userData);
           count++;
         } else {
-          // Merge persisted login data into seeded user (keep seed role/password)
+          // Seeded user exists — merge ALL persisted data on top of seed.
+          // DB data always wins EXCEPT for role and passwordHash (security).
           const existing = users.get(key);
-          if (userData.lastLoginAt) existing.lastLoginAt = userData.lastLoginAt;
-          if (userData.lastLoginIP) existing.lastLoginIP = userData.lastLoginIP;
-          if (userData.lastLoginMethod) existing.lastLoginMethod = userData.lastLoginMethod;
-          if (userData.loginHistory) existing.loginHistory = userData.loginHistory;
-          if (userData.activeWorkspaceId) existing.activeWorkspaceId = userData.activeWorkspaceId;
-          if (userData.id) existing.id = userData.id; // Keep consistent UUID
+          const protectedFields = ['role', 'passwordHash'];
+          for (const [field, value] of Object.entries(userData)) {
+            if (protectedFields.includes(field)) continue; // Keep seed security fields
+            if (value !== null && value !== undefined) {
+              existing[field] = value;
+            }
+          }
         }
       }
       console.log(`[Users] Restored ${count} users from persistent storage`);
