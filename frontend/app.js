@@ -2084,6 +2084,9 @@ function showAppScreen() {
     // Load data from server (async - will re-render if server has newer data)
     loadFromServer();
     loadColumnStateFromServer();
+    // Initialize workspace system
+    initWorkspaces();
+    processPendingInvite();
 }
 
 function showLoginForm() {
@@ -4588,8 +4591,437 @@ function closeMoveToMenu() {
     }, true);
 })();
 
+// ===== WORKSPACE MANAGEMENT =====
+let userWorkspaces = [];
+let activeWorkspaceId = null;
+
+async function loadWorkspaces() {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+    try {
+        const res = await fetch('/api/workspaces', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        userWorkspaces = data.workspaces || [];
+        
+        // Set active workspace
+        if (!activeWorkspaceId && userWorkspaces.length > 0) {
+            activeWorkspaceId = userWorkspaces[0].id;
+        }
+        
+        renderWorkspaceList();
+    } catch (e) {
+        console.error('Failed to load workspaces:', e);
+    }
+}
+
+function renderWorkspaceList() {
+    const container = document.getElementById('workspaceList');
+    if (!container) return;
+    
+    if (userWorkspaces.length === 0) {
+        container.innerHTML = '<div style="padding:6px 10px;color:#9699a6;font-size:12px">No workspaces yet</div>';
+        return;
+    }
+    
+    container.innerHTML = userWorkspaces.map(ws => `
+        <div class="workspace-item ${ws.id === activeWorkspaceId ? 'active' : ''}" 
+             onclick="switchWorkspace('${ws.id}')" title="${escapeHtml(ws.name)} (${ws.role})">
+            <div class="workspace-item-icon" style="background:${ws.color || '#0073ea'}">${ws.initial || ws.name.charAt(0).toUpperCase()}</div>
+            <span class="workspace-item-name">${escapeHtml(ws.name)}</span>
+            <span class="workspace-item-role">${ws.role}</span>
+        </div>
+    `).join('');
+}
+
+function switchWorkspace(workspaceId) {
+    activeWorkspaceId = workspaceId;
+    localStorage.setItem('activeWorkspaceId', workspaceId);
+    renderWorkspaceList();
+    // Reload board data for this workspace context
+    loadFromServer();
+}
+
+// Create workspace
+function showCreateWorkspaceModal() {
+    document.getElementById('createWorkspaceModal').style.display = 'flex';
+    document.getElementById('newWorkspaceName').value = '';
+    document.getElementById('newWorkspaceDesc').value = '';
+    setTimeout(() => document.getElementById('newWorkspaceName').focus(), 100);
+}
+
+function closeCreateWorkspaceModal() {
+    document.getElementById('createWorkspaceModal').style.display = 'none';
+}
+
+async function createWorkspace() {
+    const name = document.getElementById('newWorkspaceName').value.trim();
+    const description = document.getElementById('newWorkspaceDesc').value.trim();
+    if (!name) return alert('Please enter a workspace name');
+    
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch('/api/workspaces', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description })
+        });
+        const data = await res.json();
+        if (data.success) {
+            closeCreateWorkspaceModal();
+            activeWorkspaceId = data.workspace.id;
+            localStorage.setItem('activeWorkspaceId', data.workspace.id);
+            await loadWorkspaces();
+        } else {
+            alert(data.error || 'Failed to create workspace');
+        }
+    } catch (e) {
+        alert('Error creating workspace');
+    }
+}
+
+// Workspace settings
+let settingsWorkspaceId = null;
+let settingsWorkspaceRole = null;
+
+function openWorkspaceSettings() {
+    if (!activeWorkspaceId) return;
+    settingsWorkspaceId = activeWorkspaceId;
+    const ws = userWorkspaces.find(w => w.id === activeWorkspaceId);
+    if (!ws) return;
+    
+    settingsWorkspaceRole = ws.role;
+    document.getElementById('wsSettingsName').value = ws.name;
+    document.getElementById('wsSettingsDesc').value = ws.description || '';
+    document.getElementById('wsCurrentRole').textContent = ws.role;
+    
+    // Show/hide delete button based on role
+    const deleteBtn = document.getElementById('wsDeleteBtn');
+    if (deleteBtn) deleteBtn.style.display = ws.role === 'owner' ? '' : 'none';
+    
+    // Show/hide invite tab based on permissions
+    const inviteTab = document.querySelector('.ws-tab[data-tab="ws-invite"]');
+    if (inviteTab) inviteTab.style.display = (ws.role === 'owner' || ws.role === 'admin') ? '' : 'none';
+    
+    // Load members
+    loadWorkspaceMembers();
+    loadPendingInvites();
+    
+    // Reset to general tab
+    switchWsTab('ws-general');
+    document.getElementById('workspaceSettingsModal').style.display = 'flex';
+}
+
+function closeWorkspaceSettingsModal() {
+    document.getElementById('workspaceSettingsModal').style.display = 'none';
+    settingsWorkspaceId = null;
+}
+
+function switchWsTab(tabId) {
+    document.querySelectorAll('.ws-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.ws-tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.ws-tab[data-tab="${tabId}"]`).classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+}
+
+async function saveWorkspaceSettings() {
+    const name = document.getElementById('wsSettingsName').value.trim();
+    const description = document.getElementById('wsSettingsDesc').value.trim();
+    if (!name) return alert('Name is required');
+    
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description })
+        });
+        const data = await res.json();
+        if (data.success) {
+            await loadWorkspaces();
+            alert('Workspace updated');
+        } else {
+            alert(data.error || 'Failed to update');
+        }
+    } catch (e) {
+        alert('Error saving workspace');
+    }
+}
+
+async function deleteWorkspaceConfirm() {
+    const ws = userWorkspaces.find(w => w.id === settingsWorkspaceId);
+    if (!confirm(`Are you sure you want to delete "${ws?.name}"? This cannot be undone.`)) return;
+    
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+            closeWorkspaceSettingsModal();
+            activeWorkspaceId = null;
+            localStorage.removeItem('activeWorkspaceId');
+            await loadWorkspaces();
+        } else {
+            alert(data.error || 'Failed to delete');
+        }
+    } catch (e) {
+        alert('Error deleting workspace');
+    }
+}
+
+// Members management
+async function loadWorkspaceMembers() {
+    if (!settingsWorkspaceId) return;
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/members`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+            renderMembers(data.members);
+        }
+    } catch (e) {
+        console.error('Failed to load members:', e);
+    }
+}
+
+function renderMembers(members) {
+    const container = document.getElementById('wsMembersList');
+    if (!container) return;
+    
+    const canManage = settingsWorkspaceRole === 'owner' || settingsWorkspaceRole === 'admin';
+    
+    container.innerHTML = members.map(m => {
+        const initial = (m.userName || m.userEmail || '?').charAt(0).toUpperCase();
+        const actionsHtml = canManage && m.role !== 'owner' ? `
+            <div class="ws-member-actions">
+                <select onchange="changeMemberRole('${m.userId}', this.value)">
+                    <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>Admin</option>
+                    <option value="member" ${m.role === 'member' ? 'selected' : ''}>Member</option>
+                    <option value="viewer" ${m.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                </select>
+                <button onclick="removeMember('${m.userId}', '${escapeHtml(m.userName || m.userEmail)}')">Remove</button>
+            </div>
+        ` : '';
+        
+        return `
+            <div class="ws-member-row">
+                <div class="ws-member-avatar">${initial}</div>
+                <div class="ws-member-info">
+                    <div class="ws-member-name">${escapeHtml(m.userName || 'Unknown')}</div>
+                    <div class="ws-member-email">${escapeHtml(m.userEmail || '')}</div>
+                </div>
+                <span class="ws-member-role ${m.role}">${m.role}</span>
+                ${actionsHtml}
+            </div>
+        `;
+    }).join('');
+}
+
+async function changeMemberRole(userId, newRole) {
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/members/${userId}/role`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: newRole })
+        });
+        const data = await res.json();
+        if (!data.success) alert(data.error || 'Failed to change role');
+        await loadWorkspaceMembers();
+    } catch (e) {
+        alert('Error changing role');
+    }
+}
+
+async function removeMember(userId, name) {
+    if (!confirm(`Remove ${name} from this workspace?`)) return;
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/members/${userId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+            await loadWorkspaceMembers();
+        } else {
+            alert(data.error || 'Failed to remove member');
+        }
+    } catch (e) {
+        alert('Error removing member');
+    }
+}
+
+// Invitations
+async function sendWorkspaceInvite() {
+    const email = document.getElementById('wsInviteEmail').value.trim();
+    const role = document.getElementById('wsInviteRole').value;
+    if (!email) return alert('Please enter an email address');
+    
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/invite`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, role })
+        });
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('wsInviteEmail').value = '';
+            alert(`Invite sent to ${email}!\n\nInvite link: ${window.location.origin}/?invite=${data.invite.token}`);
+            loadPendingInvites();
+        } else {
+            alert(data.error || 'Failed to send invite');
+        }
+    } catch (e) {
+        alert('Error sending invite');
+    }
+}
+
+async function loadPendingInvites() {
+    if (!settingsWorkspaceId) return;
+    const token = localStorage.getItem('authToken');
+    try {
+        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/invites`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+            renderPendingInvites(data.invites);
+        }
+    } catch (e) {
+        // Silent fail if no permission
+    }
+}
+
+function renderPendingInvites(invites) {
+    const container = document.getElementById('wsPendingInvites');
+    if (!container) return;
+    
+    if (!invites || invites.length === 0) {
+        container.innerHTML = '<div style="color:#676879;font-size:12px">No pending invites</div>';
+        return;
+    }
+    
+    container.innerHTML = invites.map(inv => `
+        <div class="ws-invite-row">
+            <span>
+                <span class="invite-email">${escapeHtml(inv.targetEmail)}</span>
+                <span class="invite-role">(${inv.role})</span>
+            </span>
+            <button class="revoke-btn" onclick="revokeInvite('${inv.token}')">Revoke</button>
+        </div>
+    `).join('');
+}
+
+async function revokeInvite(token) {
+    const authToken = localStorage.getItem('authToken');
+    try {
+        await fetch(`/api/workspaces/${settingsWorkspaceId}/invites/${token}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        loadPendingInvites();
+    } catch (e) {
+        // Silent
+    }
+}
+
+// Handle invite links (check URL for ?invite=TOKEN)
+async function checkInviteLink() {
+    const params = new URLSearchParams(window.location.search);
+    const inviteToken = params.get('invite');
+    if (!inviteToken) return;
+    
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) {
+        // Save invite token for after login
+        localStorage.setItem('pendingInviteToken', inviteToken);
+        return;
+    }
+    
+    try {
+        // Verify invite first
+        const verifyRes = await fetch(`/api/workspaces/invite/${inviteToken}`);
+        const verifyData = await verifyRes.json();
+        
+        if (!verifyData.valid) {
+            alert(verifyData.error || 'Invalid invite');
+            window.history.replaceState({}, '', window.location.pathname);
+            return;
+        }
+        
+        if (confirm(`You've been invited to join "${verifyData.workspaceName}" by ${verifyData.inviterName} as ${verifyData.role}.\n\nJoin this workspace?`)) {
+            const res = await fetch(`/api/workspaces/join/${inviteToken}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`Welcome! You've joined "${data.workspace.name}"`);
+                activeWorkspaceId = data.workspace.id;
+                localStorage.setItem('activeWorkspaceId', data.workspace.id);
+                await loadWorkspaces();
+            } else {
+                alert(data.error || 'Failed to join workspace');
+            }
+        }
+    } catch (e) {
+        console.error('Invite link error:', e);
+    }
+    
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+}
+
+// Process pending invite after login
+async function processPendingInvite() {
+    const inviteToken = localStorage.getItem('pendingInviteToken');
+    if (!inviteToken) return;
+    localStorage.removeItem('pendingInviteToken');
+    
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) return;
+    
+    try {
+        const verifyRes = await fetch(`/api/workspaces/invite/${inviteToken}`);
+        const verifyData = await verifyRes.json();
+        if (!verifyData.valid) return;
+        
+        if (confirm(`You've been invited to join "${verifyData.workspaceName}" as ${verifyData.role}.\n\nJoin this workspace?`)) {
+            const res = await fetch(`/api/workspaces/join/${inviteToken}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`Welcome! You've joined "${data.workspace.name}"`);
+                activeWorkspaceId = data.workspace.id;
+                localStorage.setItem('activeWorkspaceId', data.workspace.id);
+                await loadWorkspaces();
+            }
+        }
+    } catch (e) {
+        console.error('Pending invite error:', e);
+    }
+}
+
+// Initialize workspaces on page load (after auth)
+function initWorkspaces() {
+    activeWorkspaceId = localStorage.getItem('activeWorkspaceId') || null;
+    loadWorkspaces();
+    checkInviteLink();
+}
+
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '18';
+const CURRENT_APP_VERSION = '19';
 const VERSION_CHECK_INTERVAL = 300000; // Check every 5 minutes
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

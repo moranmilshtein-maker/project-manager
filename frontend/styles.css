@@ -3656,6 +3656,430 @@ tr.subtask-row:hover .subtask-action-btn {
     white-space: nowrap;
 }
 
+/* ===== Workspace UI ===== */
+.workspace-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 4px;
+}
+
+.workspace-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.workspace-item:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.workspace-item.active {
+    background: rgba(255,255,255,0.15);
+    font-weight: 500;
+}
+
+.workspace-item-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.workspace-item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #d5d8df;
+}
+
+.workspace-item-role {
+    font-size: 10px;
+    color: #9699a6;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.add-workspace-btn-full {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #9699a6;
+    transition: background 0.15s, color 0.15s;
+}
+
+.add-workspace-btn-full:hover {
+    background: rgba(255,255,255,0.1);
+    color: #d5d8df;
+}
+
+/* Workspace Modals */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    animation: fadeIn 0.15s;
+}
+
+.modal-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    width: 90%;
+    max-width: 480px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e6e9ef;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #323338;
+}
+
+.modal-header h3 .material-icons-outlined {
+    font-size: 20px;
+    color: #0073ea;
+}
+
+.modal-close-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    color: #676879;
+    transition: background 0.15s;
+}
+
+.modal-close-btn:hover {
+    background: #f0f0f0;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid #e6e9ef;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.modal-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: #323338;
+    margin-bottom: 6px;
+    margin-top: 12px;
+}
+
+.modal-label:first-child {
+    margin-top: 0;
+}
+
+.modal-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #c3c6d4;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #323338;
+    outline: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+
+.modal-input:focus {
+    border-color: #0073ea;
+}
+
+.btn-primary {
+    padding: 8px 16px;
+    background: #0073ea;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-primary:hover {
+    background: #0060c2;
+}
+
+.btn-secondary {
+    padding: 8px 16px;
+    background: transparent;
+    color: #323338;
+    border: 1px solid #c3c6d4;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+    background: #f6f7fb;
+}
+
+.btn-danger {
+    padding: 8px 16px;
+    background: #e2445c;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-danger:hover {
+    background: #c73a4f;
+}
+
+/* Workspace Settings Tabs */
+.workspace-settings-modal {
+    max-width: 560px;
+}
+
+.ws-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #e6e9ef;
+    margin-bottom: 16px;
+}
+
+.ws-tab {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #676879;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.ws-tab.active {
+    color: #0073ea;
+    border-bottom-color: #0073ea;
+}
+
+.ws-tab:hover {
+    color: #323338;
+}
+
+.ws-tab-content {
+    display: none;
+}
+
+.ws-tab-content.active {
+    display: block;
+}
+
+.ws-settings-actions {
+    margin-top: 20px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ws-role-info {
+    margin-top: 16px;
+    padding: 12px;
+    background: #f6f7fb;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #676879;
+}
+
+/* Members list */
+.ws-members-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ws-member-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: #f6f7fb;
+}
+
+.ws-member-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #0073ea;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.ws-member-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.ws-member-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #323338;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ws-member-email {
+    font-size: 11px;
+    color: #676879;
+}
+
+.ws-member-role {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.ws-member-role.owner { background: #fdab3d22; color: #fdab3d; }
+.ws-member-role.admin { background: #0073ea22; color: #0073ea; }
+.ws-member-role.member { background: #00c87522; color: #00c875; }
+.ws-member-role.viewer { background: #c3c6d422; color: #676879; }
+
+.ws-member-actions select {
+    padding: 4px 8px;
+    border: 1px solid #c3c6d4;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.ws-member-actions button {
+    padding: 4px 8px;
+    border: 1px solid #e2445c;
+    border-radius: 4px;
+    background: transparent;
+    color: #e2445c;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ws-member-actions button:hover {
+    background: #e2445c;
+    color: #fff;
+}
+
+/* Pending invites */
+.ws-pending-invites {
+    margin-top: 20px;
+}
+
+.ws-pending-invites h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #323338;
+    margin: 0 0 8px 0;
+}
+
+.ws-invite-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: #f6f7fb;
+    margin-bottom: 4px;
+    font-size: 12px;
+}
+
+.ws-invite-row .invite-email {
+    color: #323338;
+    font-weight: 500;
+}
+
+.ws-invite-row .invite-role {
+    color: #676879;
+    margin-left: 8px;
+}
+
+.ws-invite-row .revoke-btn {
+    background: transparent;
+    border: none;
+    color: #e2445c;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.ws-invite-row .revoke-btn:hover {
+    background: #fee;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 /* ===== Version Update Popup ===== */
 .version-update-popup {
     position: fixed;
