@@ -2294,6 +2294,7 @@ function logout() {
     authFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     currentUser = null;
     authToken = null;
+    serverDataLoaded = false; // Reset guard on logout
     saveAuthToken();
     const userMenu = document.getElementById('userMenuDropdown');
     if (userMenu) userMenu.classList.remove('active');
@@ -2449,7 +2450,12 @@ function saveToStorage() {
 
 // Debounced save to server to avoid excessive API calls
 let serverSaveTimeout = null;
+let serverDataLoaded = false; // Guard: don't overwrite server data before loading it
 function saveToServer() {
+    if (!serverDataLoaded) {
+        console.warn('[Save] Blocked: server data not yet loaded, preventing overwrite');
+        return;
+    }
     if (serverSaveTimeout) clearTimeout(serverSaveTimeout);
     serverSaveTimeout = setTimeout(async () => {
         if (!authToken) return;
@@ -2495,6 +2501,7 @@ function saveColumnStateToServer() {
 // Sync board data to server for Telegram bot due-date notifications
 let syncTimeout = null;
 function syncBoardToServer() {
+    if (!serverDataLoaded) return; // Don't sync default/empty data
     // Debounce: only sync after 3 seconds of inactivity
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(async () => {
@@ -2570,11 +2577,13 @@ async function loadFromServer() {
             initBoardGroups();
             renderBoard();
             renderBoardSidebar();
+            serverDataLoaded = true; // Allow saves now that real data is loaded
             return true;
         } else {
             // Server has no data yet - migrate localStorage data to server (first time)
             // One-time migration: restore 'וולבי - הקמה' group if missing
             migrateWolbySetupGroup();
+            serverDataLoaded = true; // First-time user, safe to save
             if (boardData && boardData.boardGroups && Object.keys(boardData.boardGroups).length > 0) {
                 saveToServer();
             }
