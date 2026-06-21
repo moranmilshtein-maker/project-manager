@@ -2185,7 +2185,10 @@ function handleRegister(e) {
                 saveAuthToken();
                 // Mark invite as used if registering via invite
                 if (window._pendingInviteToken) {
-                    fetch(`/api/invites/use/${window._pendingInviteToken}`, { method: 'POST' }).catch(() => {});
+                    fetch(`/api/invites/use/${window._pendingInviteToken}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    }).catch(() => {});
                     delete window._pendingInviteToken;
                     window.history.replaceState({}, '', window.location.pathname);
                 }
@@ -3210,31 +3213,138 @@ function switchAdminTab(tab) {
     if (tab === 'email') {
         loadPendingInvites();
         loadEmailPreferences();
+        populateInviteWorkspaceSelect();
     }
     if (tab === 'snapshots') {
         loadSnapshotData();
     }
 }
 
+// ===== Admin - Invite Wizard Step Navigation =====
+async function inviteNextStep(currentStep) {
+    const resultDiv = document.getElementById('inviteResult');
+    // Validate current step
+    if (currentStep === 1) {
+        const email = document.getElementById('adminInviteEmail').value.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!email || !emailRegex.test(email)) {
+            resultDiv.innerHTML = '<span style="color:#e2445c">Please enter a valid email address</span>';
+            return;
+        }
+        // Check if user already exists in system
+        resultDiv.innerHTML = '<span style="color:#676879">Checking...</span>';
+        try {
+            const res = await authFetch(`/api/admin/check-user?email=${encodeURIComponent(email)}`);
+            const data = await res.json();
+            if (data.exists) {
+                resultDiv.innerHTML = `<span style="color:#fdab3d"><span class="material-icons-outlined" style="font-size:14px;vertical-align:middle">info</span> User already registered (${data.fullName}). Invite will add them to workspace.</span>`;
+            } else {
+                resultDiv.innerHTML = `<span style="color:#00c875"><span class="material-icons-outlined" style="font-size:14px;vertical-align:middle">check_circle</span> New user — invite will be sent to ${email}</span>`;
+            }
+        } catch (e) {
+            resultDiv.innerHTML = '';
+        }
+    }
+    if (currentStep === 2) {
+        const ws = document.getElementById('inviteWorkspaceSelect').value;
+        if (!ws) {
+            resultDiv.innerHTML = '<span style="color:#e2445c">Please select a workspace</span>';
+            return;
+        }
+        resultDiv.innerHTML = '';
+    }
+    // Show next step
+    document.getElementById(`inviteStep${currentStep}`).classList.remove('active');
+    document.getElementById(`inviteStep${currentStep + 1}`).classList.add('active');
+    // Load data for next step
+    if (currentStep === 1) populateInviteWorkspaceSelect();
+}
+
+function inviteBackStep(currentStep) {
+    document.getElementById(`inviteStep${currentStep}`).classList.remove('active');
+    document.getElementById(`inviteStep${currentStep - 1}`).classList.add('active');
+}
+
+function resetInviteWizard() {
+    for (let i = 1; i <= 4; i++) {
+        const step = document.getElementById(`inviteStep${i}`);
+        if (step) step.classList.remove('active');
+    }
+    document.getElementById('inviteStep1').classList.add('active');
+    document.getElementById('adminInviteEmail').value = '';
+    document.getElementById('inviteResult').innerHTML = '';
+}
+
+// ===== Admin - Populate Workspace Select for Invites =====
+async function populateInviteWorkspaceSelect() {
+    const select = document.getElementById('inviteWorkspaceSelect');
+    if (!select) return;
+    try {
+        const res = await authFetch('/api/workspaces');
+        if (!res.ok) return;
+        const data = await res.json();
+        const workspaces = data.workspaces || [];
+        select.innerHTML = '<option value="">-- Select workspace --</option>';
+        workspaces.forEach(ws => {
+            select.innerHTML += `<option value="${ws.id}">${escapeHtml(ws.name)}</option>`;
+        });
+        if (activeWorkspaceId) {
+            select.value = activeWorkspaceId;
+            onInviteWorkspaceChange();
+        }
+    } catch (e) {
+        console.error('Failed to load workspaces for invite select:', e);
+    }
+}
+
+// Load boards for the selected workspace into the board dropdown
+async function onInviteWorkspaceChange() {
+    const wsSelect = document.getElementById('inviteWorkspaceSelect');
+    const boardSelect = document.getElementById('inviteBoardSelect');
+    if (!boardSelect) return;
+    const workspaceId = wsSelect ? wsSelect.value : '';
+    boardSelect.innerHTML = '<option value="">All boards (no restriction)</option>';
+    if (!workspaceId) return;
+    try {
+        const res = await authFetch(`/api/user-data/boards?workspaceId=${workspaceId}`);
+        if (!res.ok) return;
+        const result = await res.json();
+        if (result.success && result.data && result.data.boards) {
+            result.data.boards.filter(b => !b.archived).forEach(board => {
+                boardSelect.innerHTML += `<option value="${board.id}">${escapeHtml(board.name)}</option>`;
+            });
+        }
+    } catch (e) {
+        console.error('Failed to load boards for invite:', e);
+    }
+}
+
 // ===== Admin - Send Invite =====
 async function sendInviteEmail() {
-    const email = document.getElementById('inviteEmail').value.trim();
-    const orgName = document.getElementById('inviteOrgName').value.trim() || 'Main workspace';
+    const email = document.getElementById('adminInviteEmail').value.trim();
+    const wsSelect = document.getElementById('inviteWorkspaceSelect');
+    const boardSelect = document.getElementById('inviteBoardSelect');
+    const roleSelect = document.getElementById('inviteRoleSelect');
+    const workspaceId = wsSelect ? wsSelect.value : '';
+    const boardId = boardSelect ? boardSelect.value : '';
+    const role = roleSelect ? roleSelect.value : 'member';
+    const orgName = wsSelect && wsSelect.selectedOptions[0] ? wsSelect.selectedOptions[0].textContent.trim() : 'Main workspace';
     const resultDiv = document.getElementById('inviteResult');
 
     if (!email) { resultDiv.innerHTML = '<span style="color:#e2445c">Please enter an email address</span>'; return; }
+    if (!workspaceId) { resultDiv.innerHTML = '<span style="color:#e2445c">Please select a workspace</span>'; return; }
     resultDiv.innerHTML = '<span style="color:#676879">Sending...</span>';
 
     try {
         const res = await authFetch('/api/invites/send', {
             method: 'POST',
-            body: JSON.stringify({ email, orgName })
+            body: JSON.stringify({ email, orgName, workspaceId, boardId: boardId || null, role })
         });
         const data = await res.json();
         if (data.success) {
             resultDiv.innerHTML = `<span style="color:#00c875">✅ Invite sent to ${email}</span>`;
-            document.getElementById('inviteEmail').value = '';
             loadPendingInvites();
+            setTimeout(() => resetInviteWizard(), 2000);
         } else {
             resultDiv.innerHTML = `<span style="color:#e2445c">❌ ${data.error}</span>`;
         }

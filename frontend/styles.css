@@ -3030,6 +3030,60 @@ thead input[type="checkbox"].cb-selected {
     flex: 1;
 }
 
+/* Invite Wizard Steps */
+.invite-wizard {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.invite-step {
+    display: none;
+    animation: fadeInStep 0.2s ease;
+}
+
+.invite-step.active {
+    display: block;
+}
+
+@keyframes fadeInStep {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.invite-step-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #676879;
+    margin-bottom: 6px;
+    display: block;
+}
+
+.invite-step-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.invite-step-row .admin-input {
+    flex: 1;
+}
+
+.invite-btn-back {
+    padding: 8px 12px;
+    border: 1px solid #d0d4e4;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    color: #323338;
+    transition: background 0.15s;
+}
+
+.invite-btn-back:hover {
+    background: #f0f0f3;
+}
+
 .admin-input {
     padding: 8px 12px;
     border: 1px solid #d0d4e4;
