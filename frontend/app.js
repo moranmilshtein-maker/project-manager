@@ -3126,11 +3126,16 @@ if (!document.getElementById('adminSpinStyle')) {
 function switchAdminTab(tab) {
     document.getElementById('adminUsersTab').style.display = tab === 'users' ? '' : 'none';
     document.getElementById('adminEmailTab').style.display = tab === 'email' ? '' : 'none';
+    document.getElementById('adminSnapshotsTab').style.display = tab === 'snapshots' ? '' : 'none';
     document.getElementById('adminTabUsers').classList.toggle('active', tab === 'users');
     document.getElementById('adminTabEmail').classList.toggle('active', tab === 'email');
+    document.getElementById('adminTabSnapshots').classList.toggle('active', tab === 'snapshots');
     if (tab === 'email') {
         loadPendingInvites();
         loadEmailPreferences();
+    }
+    if (tab === 'snapshots') {
+        loadSnapshotData();
     }
 }
 
@@ -4602,6 +4607,206 @@ function closeMoveToMenu() {
         hideTooltip();
     }, true);
 })();
+
+// ===== SNAPSHOT MANAGEMENT (Super Admin Only) =====
+
+async function loadSnapshotData() {
+    await loadSnapshotList();
+    await loadLatestSnapshot();
+}
+
+async function loadLatestSnapshot() {
+    const container = document.getElementById('latestSnapshotInfo');
+    if (!container) return;
+    try {
+        const res = await authFetch('/api/snapshots/latest');
+        const data = await res.json();
+        if (data.success && data.snapshot) {
+            const s = data.snapshot;
+            const date = new Date(s.created_at);
+            const sizeKB = (s.data_size_bytes / 1024).toFixed(1);
+            const trigger = s.metadata?.trigger || 'unknown';
+            container.innerHTML = `
+                <div class="snapshot-info-grid">
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Last Backup</span>
+                        <span class="snapshot-info-value">${date.toLocaleString('he-IL')}</span>
+                    </div>
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Users</span>
+                        <span class="snapshot-info-value">${s.user_count}</span>
+                    </div>
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Size</span>
+                        <span class="snapshot-info-value">${sizeKB} KB</span>
+                    </div>
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Trigger</span>
+                        <span class="snapshot-info-value snapshot-trigger-${trigger}">${trigger}</span>
+                    </div>
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Status</span>
+                        <span class="snapshot-info-value snapshot-status-valid">✓ Valid</span>
+                    </div>
+                </div>
+            `;
+        } else {
+            container.innerHTML = '<p class="snapshot-empty">No snapshots yet. The first automatic snapshot will be created within 5 minutes of server start.</p>';
+        }
+    } catch (e) {
+        container.innerHTML = '<p class="snapshot-error">Failed to load snapshot info</p>';
+    }
+}
+
+async function loadSnapshotList() {
+    const tbody = document.getElementById('snapshotTableBody');
+    if (!tbody) return;
+    try {
+        const res = await authFetch('/api/snapshots');
+        const data = await res.json();
+        if (data.success && data.snapshots && data.snapshots.length > 0) {
+            tbody.innerHTML = data.snapshots.map(s => {
+                const date = new Date(s.created_at);
+                const sizeKB = (s.data_size_bytes / 1024).toFixed(1);
+                const trigger = s.metadata?.trigger || '-';
+                return `
+                    <tr>
+                        <td class="admin-td">#${s.id}</td>
+                        <td class="admin-td">${date.toLocaleString('he-IL')}</td>
+                        <td class="admin-td">${s.user_count}</td>
+                        <td class="admin-td">${sizeKB} KB</td>
+                        <td class="admin-td"><span class="snapshot-trigger-badge snapshot-trigger-${trigger}">${trigger}</span></td>
+                        <td class="admin-td">
+                            <button class="snapshot-action-btn snapshot-view-btn" onclick="viewSnapshotDetails(${s.id})">
+                                <span class="material-icons-outlined">visibility</span>
+                            </button>
+                            <button class="snapshot-action-btn snapshot-restore-btn" onclick="restoreSnapshot(${s.id})">
+                                <span class="material-icons-outlined">restore</span>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="6" class="admin-loading">No snapshots found</td></tr>';
+        }
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="admin-loading">Failed to load snapshots</td></tr>';
+    }
+}
+
+async function createManualSnapshot() {
+    const btn = document.getElementById('createSnapshotBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-icons-outlined">hourglass_top</span> Creating...';
+    }
+    try {
+        const res = await authFetch('/api/snapshots/create', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            alert('Snapshot created successfully!');
+            loadSnapshotData();
+        } else {
+            alert('Failed to create snapshot: ' + (data.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Error creating snapshot: ' + e.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-icons-outlined">add_circle</span> Create Snapshot Now';
+        }
+    }
+}
+
+async function viewSnapshotDetails(snapshotId) {
+    const section = document.getElementById('snapshotDetailSection');
+    const content = document.getElementById('snapshotDetailContent');
+    if (!section || !content) return;
+
+    section.style.display = '';
+    content.innerHTML = '<p class="snapshot-loading">Loading details...</p>';
+
+    try {
+        const res = await authFetch(`/api/snapshots/${snapshotId}`);
+        const data = await res.json();
+        if (data.success && data.snapshot) {
+            const s = data.snapshot;
+            const date = new Date(s.createdAt);
+            let usersHtml = '';
+            if (s.userSummaries) {
+                usersHtml = '<div class="snapshot-users-grid">';
+                for (const [userKey, info] of Object.entries(s.userSummaries)) {
+                    const taskCount = info.taskCount !== undefined ? info.taskCount : '-';
+                    const sizeKB = (info.totalSize / 1024).toFixed(1);
+                    usersHtml += `
+                        <div class="snapshot-user-card">
+                            <div class="snapshot-user-email">${userKey}</div>
+                            <div class="snapshot-user-meta">
+                                <span>Tasks: <strong>${taskCount}</strong></span>
+                                <span>Data: ${sizeKB} KB</span>
+                                <span>Types: ${info.dataTypes.join(', ')}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+                usersHtml += '</div>';
+            }
+
+            content.innerHTML = `
+                <div class="snapshot-detail-header">
+                    <h4>Snapshot #${s.id} — ${date.toLocaleString('he-IL')}</h4>
+                    <button class="admin-btn-primary" onclick="restoreSnapshot(${s.id})">
+                        <span class="material-icons-outlined">restore</span> Restore This Snapshot
+                    </button>
+                </div>
+                <div class="snapshot-info-grid" style="margin-bottom:16px">
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Users</span>
+                        <span class="snapshot-info-value">${s.userCount}</span>
+                    </div>
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Size</span>
+                        <span class="snapshot-info-value">${(s.dataSizeBytes / 1024).toFixed(1)} KB</span>
+                    </div>
+                    <div class="snapshot-info-item">
+                        <span class="snapshot-info-label">Status</span>
+                        <span class="snapshot-info-value snapshot-status-valid">✓ ${s.status}</span>
+                    </div>
+                </div>
+                <h4 style="margin-bottom:8px">User Data Summary:</h4>
+                ${usersHtml}
+            `;
+        } else {
+            content.innerHTML = '<p class="snapshot-error">Failed to load snapshot details</p>';
+        }
+    } catch (e) {
+        content.innerHTML = '<p class="snapshot-error">Error: ' + e.message + '</p>';
+    }
+}
+
+async function restoreSnapshot(snapshotId) {
+    if (!confirm('Are you sure you want to restore from this snapshot?\n\nThis will REPLACE all current user data with the snapshot data.\nA backup of current data will be created first.')) {
+        return;
+    }
+    if (!confirm('FINAL CONFIRMATION: This action cannot be undone easily.\nAll current data will be replaced.\n\nProceed with restore?')) {
+        return;
+    }
+
+    try {
+        const res = await authFetch(`/api/snapshots/${snapshotId}/restore`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            alert(`Restore successful!\n\nRestored ${data.restoredRows} records for ${data.userCount} users.\n\nPlease refresh the page to see updated data.`);
+            loadSnapshotData();
+        } else {
+            alert('Restore failed: ' + (data.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Error restoring snapshot: ' + e.message);
+    }
+}
 
 // ===== WORKSPACE MANAGEMENT =====
 let userWorkspaces = [];

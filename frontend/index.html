@@ -434,6 +434,9 @@
                 <button class="admin-tab" onclick="switchAdminTab('email')" id="adminTabEmail">
                     <span class="material-icons-outlined">email</span> Email & Invites
                 </button>
+                <button class="admin-tab" onclick="switchAdminTab('snapshots')" id="adminTabSnapshots">
+                    <span class="material-icons-outlined">backup</span> Snapshots
+                </button>
             </div>
 
             <!-- Users Tab -->
@@ -558,6 +561,55 @@
                     <div id="notifResult" class="admin-invite-result"></div>
                 </div>
             </div><!-- end adminEmailTab -->
+
+            <!-- Snapshots Tab (Super Admin Only) -->
+            <div id="adminSnapshotsTab" class="admin-tab-content" style="display:none">
+                <div class="admin-email-section">
+                    <div class="snapshot-header">
+                        <h3><span class="material-icons-outlined">backup</span> Data Snapshots</h3>
+                        <button class="admin-btn-primary" onclick="createManualSnapshot()" id="createSnapshotBtn">
+                            <span class="material-icons-outlined">add_circle</span> Create Snapshot Now
+                        </button>
+                    </div>
+                    <p class="admin-email-desc">Automatic snapshots are created every hour. Each snapshot contains all user data and can be restored if data is lost.</p>
+                </div>
+
+                <!-- Latest Snapshot Info -->
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">schedule</span> Latest Snapshot</h3>
+                    <div id="latestSnapshotInfo" class="snapshot-info-card">
+                        <p class="snapshot-loading">Loading...</p>
+                    </div>
+                </div>
+
+                <!-- Snapshot History -->
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">history</span> Snapshot History</h3>
+                    <div class="admin-table-wrap">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th class="admin-th">ID</th>
+                                    <th class="admin-th">Created</th>
+                                    <th class="admin-th">Users</th>
+                                    <th class="admin-th">Size</th>
+                                    <th class="admin-th">Trigger</th>
+                                    <th class="admin-th">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="snapshotTableBody">
+                                <tr><td colspan="6" class="admin-loading">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Snapshot Detail / Restore -->
+                <div class="admin-email-section" id="snapshotDetailSection" style="display:none">
+                    <h3><span class="material-icons-outlined">info</span> Snapshot Details</h3>
+                    <div id="snapshotDetailContent" class="snapshot-detail-content"></div>
+                </div>
+            </div><!-- end adminSnapshotsTab -->
         </div>
     </div>
 
