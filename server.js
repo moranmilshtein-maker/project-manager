@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const dataStore = require('./data-store');
+const workspaceStore = require('./workspace-store');
 let emailService;
 try {
   emailService = require('./email-service');
@@ -207,6 +208,7 @@ function safeUser(user) {
     provider: user.provider || 'local',
     picture: user.picture || '',
     workspace: user.workspace,
+    activeWorkspaceId: user.activeWorkspaceId || null,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt || null,
     lastLoginIP: user.lastLoginIP || null,
@@ -298,6 +300,13 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     users.set(key, user);
     recordLogin(user, req, 'register');
+
+    // Create a default workspace for the new user
+    const defaultWs = workspaceStore.createWorkspace(
+      user.id, user.fullName, user.email, 'My Workspace'
+    );
+    user.activeWorkspaceId = defaultWs.id;
+    await workspaceStore.persistWorkspaces();
 
     const token = generateToken();
     sessions.set(token, key);
@@ -936,6 +945,283 @@ app.get('/api/user-data/status', (req, res) => {
   res.json(dataStore.getStatus());
 });
 
+// ===== WORKSPACE API =====
+
+// Middleware: authenticate and attach user to request
+function requireAuth(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+  const user = users.get(key);
+  if (!user) return res.status(401).json({ error: 'User not found' });
+  req.user = user;
+  req.userKey = key;
+  next();
+}
+
+// Middleware: require workspace permission
+function requireWorkspacePermission(permission) {
+  return (req, res, next) => {
+    const workspaceId = req.params.workspaceId || req.body.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+    if (!workspaceStore.hasPermission(req.user.id, workspaceId, permission)) {
+      return res.status(403).json({ error: `Permission denied: ${permission}` });
+    }
+    req.workspaceId = workspaceId;
+    next();
+  };
+}
+
+// GET /api/workspaces - Get all workspaces for current user
+app.get('/api/workspaces', requireAuth, (req, res) => {
+  const workspaceList = workspaceStore.getUserWorkspaces(req.user.id);
+  res.json({ success: true, workspaces: workspaceList });
+});
+
+// POST /api/workspaces - Create a new workspace
+app.post('/api/workspaces', requireAuth, async (req, res) => {
+  const { name, description } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Workspace name is required' });
+
+  const workspace = workspaceStore.createWorkspace(
+    req.user.id,
+    req.user.fullName,
+    req.user.email,
+    name,
+    description || ''
+  );
+
+  await workspaceStore.persistWorkspaces();
+  res.json({ success: true, workspace });
+});
+
+// POST /api/workspaces/join/:token - Accept workspace invitation (MUST be before :workspaceId)
+app.post('/api/workspaces/join/:token', requireAuth, async (req, res) => {
+  const invite = workspaceStore.getWorkspaceInvite(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invalid invite link' });
+  if (invite.used) return res.status(410).json({ error: 'Invite already used' });
+  if (new Date(invite.expiresAt) < new Date()) return res.status(410).json({ error: 'Invite expired' });
+
+  const existing = workspaceStore.getMembership(req.user.id, invite.workspaceId);
+  if (existing) {
+    return res.status(409).json({ error: 'Already a member of this workspace', role: existing.role });
+  }
+
+  workspaceStore.addMembership(
+    req.user.id, req.user.fullName, req.user.email,
+    invite.workspaceId, invite.role
+  );
+  workspaceStore.useWorkspaceInvite(req.params.token);
+  await workspaceStore.persistWorkspaces();
+
+  const workspace = workspaceStore.getWorkspace(invite.workspaceId);
+  res.json({ success: true, workspace: { ...workspace, role: invite.role } });
+});
+
+// GET /api/workspaces/invite/:token - Verify invite (public, MUST be before :workspaceId)
+app.get('/api/workspaces/invite/:token', (req, res) => {
+  const invite = workspaceStore.getWorkspaceInvite(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invalid invite link' });
+  if (invite.used) return res.status(410).json({ error: 'Invite already used' });
+  if (new Date(invite.expiresAt) < new Date()) return res.status(410).json({ error: 'Invite expired' });
+
+  const workspace = workspaceStore.getWorkspace(invite.workspaceId);
+  res.json({
+    valid: true,
+    workspaceName: workspace ? workspace.name : 'Unknown',
+    inviterName: invite.inviterName,
+    role: invite.role,
+    email: invite.targetEmail
+  });
+});
+
+// GET /api/workspaces/:workspaceId - Get workspace details
+app.get('/api/workspaces/:workspaceId', requireAuth, (req, res) => {
+  const workspace = workspaceStore.getWorkspace(req.params.workspaceId);
+  if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+  
+  // Must be a member to view
+  const role = workspaceStore.getUserRole(req.user.id, req.params.workspaceId);
+  if (!role) return res.status(403).json({ error: 'Not a member of this workspace' });
+
+  res.json({ success: true, workspace: { ...workspace, role } });
+});
+
+// PUT /api/workspaces/:workspaceId - Update workspace
+app.put('/api/workspaces/:workspaceId', requireAuth, requireWorkspacePermission('workspace.settings'), async (req, res) => {
+  const { name, description, color } = req.body;
+  const updated = workspaceStore.updateWorkspace(req.params.workspaceId, { name, description, color });
+  if (!updated) return res.status(404).json({ error: 'Workspace not found' });
+
+  await workspaceStore.persistWorkspaces();
+  res.json({ success: true, workspace: updated });
+});
+
+// DELETE /api/workspaces/:workspaceId - Delete workspace (owner only)
+app.delete('/api/workspaces/:workspaceId', requireAuth, requireWorkspacePermission('workspace.delete'), async (req, res) => {
+  workspaceStore.deleteWorkspace(req.params.workspaceId);
+  await workspaceStore.persistWorkspaces();
+  res.json({ success: true });
+});
+
+// GET /api/workspaces/:workspaceId/members - Get all members
+app.get('/api/workspaces/:workspaceId/members', requireAuth, requireWorkspacePermission('board.view'), (req, res) => {
+  const members = workspaceStore.getWorkspaceMembers(req.params.workspaceId);
+  res.json({ success: true, members });
+});
+
+// POST /api/workspaces/:workspaceId/invite - Invite user to workspace
+app.post('/api/workspaces/:workspaceId/invite', requireAuth, requireWorkspacePermission('workspace.invite'), async (req, res) => {
+  const { email, role } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const inviteRole = role || 'member';
+  if (!workspaceStore.isValidRole(inviteRole)) {
+    return res.status(400).json({ error: `Invalid role. Must be one of: ${workspaceStore.VALID_ROLES.join(', ')}` });
+  }
+
+  // Cannot invite as owner
+  if (inviteRole === 'owner') {
+    return res.status(400).json({ error: 'Cannot invite as owner. Transfer ownership instead.' });
+  }
+
+  // Check if user's role allows assigning this role
+  const callerRole = workspaceStore.getUserRole(req.user.id, req.params.workspaceId);
+  if (!workspaceStore.hasHigherOrEqualRole(callerRole, inviteRole)) {
+    return res.status(403).json({ error: 'Cannot assign a role higher than your own' });
+  }
+
+  const workspace = workspaceStore.getWorkspace(req.params.workspaceId);
+  const invite = workspaceStore.createWorkspaceInvite(
+    req.params.workspaceId,
+    req.user.id,
+    req.user.fullName,
+    email,
+    inviteRole
+  );
+
+  await workspaceStore.persistWorkspaces();
+
+  // Try sending email (silent fail if email service not configured)
+  try {
+    await emailService.sendInviteEmail(
+      email,
+      req.user.fullName,
+      workspace.name,
+      invite.token
+    );
+  } catch (e) {
+    console.warn('[Workspace] Email send failed:', e.message);
+  }
+
+  res.json({
+    success: true,
+    invite: {
+      token: invite.token,
+      email: invite.targetEmail,
+      role: invite.role,
+      expiresAt: invite.expiresAt,
+      workspaceName: workspace.name
+    }
+  });
+});
+
+// GET /api/workspaces/:workspaceId/invites - Get pending invites
+app.get('/api/workspaces/:workspaceId/invites', requireAuth, requireWorkspacePermission('workspace.invite'), (req, res) => {
+  const invites = workspaceStore.getWorkspacePendingInvites(req.params.workspaceId);
+  res.json({ success: true, invites });
+});
+
+// DELETE /api/workspaces/:workspaceId/invites/:token - Revoke invite
+app.delete('/api/workspaces/:workspaceId/invites/:token', requireAuth, requireWorkspacePermission('workspace.invite'), async (req, res) => {
+  workspaceStore.revokeWorkspaceInvite(req.params.token);
+  await workspaceStore.persistWorkspaces();
+  res.json({ success: true });
+});
+
+// PUT /api/workspaces/:workspaceId/members/:userId/role - Change member role
+app.put('/api/workspaces/:workspaceId/members/:userId/role', requireAuth, requireWorkspacePermission('workspace.change_role'), async (req, res) => {
+  const { role: newRole } = req.body;
+  if (!newRole || !workspaceStore.isValidRole(newRole)) {
+    return res.status(400).json({ error: `Invalid role. Must be one of: ${workspaceStore.VALID_ROLES.join(', ')}` });
+  }
+
+  const targetMembership = workspaceStore.getMembership(req.params.userId, req.params.workspaceId);
+  if (!targetMembership) return res.status(404).json({ error: 'Member not found' });
+
+  // Cannot change owner's role (only owner can transfer ownership)
+  if (targetMembership.role === 'owner' && req.user.id !== targetMembership.userId) {
+    return res.status(403).json({ error: 'Cannot change owner role' });
+  }
+
+  // Admin cannot promote to owner
+  const callerRole = workspaceStore.getUserRole(req.user.id, req.params.workspaceId);
+  if (newRole === 'owner' && callerRole !== 'owner') {
+    return res.status(403).json({ error: 'Only the owner can transfer ownership' });
+  }
+
+  // If transferring ownership, demote current owner to admin
+  if (newRole === 'owner' && callerRole === 'owner') {
+    workspaceStore.updateMembershipRole(req.user.id, req.params.workspaceId, 'admin');
+  }
+
+  workspaceStore.updateMembershipRole(req.params.userId, req.params.workspaceId, newRole);
+  await workspaceStore.persistWorkspaces();
+
+  res.json({ success: true, userId: req.params.userId, newRole });
+});
+
+// DELETE /api/workspaces/:workspaceId/members/:userId - Remove member
+app.delete('/api/workspaces/:workspaceId/members/:userId', requireAuth, requireWorkspacePermission('workspace.remove_member'), async (req, res) => {
+  const targetMembership = workspaceStore.getMembership(req.params.userId, req.params.workspaceId);
+  if (!targetMembership) return res.status(404).json({ error: 'Member not found' });
+
+  // Cannot remove the owner
+  if (targetMembership.role === 'owner') {
+    return res.status(403).json({ error: 'Cannot remove workspace owner' });
+  }
+
+  // Admin cannot remove other admins (only owner can)
+  const callerRole = workspaceStore.getUserRole(req.user.id, req.params.workspaceId);
+  if (targetMembership.role === 'admin' && callerRole !== 'owner') {
+    return res.status(403).json({ error: 'Only owner can remove admins' });
+  }
+
+  workspaceStore.removeMembership(req.params.userId, req.params.workspaceId);
+  await workspaceStore.persistWorkspaces();
+
+  res.json({ success: true });
+});
+
+// POST /api/workspaces/:workspaceId/leave - Leave workspace (self)
+app.post('/api/workspaces/:workspaceId/leave', requireAuth, async (req, res) => {
+  const membership = workspaceStore.getMembership(req.user.id, req.params.workspaceId);
+  if (!membership) return res.status(404).json({ error: 'Not a member of this workspace' });
+
+  // Owner cannot leave (must transfer ownership first)
+  if (membership.role === 'owner') {
+    return res.status(403).json({ error: 'Owner cannot leave. Transfer ownership first.' });
+  }
+
+  workspaceStore.removeMembership(req.user.id, req.params.workspaceId);
+  await workspaceStore.persistWorkspaces();
+
+  res.json({ success: true });
+});
+
+// GET /api/workspaces/:workspaceId/permissions - Get current user's permissions in workspace
+app.get('/api/workspaces/:workspaceId/permissions', requireAuth, (req, res) => {
+  const role = workspaceStore.getUserRole(req.user.id, req.params.workspaceId);
+  if (!role) return res.status(403).json({ error: 'Not a member' });
+
+  const permissions = {};
+  for (const [perm, roles] of Object.entries(workspaceStore.PERMISSIONS)) {
+    permissions[perm] = roles.includes(role);
+  }
+
+  res.json({ success: true, role, permissions });
+});
+
 // ===== Email & Invite System =====
 
 // Invite store: token -> { email, inviterEmail, orgName, boardId, createdAt, expiresAt, used }
@@ -1088,7 +1374,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '18';
+const APP_VERSION = '19';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
@@ -1119,6 +1405,8 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   // Initialize database tables
   await dataStore.initDatabase();
   console.log(`Storage: ${dataStore.getStatus().type}`);
+  // Load workspace data from persistent storage
+  await workspaceStore.loadWorkspaces();
 });
 
 process.on('SIGTERM', () => {

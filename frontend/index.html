@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=18">
+    <link rel="stylesheet" href="styles.css?v=19">
 </head>
 <body>
 
@@ -197,15 +197,16 @@
                     <div class="sidebar-section-header">
                         <span>Workspaces</span>
                         <div class="sidebar-section-actions">
-                            <span class="material-icons-outlined" style="font-size:16px">more_horiz</span>
-                            <span class="material-icons-outlined" style="font-size:16px">search</span>
+                            <span class="material-icons-outlined" style="font-size:16px;cursor:pointer" onclick="openWorkspaceSettings()">more_horiz</span>
                         </div>
                     </div>
-                    <div class="workspace-selector">
-                        <div class="workspace-icon">M</div>
-                        <span>Main workspa...</span>
-                        <button class="add-workspace-btn">+</button>
+                    <div id="workspaceList" class="workspace-list">
+                        <!-- Dynamically populated -->
                     </div>
+                    <button class="add-workspace-btn-full" onclick="showCreateWorkspaceModal()">
+                        <span class="material-icons-outlined" style="font-size:16px">add</span>
+                        <span>Add workspace</span>
+                    </button>
                     <div class="sidebar-project-list">
                         <a href="#" class="sidebar-item project-item active" data-board="board1">
                             <span class="material-icons-outlined">table_chart</span>
@@ -560,6 +561,90 @@
         </div>
     </div>
 
+    <!-- ==================== WORKSPACE MODALS ==================== -->
+    
+    <!-- Create Workspace Modal -->
+    <div id="createWorkspaceModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeCreateWorkspaceModal()">
+        <div class="modal-card workspace-modal">
+            <div class="modal-header">
+                <h3><span class="material-icons-outlined">add_business</span> Create Workspace</h3>
+                <button class="modal-close-btn" onclick="closeCreateWorkspaceModal()">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <label class="modal-label">Workspace Name</label>
+                <input type="text" id="newWorkspaceName" class="modal-input" placeholder="e.g. Marketing Team, Project X...">
+                <label class="modal-label">Description (optional)</label>
+                <input type="text" id="newWorkspaceDesc" class="modal-input" placeholder="What's this workspace for?">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeCreateWorkspaceModal()">Cancel</button>
+                <button class="btn-primary" onclick="createWorkspace()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workspace Settings Modal -->
+    <div id="workspaceSettingsModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeWorkspaceSettingsModal()">
+        <div class="modal-card workspace-modal workspace-settings-modal">
+            <div class="modal-header">
+                <h3><span class="material-icons-outlined">settings</span> Workspace Settings</h3>
+                <button class="modal-close-btn" onclick="closeWorkspaceSettingsModal()">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Tabs -->
+                <div class="ws-tabs">
+                    <button class="ws-tab active" data-tab="ws-general" onclick="switchWsTab('ws-general')">General</button>
+                    <button class="ws-tab" data-tab="ws-members" onclick="switchWsTab('ws-members')">Members</button>
+                    <button class="ws-tab" data-tab="ws-invite" onclick="switchWsTab('ws-invite')">Invite</button>
+                </div>
+
+                <!-- General Tab -->
+                <div id="ws-general" class="ws-tab-content active">
+                    <label class="modal-label">Workspace Name</label>
+                    <input type="text" id="wsSettingsName" class="modal-input">
+                    <label class="modal-label">Description</label>
+                    <input type="text" id="wsSettingsDesc" class="modal-input">
+                    <div class="ws-settings-actions">
+                        <button class="btn-primary" onclick="saveWorkspaceSettings()">Save Changes</button>
+                        <button class="btn-danger" id="wsDeleteBtn" onclick="deleteWorkspaceConfirm()">Delete Workspace</button>
+                    </div>
+                    <div class="ws-role-info">
+                        <p><strong>Your role:</strong> <span id="wsCurrentRole">-</span></p>
+                    </div>
+                </div>
+
+                <!-- Members Tab -->
+                <div id="ws-members" class="ws-tab-content">
+                    <div id="wsMembersList" class="ws-members-list">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Invite Tab -->
+                <div id="ws-invite" class="ws-tab-content">
+                    <label class="modal-label">Email Address</label>
+                    <input type="email" id="wsInviteEmail" class="modal-input" placeholder="user@example.com">
+                    <label class="modal-label">Role</label>
+                    <select id="wsInviteRole" class="modal-input">
+                        <option value="member">Member — can edit tasks and boards</option>
+                        <option value="admin">Admin — can manage members and settings</option>
+                        <option value="viewer">Viewer — read-only access</option>
+                    </select>
+                    <button class="btn-primary" onclick="sendWorkspaceInvite()" style="margin-top:12px">Send Invite</button>
+                    
+                    <div class="ws-pending-invites">
+                        <h4>Pending Invites</h4>
+                        <div id="wsPendingInvites"><!-- Populated dynamically --></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== VERSION UPDATE POPUP ==================== -->
     <div id="versionUpdatePopup" class="version-update-popup" style="display:none">
         <div class="version-update-content">
@@ -572,6 +657,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=18"></script>
+    <script src="app.js?v=19"></script>
 </body>
 </html>
