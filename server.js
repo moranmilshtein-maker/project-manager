@@ -1035,6 +1035,12 @@ app.get('/api/user-data/status', (req, res) => {
   res.json(dataStore.getStatus());
 });
 
+// GET /api/user-data/debug-list - List all stored data keys (admin only, temporary)
+app.get('/api/user-data/debug-list', requireSuperAdmin, async (req, res) => {
+  const list = await dataStore.listAllData();
+  res.json({ success: true, records: list });
+});
+
 // ===== WORKSPACE API =====
 
 // Middleware: authenticate and attach user to request
