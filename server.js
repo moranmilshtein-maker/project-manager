@@ -1493,13 +1493,26 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Security: bcrypt(${BCRYPT_ROUNDS} rounds), rate-limit(5/min auth, 100/min API), helmet`);
   console.log(`Users in store: ${users.size}`);
   // Initialize database tables
-  await dataStore.initDatabase();
-  console.log(`Storage: ${dataStore.getStatus().type}`);
+  try {
+    await dataStore.initDatabase();
+    console.log(`Storage: ${dataStore.getStatus().type}`);
+  } catch (e) {
+    console.error('[Startup] Database init failed:', e.message);
+  }
   // Load persisted data
-  await loadUsers();
-  await loadSessions();
+  try {
+    await loadUsers();
+    await loadSessions();
+  } catch (e) {
+    console.error('[Startup] Failed to load users/sessions:', e.message);
+  }
   // Load workspace data from persistent storage
-  await workspaceStore.loadWorkspaces();
+  try {
+    await workspaceStore.loadWorkspaces();
+  } catch (e) {
+    console.error('[Startup] Failed to load workspaces:', e.message);
+  }
+  console.log(`Startup complete. Users: ${users.size}, Sessions: ${sessions.size}`);
 });
 
 process.on('SIGTERM', () => {
