@@ -3910,6 +3910,15 @@ function initRowDragAndDrop() {
     });
 }
 
+function initGroupDragAndDrop() {
+    // Group drag handles are already set up with draggable="true" in the HTML template.
+    // Document-level dragstart/dragover/drop listeners handle the actual reordering.
+    // This function ensures any dynamically added groups get their handles marked.
+    document.querySelectorAll('.group-drag-handle').forEach(handle => {
+        handle.setAttribute('draggable', 'true');
+    });
+}
+
 // Document-level drag handlers for rows (work across all groups/tables)
 document.addEventListener('dragstart', function(e) {
     // Check for group drag (via drag handle)
