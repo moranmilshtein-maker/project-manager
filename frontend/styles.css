@@ -4169,3 +4169,155 @@ tr.subtask-row:hover .subtask-action-btn {
         width: 100%;
     }
 }
+
+/* ===== SNAPSHOT STYLES ===== */
+.snapshot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.snapshot-info-card {
+    background: #f6f7fb;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.snapshot-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.snapshot-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.snapshot-info-label {
+    font-size: 11px;
+    color: #676879;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.snapshot-info-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #323338;
+}
+
+.snapshot-status-valid {
+    color: #00c875;
+}
+
+.snapshot-trigger-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.snapshot-trigger-auto {
+    background: #e6f4ea;
+    color: #1e7e34;
+}
+
+.snapshot-trigger-manual {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.snapshot-trigger-startup {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.snapshot-trigger-pre-restore {
+    background: #fce4ec;
+    color: #c62828;
+}
+
+.snapshot-action-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: #676879;
+    transition: all 0.15s;
+}
+
+.snapshot-action-btn:hover {
+    background: #e6e9ef;
+}
+
+.snapshot-view-btn:hover {
+    color: #0073ea;
+}
+
+.snapshot-restore-btn:hover {
+    color: #e2445c;
+}
+
+.snapshot-loading {
+    color: #676879;
+    font-style: italic;
+}
+
+.snapshot-empty {
+    color: #676879;
+    font-style: italic;
+    margin: 0;
+}
+
+.snapshot-error {
+    color: #e2445c;
+}
+
+.snapshot-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.snapshot-detail-header h4 {
+    margin: 0;
+    color: #323338;
+}
+
+.snapshot-users-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.snapshot-user-card {
+    background: #f6f7fb;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #e6e9ef;
+}
+
+.snapshot-user-email {
+    font-weight: 600;
+    color: #323338;
+    margin-bottom: 6px;
+    font-size: 13px;
+    word-break: break-all;
+}
+
+.snapshot-user-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: #676879;
+}
+
+.snapshot-user-meta strong {
+    color: #323338;
+}

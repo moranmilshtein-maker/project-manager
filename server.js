@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const dataStore = require('./data-store');
 const workspaceStore = require('./workspace-store');
+const snapshotStore = require('./snapshot-store');
 let emailService;
 try {
   emailService = require('./email-service');
@@ -1041,6 +1042,59 @@ app.get('/api/user-data/debug-list', requireSuperAdmin, async (req, res) => {
   res.json({ success: true, records: list });
 });
 
+// ===== SNAPSHOT API (Super Admin Only) =====
+
+// GET /api/snapshots - List all valid snapshots
+app.get('/api/snapshots', requireSuperAdmin, async (req, res) => {
+  try {
+    const snapshots = await snapshotStore.listSnapshots();
+    res.json({ success: true, snapshots });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/snapshots/latest - Get latest snapshot info
+app.get('/api/snapshots/latest', requireSuperAdmin, async (req, res) => {
+  try {
+    const info = await snapshotStore.getLatestSnapshotInfo();
+    res.json({ success: true, snapshot: info });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/snapshots/:id - Get snapshot details (with user summaries)
+app.get('/api/snapshots/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const details = await snapshotStore.getSnapshotDetails(parseInt(req.params.id));
+    if (!details) return res.status(404).json({ success: false, error: 'Snapshot not found' });
+    res.json({ success: true, snapshot: details });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/snapshots/create - Manually create a snapshot
+app.post('/api/snapshots/create', requireSuperAdmin, async (req, res) => {
+  try {
+    const result = await snapshotStore.createSnapshot('manual');
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/snapshots/:id/restore - Restore from a snapshot
+app.post('/api/snapshots/:id/restore', requireSuperAdmin, async (req, res) => {
+  try {
+    const result = await snapshotStore.restoreFromSnapshot(parseInt(req.params.id));
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ===== WORKSPACE API =====
 
 // Middleware: authenticate and attach user to request
@@ -1517,6 +1571,13 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     await workspaceStore.loadWorkspaces();
   } catch (e) {
     console.error('[Startup] Failed to load workspaces:', e.message);
+  }
+  // Initialize snapshot system
+  try {
+    await snapshotStore.initSnapshotTable();
+    snapshotStore.startScheduler();
+  } catch (e) {
+    console.error('[Startup] Failed to init snapshots:', e.message);
   }
   console.log(`Startup complete. Users: ${users.size}, Sessions: ${sessions.size}`);
 });
