@@ -2022,6 +2022,9 @@ function openChat(taskId) {
 function showAuthScreen() {
     document.getElementById('authScreen').style.display = 'flex';
     document.getElementById('appMain').style.display = 'none';
+    // Close any open modals
+    document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+    document.querySelectorAll('.modal-overlay[style*="display: flex"], .modal-overlay[style*="display:flex"]').forEach(m => m.style.display = 'none');
     showLoginForm();
 }
 

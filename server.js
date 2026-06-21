@@ -194,8 +194,89 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+// User persistence - save/load users from data store
+const USER_DATA_KEY = '__system__users';
+const USER_SAVE_DEBOUNCE = 5000;
+let userSaveTimer = null;
+
+function scheduleSaveUsers() {
+  if (userSaveTimer) return;
+  userSaveTimer = setTimeout(async () => {
+    userSaveTimer = null;
+    await persistUsers();
+  }, USER_SAVE_DEBOUNCE);
+}
+
+async function persistUsers() {
+  try {
+    const userData = Object.fromEntries(users);
+    await dataStore.writeUserData(USER_DATA_KEY, 'users', userData);
+  } catch (e) {
+    console.error('[Users] Failed to persist:', e.message);
+  }
+}
+
+async function loadUsers() {
+  try {
+    const data = await dataStore.readUserData(USER_DATA_KEY, 'users');
+    if (data && typeof data === 'object') {
+      let count = 0;
+      for (const [key, userData] of Object.entries(data)) {
+        if (!users.has(key)) { // Don't overwrite seeded super admin
+          users.set(key, userData);
+          count++;
+        }
+      }
+      console.log(`[Users] Restored ${count} users from persistent storage`);
+    }
+  } catch (e) {
+    console.error('[Users] Failed to load:', e.message);
+  }
+}
+
 // Session store: token -> userKey (email:provider)
 const sessions = new Map();
+
+// Session persistence - save/load sessions from data store
+const SESSION_DATA_KEY = '__system__sessions';
+const SESSION_SAVE_DEBOUNCE = 5000; // Save at most every 5 seconds
+let sessionSaveTimer = null;
+
+function scheduleSaveSessiones() {
+  if (sessionSaveTimer) return; // Already scheduled
+  sessionSaveTimer = setTimeout(async () => {
+    sessionSaveTimer = null;
+    await persistSessions();
+  }, SESSION_SAVE_DEBOUNCE);
+}
+
+async function persistSessions() {
+  try {
+    const sessionData = Object.fromEntries(sessions);
+    await dataStore.writeUserData(SESSION_DATA_KEY, 'sessions', sessionData);
+  } catch (e) {
+    console.error('[Sessions] Failed to persist:', e.message);
+  }
+}
+
+async function loadSessions() {
+  try {
+    const data = await dataStore.readUserData(SESSION_DATA_KEY, 'sessions');
+    if (data && typeof data === 'object') {
+      let count = 0;
+      for (const [token, userKey] of Object.entries(data)) {
+        // Only restore session if user exists
+        if (users.has(userKey)) {
+          sessions.set(token, userKey);
+          count++;
+        }
+      }
+      console.log(`[Sessions] Restored ${count} sessions from persistent storage`);
+    }
+  } catch (e) {
+    console.error('[Sessions] Failed to load:', e.message);
+  }
+}
 
 // Helper: get safe user object (no password)
 function safeUser(user) {
@@ -300,6 +381,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     users.set(key, user);
     recordLogin(user, req, 'register');
+    scheduleSaveUsers();
 
     // Create a default workspace for the new user
     const defaultWs = workspaceStore.createWorkspace(
@@ -310,6 +392,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     const token = generateToken();
     sessions.set(token, key);
+    scheduleSaveSessiones();
 
     res.json({ success: true, token, user: safeUser(user) });
   } catch (err) {
@@ -347,10 +430,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     recordLogin(user, req, 'email');
+    scheduleSaveUsers();
 
     const token = generateToken();
     sessions.set(token, key);
-
+    scheduleSaveSessiones();
     res.json({ success: true, token, user: safeUser(user) });
   } catch (err) {
     console.error('Login error:', err);
@@ -370,6 +454,7 @@ app.get('/api/auth/me', (req, res) => {
   const user = users.get(key);
   if (!user) {
     sessions.delete(token);
+    scheduleSaveSessiones();
     return res.status(401).json({ error: 'User not found' });
   }
 
@@ -380,6 +465,7 @@ app.get('/api/auth/me', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   sessions.delete(token);
+  scheduleSaveSessiones();
   res.json({ success: true });
 });
 
@@ -427,9 +513,11 @@ app.post('/api/auth/oauth-login', authLimiter, (req, res) => {
 
   // Record login
   recordLogin(user, req, oauthProvider);
+  scheduleSaveUsers();
 
   const token = generateToken();
   sessions.set(token, key);
+  scheduleSaveSessiones();
 
   res.json({ success: true, token, user: safeUser(user) });
 });
@@ -586,6 +674,7 @@ app.post('/api/auth/invite', (req, res) => {
     users.set(key, user);
     invited.push(email);
   });
+  scheduleSaveUsers();
 
   res.json({ success: true, invited, skipped, totalUsers: users.size });
 });
@@ -1405,6 +1494,9 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   // Initialize database tables
   await dataStore.initDatabase();
   console.log(`Storage: ${dataStore.getStatus().type}`);
+  // Load persisted data
+  await loadUsers();
+  await loadSessions();
   // Load workspace data from persistent storage
   await workspaceStore.loadWorkspaces();
 });
