@@ -1419,9 +1419,21 @@ const invites = new Map();
 // Email preferences store: userKey -> { invites: bool, notifications: bool, updates: bool }
 const emailPreferences = new Map();
 
+// Check if user exists (Super Admin - for invite wizard)
+app.get('/api/admin/check-user', requireSuperAdmin, (req, res) => {
+  const email = (req.query.email || '').toLowerCase().trim();
+  if (!email) return res.json({ exists: false });
+  for (const [key, user] of users.entries()) {
+    if (user.email === email) {
+      return res.json({ exists: true, fullName: user.fullName, email: user.email });
+    }
+  }
+  res.json({ exists: false });
+});
+
 // Send invite email (Super Admin only)
 app.post('/api/invites/send', requireSuperAdmin, async (req, res) => {
-  const { email, orgName, boardId } = req.body;
+  const { email, orgName, boardId, workspaceId, role } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
   const inviteToken = crypto.randomBytes(24).toString('hex');
@@ -1432,7 +1444,9 @@ app.post('/api/invites/send', requireSuperAdmin, async (req, res) => {
     inviterEmail: req.caller.email,
     inviterName: req.caller.fullName,
     orgName: orgName || 'Main workspace',
+    workspaceId: workspaceId || null,
     boardId: boardId || null,
+    role: role || 'member',
     createdAt: new Date().toISOString(),
     expiresAt,
     used: false
@@ -1472,6 +1486,21 @@ app.post('/api/invites/use/:token', (req, res) => {
   const invite = invites.get(req.params.token);
   if (!invite) return res.status(404).json({ error: 'Invalid invite' });
   invite.used = true;
+
+  // If invite has a workspaceId, add the new user to that workspace
+  if (invite.workspaceId) {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    const userKey = sessions.get(token);
+    const user = userKey ? users.get(userKey) : null;
+    if (user) {
+      const existingMembership = workspaceStore.getMembership(user.id, invite.workspaceId);
+      if (!existingMembership) {
+        workspaceStore.addMembership(user.id, user.fullName, user.email, invite.workspaceId, invite.role || 'member');
+        workspaceStore.persistWorkspaces().catch(() => {});
+      }
+    }
+  }
+
   res.json({ success: true });
 });
 
@@ -1568,7 +1597,16 @@ app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
 
-app.use(express.static(path.join(__dirname, 'frontend')));
+// Serve index.html with dynamic cache-busting timestamp
+app.get('/', (req, res) => {
+  const fs = require('fs');
+  let html = fs.readFileSync(path.join(__dirname, 'frontend', 'index.html'), 'utf8');
+  const ts = Date.now();
+  html = html.replace(/\?v=\d+/g, `?v=${ts}`);
+  res.set('Content-Type', 'text/html');
+  res.send(html);
+});
+app.use(express.static(path.join(__dirname, 'frontend'), { etag: false, lastModified: false }));
 
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/auth')) return next();

@@ -519,17 +519,55 @@
 
             <!-- Email & Invites Tab -->
             <div id="adminEmailTab" class="admin-tab-content" style="display:none">
-                <!-- Invite Section -->
+                <!-- Invite Section - Step Wizard -->
                 <div class="admin-email-section">
                     <h3><span class="material-icons-outlined">person_add</span> Send Invite</h3>
-                    <div class="admin-invite-form">
-                        <div class="admin-invite-fields">
-                            <input type="email" id="inviteEmail" class="admin-input" placeholder="Email address">
-                            <input type="text" id="inviteOrgName" class="admin-input" placeholder="Organization name (optional)" value="Main workspace">
+                    <div class="invite-wizard" id="inviteWizard">
+                        <!-- Step 1: Email -->
+                        <div class="invite-step active" id="inviteStep1">
+                            <label class="invite-step-label">1. Email address</label>
+                            <div class="invite-step-row">
+                                <input type="text" id="adminInviteEmail" class="admin-input" placeholder="Enter email address">
+                                <button type="button" class="admin-btn-primary" onclick="inviteNextStep(1)">Next →</button>
+                            </div>
                         </div>
-                        <button class="admin-btn-primary" onclick="sendInviteEmail()">
-                            <span class="material-icons-outlined">send</span> Send Invite
-                        </button>
+                        <!-- Step 2: Workspace -->
+                        <div class="invite-step" id="inviteStep2">
+                            <label class="invite-step-label">2. Workspace</label>
+                            <div class="invite-step-row">
+                                <select id="inviteWorkspaceSelect" class="admin-input" onchange="onInviteWorkspaceChange()">
+                                    <option value="">-- Select workspace --</option>
+                                </select>
+                                <button type="button" class="invite-btn-back" onclick="inviteBackStep(2)">←</button>
+                                <button type="button" class="admin-btn-primary" onclick="inviteNextStep(2)">Next →</button>
+                            </div>
+                        </div>
+                        <!-- Step 3: Board -->
+                        <div class="invite-step" id="inviteStep3">
+                            <label class="invite-step-label">3. Board (optional)</label>
+                            <div class="invite-step-row">
+                                <select id="inviteBoardSelect" class="admin-input">
+                                    <option value="">All boards (no restriction)</option>
+                                </select>
+                                <button type="button" class="invite-btn-back" onclick="inviteBackStep(3)">←</button>
+                                <button type="button" class="admin-btn-primary" onclick="inviteNextStep(3)">Next →</button>
+                            </div>
+                        </div>
+                        <!-- Step 4: Role -->
+                        <div class="invite-step" id="inviteStep4">
+                            <label class="invite-step-label">4. Permission</label>
+                            <div class="invite-step-row">
+                                <select id="inviteRoleSelect" class="admin-input">
+                                    <option value="member">Member (edit tasks)</option>
+                                    <option value="admin">Admin (manage members)</option>
+                                    <option value="viewer">Viewer (read only)</option>
+                                </select>
+                                <button type="button" class="invite-btn-back" onclick="inviteBackStep(4)">←</button>
+                                <button type="button" class="admin-btn-primary" onclick="sendInviteEmail()">
+                                    <span class="material-icons-outlined">send</span> Send
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div id="inviteResult" class="admin-invite-result"></div>
                 </div>
