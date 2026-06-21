@@ -3405,13 +3405,7 @@ function renderBoardSidebar() {
             <span class="board-menu-trigger material-icons-outlined" onclick="event.preventDefault(); event.stopPropagation(); showBoardContextMenu(event, '${board.id}')">more_horiz</span>
         </a>`;
     });
-    // Add admin dashboard link inside the board list for super_admin users
-    if (currentUser && currentUser.role === 'super_admin') {
-        html += `<a href="#" class="sidebar-item sidebar-admin-item" onclick="event.preventDefault(); toggleAdminDashboard()" style="margin-top:8px;">
-            <span class="material-icons-outlined">admin_panel_settings</span>
-            <span class="sidebar-label">Admin Dashboard</span>
-        </a>`;
-    }
+
     list.innerHTML = html;
     // Show the ellipsis on hover
     list.querySelectorAll('.project-item').forEach(item => {
