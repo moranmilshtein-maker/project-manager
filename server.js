@@ -63,12 +63,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Prevent caching of JS/CSS files during development
+// Prevent caching of HTML/JS/CSS files
 app.use((req, res, next) => {
-  if (req.path.endsWith('.js') || req.path.endsWith('.css')) {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  if (req.path.endsWith('.js') || req.path.endsWith('.css') || req.path.endsWith('.html') || req.path === '/') {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
   }
   next();
 });
