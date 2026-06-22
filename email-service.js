@@ -13,7 +13,7 @@ const { Resend } = require('resend');
 
 // Configuration
 const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_8kmEWxhe_7qgbrdyB3TiPFDtwTSzThQZa';
-const APP_URL = process.env.APP_URL || 'https://project-manager-slgm.onrender.com';
+const APP_URL = process.env.APP_URL || 'https://butterli.io';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'numi <onboarding@resend.dev>';
 
 const resend = new Resend(RESEND_API_KEY);
