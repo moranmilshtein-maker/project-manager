@@ -14,7 +14,7 @@ const { Resend } = require('resend');
 // Configuration
 const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_8kmEWxhe_7qgbrdyB3TiPFDtwTSzThQZa';
 const APP_URL = process.env.APP_URL || 'https://butterli.io';
-const FROM_EMAIL = process.env.FROM_EMAIL || 'numi <onboarding@resend.dev>';
+const FROM_EMAIL = process.env.FROM_EMAIL || 'butterli <invite@butterli.io>';
 
 const resend = new Resend(RESEND_API_KEY);
 
@@ -48,8 +48,8 @@ function getInviteEmailHTML(inviterName, orgName, inviteLink) {
                             <circle cx="18" cy="18" r="4" fill="#00ca72"/>
                         </svg>
                     </div>
-                    <h1 style="color:#ffffff; margin:12px 0 0; font-size:24px; font-weight:600; direction:ltr; unicode-bidi:bidi-override;">numi</h1>
-                    <p style="color:rgba(255,255,255,0.85); margin:4px 0 0; font-size:13px; direction:ltr; unicode-bidi:bidi-override;">work management</p>
+                    <h1 style="color:#ffffff; margin:12px 0 0; font-size:24px; font-weight:600; direction:ltr; unicode-bidi:bidi-override;">butterli</h1>
+                    <p style="color:rgba(255,255,255,0.85); margin:4px 0 0; font-size:13px; direction:ltr; unicode-bidi:bidi-override;">butterli.io</p>
                 </td></tr>
                 
                 <!-- Body -->
@@ -79,7 +79,7 @@ function getInviteEmailHTML(inviterName, orgName, inviteLink) {
                 <!-- Footer -->
                 <tr><td style="background:#f5f6f8; padding:20px 32px; text-align:center; border-top:1px solid #ecedf0;" dir="rtl">
                     <p style="color:#999; font-size:11px; margin:0; direction:rtl;">
-                        &#x200F;נשלח מ-${LRI}numi work management${PDI}
+                        &#x200F;נשלח מ-${LRI}butterli${PDI}
                     </p>
                 </td></tr>
             </table>
@@ -95,13 +95,11 @@ function getInviteEmailHTML(inviterName, orgName, inviteLink) {
 function getNotificationEmailHTML(userName, subject, bodyText, orgName, ctaText, ctaLink) {
     // Process bodyText to isolate English segments within Hebrew RTL
     const processedBody = bodyText
-        .replace(/\bnumi work management\b/g, `${LRI}numi work management${PDI}`)
-        .replace(/\bnumi\b/g, `${LRI}numi${PDI}`);
+        .replace(/\bbutterli\b/g, `${LRI}butterli${PDI}`);
     
     // Process subject similarly
     const processedSubject = subject
-        .replace(/\bnumi work management\b/g, `${LRI}numi work management${PDI}`)
-        .replace(/\bnumi\b/g, `${LRI}numi${PDI}`);
+        .replace(/\bbutterli\b/g, `${LRI}butterli${PDI}`);
 
     return `
 <!DOCTYPE html>
@@ -116,7 +114,7 @@ function getNotificationEmailHTML(userName, subject, bodyText, orgName, ctaText,
             <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:12px; overflow:hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                 <!-- Header -->
                 <tr><td style="background: linear-gradient(135deg, #6161ff 0%, #7b68ee 100%); padding:24px; text-align:center;">
-                    <h1 style="color:#ffffff; margin:0; font-size:20px; font-weight:600; direction:ltr; unicode-bidi:bidi-override;">numi</h1>
+                    <h1 style="color:#ffffff; margin:0; font-size:20px; font-weight:600; direction:ltr; unicode-bidi:bidi-override;">butterli</h1>
                     ${orgName ? `<p style="color:rgba(255,255,255,0.85); margin:4px 0 0; font-size:12px;">${orgName}</p>` : ''}
                 </td></tr>
                 
@@ -130,7 +128,7 @@ function getNotificationEmailHTML(userName, subject, bodyText, orgName, ctaText,
                     <table width="100%" cellpadding="0" cellspacing="0">
                         <tr><td align="center">
                             <a href="${ctaLink}" style="display:inline-block; background:#6161ff; color:#ffffff; text-decoration:none; padding:12px 32px; border-radius:8px; font-size:14px; font-weight:600; direction:rtl;">
-                                &#x200F;${ctaText.replace(/\bnumi\b/g, LRI + 'numi' + PDI)}
+                                &#x200F;${ctaText.replace(/\bbutterli\b/g, LRI + 'butterli' + PDI)}
                             </a>
                         </td></tr>
                     </table>` : ''}
@@ -139,7 +137,7 @@ function getNotificationEmailHTML(userName, subject, bodyText, orgName, ctaText,
                 <!-- Footer -->
                 <tr><td style="background:#f5f6f8; padding:16px 32px; text-align:center; border-top:1px solid #ecedf0;" dir="rtl">
                     <p style="color:#999; font-size:11px; margin:0; direction:rtl;">
-                        &#x200F;נשלח מ-${LRI}numi work management${PDI} | <a href="${APP_URL}" style="color:#6161ff; text-decoration:none;">&#x200F;פתח את ${LRI}numi${PDI}</a>
+                        &#x200F;נשלח מ-${LRI}butterli${PDI} | <a href="${APP_URL}" style="color:#6161ff; text-decoration:none;">&#x200F;פתח את ${LRI}butterli${PDI}</a>
                     </p>
                 </td></tr>
             </table>
@@ -159,7 +157,7 @@ async function sendInviteEmail(toEmail, inviterName, orgName, inviteToken) {
         const { data, error } = await resend.emails.send({
             from: FROM_EMAIL,
             to: [toEmail],
-            subject: `\u200F${inviterName} מזמין אותך להצטרף ל-${orgName} ב-numi`,
+            subject: `\u200F${inviterName} מזמין אותך להצטרף ל-${orgName} ב-butterli`,
             html: getInviteEmailHTML(inviterName, orgName, inviteLink)
         });
 
