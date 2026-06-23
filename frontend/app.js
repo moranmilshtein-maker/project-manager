@@ -5712,8 +5712,8 @@ function initWorkspaces() {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '25';
-const VERSION_CHECK_INTERVAL = 300000; // Check every 5 minutes
+const CURRENT_APP_VERSION = '26';
+const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
 function checkForUpdates() {
