@@ -1203,6 +1203,10 @@ app.post('/api/workspaces/join/:token', requireAuth, async (req, res) => {
   workspaceStore.useWorkspaceInvite(req.params.token);
   await workspaceStore.persistWorkspaces();
 
+  // Also mark admin invite as used (if this token exists in both systems)
+  const adminInvite = invites.get(req.params.token);
+  if (adminInvite) adminInvite.used = true;
+
   const workspace = workspaceStore.getWorkspace(invite.workspaceId);
   res.json({ success: true, workspace: { ...workspace, role: invite.role } });
 });
@@ -1290,6 +1294,20 @@ app.post('/api/workspaces/:workspaceId/invite', requireAuth, requireWorkspacePer
   );
 
   await workspaceStore.persistWorkspaces();
+
+  // Also track in admin invites map (for admin dashboard visibility)
+  invites.set(invite.token, {
+    email: email.toLowerCase().trim(),
+    inviterEmail: req.user.email,
+    inviterName: req.user.fullName,
+    orgName: workspace.name,
+    workspaceId: req.params.workspaceId,
+    boardId: null,
+    role: inviteRole,
+    createdAt: new Date().toISOString(),
+    expiresAt: invite.expiresAt,
+    used: false
+  });
 
   // Try sending email (silent fail if email service not configured)
   try {
@@ -1436,9 +1454,34 @@ app.post('/api/invites/send', requireSuperAdmin, async (req, res) => {
   const { email, orgName, boardId, workspaceId, role } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
-  const inviteToken = crypto.randomBytes(24).toString('hex');
+  const inviteRole = role || 'member';
+  let inviteToken;
+  let wsInvite = null;
+
+  // If workspace is selected, create a workspace invite (so the join flow works)
+  if (workspaceId) {
+    const workspace = workspaceStore.getWorkspace(workspaceId);
+    if (workspace) {
+      wsInvite = workspaceStore.createWorkspaceInvite(
+        workspaceId,
+        req.caller.id || 'super_admin',
+        req.caller.fullName,
+        email.toLowerCase().trim(),
+        inviteRole
+      );
+      inviteToken = wsInvite.token;
+      await workspaceStore.persistWorkspaces();
+    }
+  }
+
+  // Fallback: generate standalone token if no workspace invite was created
+  if (!inviteToken) {
+    inviteToken = crypto.randomBytes(24).toString('hex');
+  }
+
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
 
+  // Also store in admin invites map (for admin dashboard tracking)
   invites.set(inviteToken, {
     email: email.toLowerCase().trim(),
     inviterEmail: req.caller.email,
@@ -1446,7 +1489,7 @@ app.post('/api/invites/send', requireSuperAdmin, async (req, res) => {
     orgName: orgName || 'Main workspace',
     workspaceId: workspaceId || null,
     boardId: boardId || null,
-    role: role || 'member',
+    role: inviteRole,
     createdAt: new Date().toISOString(),
     expiresAt,
     used: false
