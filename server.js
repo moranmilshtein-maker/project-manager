@@ -1262,23 +1262,43 @@ app.get('/api/workspaces/:workspaceId/members', requireAuth, requireWorkspacePer
   const workspaceId = req.params.workspaceId;
   
   // Auto-reconcile: find registered users who were invited but never added as members
+  // Scan admin invites (in-memory)
   for (const [token, invite] of invites) {
     if (invite.workspaceId === workspaceId && invite.email) {
-      // Find registered user with this email
       for (const [key, user] of users.entries()) {
         if (user.email === invite.email) {
-          // User exists — ensure they are a workspace member
           const existing = workspaceStore.getMembership(user.id, workspaceId);
           if (!existing) {
             workspaceStore.addMembership(user.id, user.fullName, user.email, workspaceId, invite.role || 'member');
             invite.used = true;
-            console.log(`[Reconcile] Auto-added ${user.email} to workspace ${workspaceId}`);
+            console.log(`[Reconcile] Auto-added ${user.email} to workspace ${workspaceId} (from admin invite)`);
           }
           break;
         }
       }
     }
   }
+
+  // Scan workspace invites (persisted — survives server restarts)
+  const allWsInvites = workspaceStore.getAllWorkspaceInvites(workspaceId);
+  for (const invite of allWsInvites) {
+    if (invite.targetEmail) {
+      for (const [key, user] of users.entries()) {
+        if (user.email === invite.targetEmail) {
+          const existing = workspaceStore.getMembership(user.id, workspaceId);
+          if (!existing) {
+            workspaceStore.addMembership(user.id, user.fullName, user.email, workspaceId, invite.role || 'member');
+            invite.used = true;
+            console.log(`[Reconcile] Auto-added ${user.email} to workspace ${workspaceId} (from workspace invite)`);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // Persist any changes from reconciliation
+  await workspaceStore.persistWorkspaces();
 
   const members = workspaceStore.getWorkspaceMembers(workspaceId);
   res.json({ success: true, members });
@@ -1352,6 +1372,44 @@ app.post('/api/workspaces/:workspaceId/invite', requireAuth, requireWorkspacePer
       workspaceName: workspace.name
     }
   });
+});
+
+// POST /api/workspaces/:workspaceId/members/add - Add existing registered user directly (admin/owner only)
+app.post('/api/workspaces/:workspaceId/members/add', requireAuth, requireWorkspacePermission('workspace.invite'), async (req, res) => {
+  const { email, role } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const addRole = role || 'member';
+  if (!workspaceStore.isValidRole(addRole)) {
+    return res.status(400).json({ error: `Invalid role. Must be one of: ${workspaceStore.VALID_ROLES.join(', ')}` });
+  }
+  if (addRole === 'owner') {
+    return res.status(400).json({ error: 'Cannot add as owner. Transfer ownership instead.' });
+  }
+
+  // Find registered user
+  let targetUser = null;
+  for (const [key, user] of users.entries()) {
+    if (user.email === email.toLowerCase().trim()) {
+      targetUser = user;
+      break;
+    }
+  }
+  if (!targetUser) {
+    return res.status(404).json({ error: 'User not registered. Send an invite instead.' });
+  }
+
+  // Check if already a member
+  const existing = workspaceStore.getMembership(targetUser.id, req.params.workspaceId);
+  if (existing) {
+    return res.status(409).json({ error: 'User is already a workspace member' });
+  }
+
+  workspaceStore.addMembership(targetUser.id, targetUser.fullName, targetUser.email, req.params.workspaceId, addRole);
+  await workspaceStore.persistWorkspaces();
+
+  console.log(`[Workspace] Directly added ${targetUser.email} to workspace ${req.params.workspaceId} as ${addRole}`);
+  res.json({ success: true, member: { userId: targetUser.id, fullName: targetUser.fullName, email: targetUser.email, role: addRole } });
 });
 
 // GET /api/workspaces/:workspaceId/invites - Get pending invites
@@ -1667,7 +1725,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '24';
+const APP_VERSION = '25';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

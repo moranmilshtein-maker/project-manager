@@ -313,6 +313,19 @@ function getWorkspacePendingInvites(workspaceId) {
 }
 
 /**
+ * Get ALL invites for a workspace (including used/expired) - for reconciliation
+ */
+function getAllWorkspaceInvites(workspaceId) {
+  const result = [];
+  for (const [token, invite] of workspaceInvites) {
+    if (invite.workspaceId === workspaceId) {
+      result.push(invite);
+    }
+  }
+  return result;
+}
+
+/**
  * Revoke (delete) a pending invite
  */
 function revokeWorkspaceInvite(token) {
@@ -348,10 +361,8 @@ async function loadWorkspaces() {
     }
     if (data.invites) {
       for (const [key, value] of Object.entries(data.invites)) {
-        // Only load non-expired invites
-        if (!value.used && new Date(value.expiresAt) > new Date()) {
-          workspaceInvites.set(key, value);
-        }
+        // Load all invites (including used/expired) for reconciliation purposes
+        workspaceInvites.set(key, value);
       }
     }
     console.log(`[WorkspaceStore] Loaded ${workspaces.size} workspaces, ${memberships.size} memberships`);
@@ -394,6 +405,7 @@ module.exports = {
   getWorkspaceInvite,
   useWorkspaceInvite,
   getWorkspacePendingInvites,
+  getAllWorkspaceInvites,
   revokeWorkspaceInvite,
   
   // Persistence
