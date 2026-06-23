@@ -3365,7 +3365,7 @@ async function loadPendingInvites() {
         }
         let html = '<table class="admin-email-table"><thead><tr><th>Email</th><th>Organization</th><th>Status</th><th>Sent</th></tr></thead><tbody>';
         invites.forEach(inv => {
-            const status = inv.used ? '<span style="color:#00c875">Used</span>' :
+            const status = inv.used ? '<span style="color:#00c875">Accepted</span>' :
                            new Date(inv.expiresAt) < new Date() ? '<span style="color:#e2445c">Expired</span>' :
                            '<span style="color:#fdab3d">Pending</span>';
             const date = new Date(inv.createdAt).toLocaleDateString('he-IL');
