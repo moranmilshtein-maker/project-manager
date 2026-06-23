@@ -4225,6 +4225,7 @@ tr.subtask-row:hover .subtask-action-btn {
     font-size: 13px;
     font-weight: 600;
     flex-shrink: 0;
+    object-fit: cover;
 }
 
 .ws-member-info {

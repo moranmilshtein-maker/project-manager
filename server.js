@@ -1302,7 +1302,12 @@ app.get('/api/workspaces/:workspaceId/members', requireAuth, requireWorkspacePer
   await persistAdminInvites();
 
   const members = workspaceStore.getWorkspaceMembers(workspaceId);
-  res.json({ success: true, members });
+  // Enrich members with profile picture from user store
+  const enrichedMembers = members.map(m => {
+    const user = findUserByEmail(m.userEmail);
+    return { ...m, picture: (user && user.picture) || '' };
+  });
+  res.json({ success: true, members: enrichedMembers });
 });
 
 // POST /api/workspaces/:workspaceId/invite - Invite user to workspace
@@ -1772,7 +1777,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '27';
+const APP_VERSION = '28';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

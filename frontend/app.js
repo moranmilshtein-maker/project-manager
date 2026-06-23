@@ -5491,7 +5491,10 @@ function renderMembers(members) {
     const canManage = settingsWorkspaceRole === 'owner' || settingsWorkspaceRole === 'admin';
     
     container.innerHTML = members.map(m => {
-        const initial = (m.userName || m.userEmail || '?').charAt(0).toUpperCase();
+        const initials = getInitials(m.userName || m.userEmail || '?');
+        const avatarHtml = m.picture
+            ? `<img src="${m.picture}" class="ws-member-avatar" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'ws-member-avatar\\'>${initials}</div>'">`
+            : `<div class="ws-member-avatar">${initials}</div>`;
         const actionsHtml = canManage && m.role !== 'owner' ? `
             <div class="ws-member-actions">
                 <select onchange="changeMemberRole('${m.userId}', this.value)">
@@ -5505,7 +5508,7 @@ function renderMembers(members) {
         
         return `
             <div class="ws-member-row">
-                <div class="ws-member-avatar">${initial}</div>
+                ${avatarHtml}
                 <div class="ws-member-info">
                     <div class="ws-member-name">${escapeHtml(m.userName || 'Unknown')}</div>
                     <div class="ws-member-email">${escapeHtml(m.userEmail || '')}</div>
@@ -5719,7 +5722,7 @@ function initWorkspaces() {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '27';
+const CURRENT_APP_VERSION = '28';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
