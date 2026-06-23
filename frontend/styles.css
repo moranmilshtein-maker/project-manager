@@ -76,6 +76,12 @@ body {
     gap: 8px;
 }
 
+.logo-img {
+    height: 28px;
+    width: auto;
+    object-fit: contain;
+}
+
 .logo-text {
     font-size: 18px;
     font-weight: 700;
