@@ -5712,7 +5712,7 @@ function initWorkspaces() {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '23';
+const CURRENT_APP_VERSION = '24';
 const VERSION_CHECK_INTERVAL = 300000; // Check every 5 minutes
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
