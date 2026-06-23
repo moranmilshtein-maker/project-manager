@@ -60,6 +60,21 @@ function getAvatarHTML(user, size, extraClass) {
     return `<div class="user-avatar user-avatar-initials ${extraClass}" style="width:${size}px;height:${size}px;font-size:${Math.round(size*0.34)}px;">${initials}</div>`;
 }
 
+// Helper: Get avatar for "Last Updated" column - shows picture or initials circle
+// Uses the same style as the Owner column avatar
+function getUpdatedAvatarHTML(ownerName) {
+    if (!ownerName) return '';
+    // Try to find member in cached workspace members by name
+    const member = cachedWorkspaceMembers.find(m => 
+        m.userName === ownerName || getInitials(m.userName || m.userEmail) === ownerName
+    );
+    const initials = getInitials(ownerName);
+    if (member && member.picture) {
+        return `<img src="${member.picture}" class="updated-avatar-img" title="${escapeHtml(ownerName)}" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'updated-avatar\\' title=\\'${escapeHtml(ownerName)}\\'>${initials}</div>'">`; 
+    }
+    return `<div class="updated-avatar" title="${escapeHtml(ownerName)}">${initials}</div>`;
+}
+
 // Auth token management - only token stored in localStorage, no passwords
 function saveAuthToken() {
     try {
@@ -940,8 +955,8 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
             </td>`;
         case 'owner': return `<td class="cell-owner">
                 ${task.owner
-                    ? `<div class="owner-avatar has-owner" ${!isViewer ? `onclick="toggleOwner('${taskIdStr}', '${groupIdStr}')"` : ''}>${escapeHtml(task.owner)}</div>`
-                    : `<div class="owner-avatar no-owner" ${!isViewer ? `onclick="toggleOwner('${taskIdStr}', '${groupIdStr}')"` : ''}><span class="material-icons-outlined">person_add</span></div>`
+                    ? `<div class="owner-avatar has-owner" ${!isViewer ? `onclick="toggleOwner(event, '${taskIdStr}', '${groupIdStr}')"` : ''} title="${escapeHtml(task.owner)}">${escapeHtml(getInitials(task.owner))}</div>`
+                    : `<div class="owner-avatar no-owner" ${!isViewer ? `onclick="toggleOwner(event, '${taskIdStr}', '${groupIdStr}')"` : ''} title="Assign this task"><span class="owner-plus-icon">+</span></div>`
                 }
             </td>`;
         case 'status': return `<td class="cell-status">
@@ -975,7 +990,7 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
             </td>`;
         case 'updated': return `<td class="cell-updated">
                 <div class="updated-content">
-                    ${task.owner ? `<div class="updated-avatar">${escapeHtml(task.owner)}</div>` : ''}
+                    ${task.owner ? getUpdatedAvatarHTML(task.owner) : ''}
                     <span>${formatLastUpdated(task.lastUpdated)}</span>
                 </div>
             </td>`;
@@ -1160,8 +1175,8 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
             </td>`;
         case 'owner': return `<td class="cell-owner">
                 ${sub.owner
-                    ? `<div class="owner-avatar has-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>${escapeHtml(sub.owner)}</div>`
-                    : `<div class="owner-avatar no-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}><span class="material-icons-outlined">person_add</span></div>`
+                    ? `<div class="owner-avatar has-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''} title="${escapeHtml(sub.owner)}">${escapeHtml(getInitials(sub.owner))}</div>`
+                    : `<div class="owner-avatar no-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''} title="Assign this task"><span class="owner-plus-icon">+</span></div>`
                 }
             </td>`;
         case 'status': return `<td class="cell-status">
@@ -1195,7 +1210,7 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
             </td>`;
         case 'updated': return `<td class="cell-updated">
                 <div class="updated-content">
-                    ${sub.owner ? `<div class="updated-avatar">${escapeHtml(sub.owner)}</div>` : ''}
+                    ${sub.owner ? getUpdatedAvatarHTML(sub.owner) : ''}
                     <span>${formatLastUpdated(sub.lastUpdated)}</span>
                 </div>
             </td>`;
@@ -1342,16 +1357,8 @@ function editSubtaskName(subtaskId, taskId, groupId, element) {
 }
 
 // Toggle subtask owner
-function toggleSubtaskOwner(subtaskId, taskId, groupId) {
-    const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) {
-        const initials = currentUser ? getInitials(currentUser.fullName || currentUser.email) : 'MM';
-        subtask.owner = subtask.owner ? '' : initials;
-        subtask.lastUpdated = nowISO();
-        task.lastUpdated = nowISO();
-        saveToStorage();
-        renderBoard();
-    }
+function toggleSubtaskOwner(event, subtaskId, taskId, groupId) {
+    showOwnerPopup(event, taskId, groupId, subtaskId);
 }
 
 // Show subtask status dropdown
@@ -1650,14 +1657,8 @@ function editBudget(taskId, groupId, cell) {
 
 function editTimeline(taskId, groupId) { openTaskModal(taskId, groupId); }
 
-function toggleOwner(taskId, groupId) {
-    const { task } = findTask(taskId, groupId);
-    if (task) {
-        const initials = currentUser ? getInitials(currentUser.fullName || currentUser.email) : 'MM';
-        task.owner = task.owner ? '' : initials;
-        task.lastUpdated = nowISO();
-        renderBoard();
-    }
+function toggleOwner(event, taskId, groupId) {
+    showOwnerPopup(event, taskId, groupId, null);
 }
 
 // ===== Group Editing =====
@@ -5001,6 +5002,7 @@ async function restoreSnapshot(snapshotId) {
 // ===== WORKSPACE MANAGEMENT =====
 let userWorkspaces = [];
 let activeWorkspaceId = null;
+let cachedWorkspaceMembers = []; // Cached members for owner assignment
 
 async function loadWorkspaces() {
     if (!authToken) return;
@@ -5025,8 +5027,183 @@ async function loadWorkspaces() {
         }
         
         renderWorkspaceList();
+        // Load members for owner assignment
+        await loadActiveWorkspaceMembers();
     } catch (e) {
         console.error('Failed to load workspaces:', e);
+    }
+}
+
+// Load workspace members for owner assignment
+async function loadActiveWorkspaceMembers() {
+    if (!activeWorkspaceId || !authToken) { cachedWorkspaceMembers = []; return; }
+    try {
+        const res = await fetch(`/api/workspaces/${activeWorkspaceId}/members`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+            cachedWorkspaceMembers = data.members || [];
+        }
+    } catch (e) {
+        cachedWorkspaceMembers = [];
+    }
+}
+
+// ===== OWNER ASSIGNMENT POPUP =====
+let ownerPopupTarget = null; // { taskId, groupId, subtaskId? }
+
+function showOwnerPopup(event, taskId, groupId, subtaskId) {
+    event.stopPropagation();
+    ownerPopupTarget = { taskId, groupId, subtaskId: subtaskId || null };
+    
+    // Remove existing popup
+    const existingPopup = document.getElementById('ownerAssignPopup');
+    if (existingPopup) existingPopup.remove();
+    
+    const popup = document.createElement('div');
+    popup.id = 'ownerAssignPopup';
+    popup.className = 'owner-assign-popup';
+    popup.innerHTML = `
+        <div class="owner-popup-search">
+            <input type="text" id="ownerSearchInput" placeholder="Name or email" autocomplete="off">
+        </div>
+        <div class="owner-popup-list" id="ownerPopupList"></div>
+        <div class="owner-popup-invite" onclick="ownerInviteTeammate()">
+            <span class="material-icons-outlined" style="font-size:16px;color:#0073ea">person_add</span>
+            <span style="color:#0073ea">Invite teammates via email</span>
+        </div>
+    `;
+    
+    document.body.appendChild(popup);
+    
+    // Position popup near the clicked element
+    const rect = event.target.closest('.cell-owner').getBoundingClientRect();
+    popup.style.top = (rect.bottom + 4) + 'px';
+    popup.style.left = Math.max(10, rect.left - 80) + 'px';
+    
+    // Render members list
+    renderOwnerPopupList('');
+    
+    // Focus search
+    const searchInput = document.getElementById('ownerSearchInput');
+    setTimeout(() => searchInput.focus(), 50);
+    searchInput.addEventListener('input', (e) => {
+        renderOwnerPopupList(e.target.value.toLowerCase().trim());
+    });
+    
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', closeOwnerPopupOutside);
+    }, 10);
+}
+
+function renderOwnerPopupList(filter) {
+    const container = document.getElementById('ownerPopupList');
+    if (!container) return;
+    
+    let members = cachedWorkspaceMembers;
+    if (filter) {
+        members = members.filter(m => 
+            (m.userName || '').toLowerCase().includes(filter) ||
+            (m.userEmail || '').toLowerCase().includes(filter)
+        );
+    }
+    
+    if (members.length === 0) {
+        container.innerHTML = '<div style="padding:8px 12px;color:#999;font-size:12px">No members found</div>';
+        return;
+    }
+    
+    // Add "Unassign" option at top if task already has owner
+    let html = '';
+    const currentOwner = getCurrentOwnerForTarget();
+    if (currentOwner) {
+        html += `<div class="owner-popup-item unassign-item" onclick="assignOwner(null)">
+            <div class="owner-popup-avatar unassign-avatar"><span class="material-icons-outlined" style="font-size:14px">close</span></div>
+            <div class="owner-popup-info"><span class="owner-popup-name">Unassign</span></div>
+        </div>`;
+    }
+    
+    members.forEach(m => {
+        const initials = getInitials(m.userName || m.userEmail || '?');
+        const avatarHtml = m.picture 
+            ? `<img src="${m.picture}" class="owner-popup-avatar" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'owner-popup-avatar\\'>${initials}</div>'">`
+            : `<div class="owner-popup-avatar">${initials}</div>`;
+        html += `<div class="owner-popup-item" onclick="assignOwner('${escapeHtml(m.userId)}')">
+            ${avatarHtml}
+            <div class="owner-popup-info">
+                <span class="owner-popup-name">${escapeHtml(m.userName || 'Unknown')}</span>
+                <span class="owner-popup-email">${escapeHtml(m.userEmail || '')}</span>
+            </div>
+        </div>`;
+    });
+    
+    container.innerHTML = html;
+}
+
+function getCurrentOwnerForTarget() {
+    if (!ownerPopupTarget) return null;
+    const { taskId, groupId, subtaskId } = ownerPopupTarget;
+    if (subtaskId) {
+        const { subtask } = findSubtask(subtaskId, taskId, groupId);
+        return subtask ? subtask.owner : null;
+    }
+    const { task } = findTask(taskId, groupId);
+    return task ? task.owner : null;
+}
+
+function assignOwner(userId) {
+    if (!ownerPopupTarget) return;
+    const { taskId, groupId, subtaskId } = ownerPopupTarget;
+    
+    let ownerValue = '';
+    if (userId) {
+        const member = cachedWorkspaceMembers.find(m => m.userId === userId);
+        if (member) {
+            ownerValue = member.userName || getInitials(member.userEmail || '?');
+        }
+    }
+    
+    if (subtaskId) {
+        const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
+        if (subtask) {
+            subtask.owner = ownerValue;
+            subtask.lastUpdated = nowISO();
+            task.lastUpdated = nowISO();
+        }
+    } else {
+        const { task } = findTask(taskId, groupId);
+        if (task) {
+            task.owner = ownerValue;
+            task.lastUpdated = nowISO();
+        }
+    }
+    
+    closeOwnerPopup();
+    saveToStorage();
+    renderBoard();
+}
+
+function ownerInviteTeammate() {
+    closeOwnerPopup();
+    // Open workspace settings to invite new members
+    if (typeof openWorkspaceSettings === 'function') {
+        openWorkspaceSettings();
+    }
+}
+
+function closeOwnerPopup() {
+    const popup = document.getElementById('ownerAssignPopup');
+    if (popup) popup.remove();
+    ownerPopupTarget = null;
+    document.removeEventListener('click', closeOwnerPopupOutside);
+}
+
+function closeOwnerPopupOutside(e) {
+    const popup = document.getElementById('ownerAssignPopup');
+    if (popup && !popup.contains(e.target)) {
+        closeOwnerPopup();
     }
 }
 
