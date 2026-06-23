@@ -1508,6 +1508,17 @@ app.post('/api/invites/use/:token', (req, res) => {
 app.get('/api/invites', requireSuperAdmin, (req, res) => {
   const list = [];
   invites.forEach((invite, token) => {
+    // Auto-detect if invited user has already registered
+    if (!invite.used) {
+      const invitedEmail = (invite.email || '').toLowerCase().trim();
+      for (const [key, user] of users.entries()) {
+        if (user.email === invitedEmail) {
+          // User exists — mark invite as accepted
+          invite.used = true;
+          break;
+        }
+      }
+    }
     list.push({ ...invite, token: token.substring(0, 8) + '...' });
   });
   list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
