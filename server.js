@@ -1563,6 +1563,18 @@ async function loadAdminInvites() {
 // Email preferences store: userKey -> { invites: bool, notifications: bool, updates: bool }
 const emailPreferences = new Map();
 
+// Check if user exists (any authenticated user — for invite flow hint)
+app.get('/api/users/check', requireAuth, (req, res) => {
+  const email = (req.query.email || '').toLowerCase().trim();
+  if (!email) return res.json({ exists: false });
+  for (const [key, user] of users.entries()) {
+    if (user.email === email) {
+      return res.json({ exists: true, fullName: user.fullName });
+    }
+  }
+  res.json({ exists: false });
+});
+
 // Check if user exists (Super Admin - for invite wizard)
 app.get('/api/admin/check-user', requireSuperAdmin, (req, res) => {
   const email = (req.query.email || '').toLowerCase().trim();
@@ -1777,7 +1789,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '28';
+const APP_VERSION = '29';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

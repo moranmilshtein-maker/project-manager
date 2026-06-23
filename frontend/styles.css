@@ -4286,6 +4286,104 @@ tr.subtask-row:hover .subtask-action-btn {
 }
 
 /* Pending invites */
+/* ===== Enhanced Invite Flow ===== */
+.invite-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.invite-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.invite-field .modal-label {
+    margin-bottom: 0;
+}
+
+.invite-email-wrapper {
+    position: relative;
+}
+
+.invite-email-wrapper .modal-input {
+    padding-right: 36px;
+}
+
+.invite-email-status {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    line-height: 1;
+}
+
+.invite-email-status.valid::after {
+    content: '✓';
+    color: #00c875;
+}
+
+.invite-email-status.invalid::after {
+    content: '✗';
+    color: #e2445c;
+}
+
+.invite-email-status.checking::after {
+    content: '⟳';
+    color: #999;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: translateY(-50%) rotate(0deg); }
+    to { transform: translateY(-50%) rotate(360deg); }
+}
+
+.invite-error {
+    color: #e2445c;
+    font-size: 11px;
+    min-height: 14px;
+}
+
+.invite-optional {
+    color: #999;
+    font-weight: 400;
+    font-size: 11px;
+}
+
+.invite-send-btn {
+    margin-top: 4px;
+    width: 100%;
+    padding: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: opacity 0.2s;
+}
+
+.invite-send-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.invite-user-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #e8faf0;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #037f4c;
+    margin-top: 2px;
+}
+
+.invite-user-hint .material-icons-outlined {
+    font-size: 14px;
+}
+
 .ws-pending-invites {
     margin-top: 20px;
 }

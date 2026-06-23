@@ -715,15 +715,45 @@
 
                 <!-- Invite Tab -->
                 <div id="ws-invite" class="ws-tab-content">
-                    <label class="modal-label">Email Address</label>
-                    <input type="email" id="wsInviteEmail" class="modal-input" placeholder="user@example.com">
-                    <label class="modal-label">Role</label>
-                    <select id="wsInviteRole" class="modal-input">
-                        <option value="member">Member — can edit tasks and boards</option>
-                        <option value="admin">Admin — can manage members and settings</option>
-                        <option value="viewer">Viewer — read-only access</option>
-                    </select>
-                    <button class="btn-primary" onclick="sendWorkspaceInvite()" style="margin-top:12px">Send Invite</button>
+                    <div class="invite-flow">
+                        <!-- Step 1: Email -->
+                        <div class="invite-field">
+                            <label class="modal-label">Email Address</label>
+                            <div class="invite-email-wrapper">
+                                <input type="email" id="wsInviteEmail" class="modal-input" placeholder="user@example.com" oninput="validateInviteEmail()">
+                                <span id="wsInviteEmailStatus" class="invite-email-status"></span>
+                            </div>
+                            <small id="wsInviteEmailError" class="invite-error"></small>
+                        </div>
+
+                        <!-- Step 2: Workspace -->
+                        <div class="invite-field">
+                            <label class="modal-label">Workspace</label>
+                            <select id="wsInviteWorkspace" class="modal-input" onchange="onInviteWorkspaceChange()">
+                            </select>
+                        </div>
+
+                        <!-- Step 3: Board (optional) -->
+                        <div class="invite-field">
+                            <label class="modal-label">Board <span class="invite-optional">(optional)</span></label>
+                            <select id="wsInviteBoard" class="modal-input">
+                                <option value="">All boards</option>
+                            </select>
+                        </div>
+
+                        <!-- Step 4: Role -->
+                        <div class="invite-field">
+                            <label class="modal-label">Role</label>
+                            <select id="wsInviteRole" class="modal-input">
+                                <option value="member">Member — can edit tasks and boards</option>
+                                <option value="admin">Admin — can manage members and settings</option>
+                                <option value="viewer">Viewer — read-only access</option>
+                            </select>
+                        </div>
+
+                        <!-- Send button -->
+                        <button class="btn-primary invite-send-btn" id="wsInviteSendBtn" onclick="sendWorkspaceInvite()" disabled>Send Invite</button>
+                    </div>
                     
                     <div class="ws-pending-invites">
                         <h4>Pending Invites</h4>

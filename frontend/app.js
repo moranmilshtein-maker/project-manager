@@ -5417,6 +5417,11 @@ function switchWsTab(tabId) {
     document.querySelectorAll('.ws-tab-content').forEach(t => t.classList.remove('active'));
     document.querySelector(`.ws-tab[data-tab="${tabId}"]`).classList.add('active');
     document.getElementById(tabId).classList.add('active');
+    
+    // Initialize invite tab when switching to it
+    if (tabId === 'ws-invite') {
+        initInviteTab();
+    }
 }
 
 async function saveWorkspaceSettings() {
@@ -5555,29 +5560,150 @@ async function removeMember(userId, name) {
     }
 }
 
-// Invitations
+// ===== Enhanced Invite Flow =====
+let inviteEmailValid = false;
+let inviteEmailTimeout = null;
+
+function initInviteTab() {
+    // Populate workspace dropdown
+    const wsSelect = document.getElementById('wsInviteWorkspace');
+    if (!wsSelect) return;
+    
+    wsSelect.innerHTML = userWorkspaces.map(ws => 
+        `<option value="${ws.id}" ${ws.id === settingsWorkspaceId ? 'selected' : ''}>${escapeHtml(ws.name)}</option>`
+    ).join('');
+    
+    // Load boards for the selected workspace
+    onInviteWorkspaceChange();
+    
+    // Reset form state
+    document.getElementById('wsInviteEmail').value = '';
+    document.getElementById('wsInviteEmailError').textContent = '';
+    document.getElementById('wsInviteEmailStatus').className = 'invite-email-status';
+    updateInviteSendBtn();
+}
+
+function validateInviteEmail() {
+    const input = document.getElementById('wsInviteEmail');
+    const email = input.value.trim();
+    const errorEl = document.getElementById('wsInviteEmailError');
+    const statusEl = document.getElementById('wsInviteEmailStatus');
+    
+    // Clear previous timeout
+    if (inviteEmailTimeout) clearTimeout(inviteEmailTimeout);
+    
+    if (!email) {
+        statusEl.className = 'invite-email-status';
+        errorEl.textContent = '';
+        inviteEmailValid = false;
+        updateInviteSendBtn();
+        return;
+    }
+    
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        statusEl.className = 'invite-email-status invalid';
+        errorEl.textContent = 'Please enter a valid email address';
+        inviteEmailValid = false;
+        updateInviteSendBtn();
+        return;
+    }
+    
+    // Email format is valid
+    statusEl.className = 'invite-email-status checking';
+    errorEl.textContent = '';
+    inviteEmailValid = true;
+    updateInviteSendBtn();
+    
+    // Debounced check if user exists (for UX hint)
+    inviteEmailTimeout = setTimeout(async () => {
+        try {
+            const res = await fetch(`/api/users/check?email=${encodeURIComponent(email)}`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const data = await res.json();
+            if (data.exists) {
+                statusEl.className = 'invite-email-status valid';
+                errorEl.innerHTML = `<span class="invite-user-hint"><span class="material-icons-outlined">check_circle</span> ${escapeHtml(data.fullName)} is registered — will be added directly</span>`;
+            } else {
+                statusEl.className = 'invite-email-status valid';
+                errorEl.textContent = '';
+            }
+        } catch (e) {
+            statusEl.className = 'invite-email-status valid';
+            errorEl.textContent = '';
+        }
+    }, 500);
+}
+
+async function onInviteWorkspaceChange() {
+    const wsId = document.getElementById('wsInviteWorkspace').value;
+    const boardSelect = document.getElementById('wsInviteBoard');
+    boardSelect.innerHTML = '<option value="">All boards</option>';
+    
+    if (!wsId || !authToken) return;
+    
+    try {
+        const res = await fetch(`/api/user-data/boards?workspaceId=${wsId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const data = await res.json();
+        if (data.success && data.data && data.data.boards) {
+            data.data.boards
+                .filter(b => !b.archived)
+                .forEach(b => {
+                    boardSelect.innerHTML += `<option value="${b.id}">${escapeHtml(b.name)}</option>`;
+                });
+        }
+    } catch (e) {
+        // Silent fail — boards dropdown stays with "All boards"
+    }
+}
+
+function updateInviteSendBtn() {
+    const btn = document.getElementById('wsInviteSendBtn');
+    if (btn) btn.disabled = !inviteEmailValid;
+}
+
 async function sendWorkspaceInvite() {
     const email = document.getElementById('wsInviteEmail').value.trim();
     const role = document.getElementById('wsInviteRole').value;
+    const wsId = document.getElementById('wsInviteWorkspace').value;
+    const boardId = document.getElementById('wsInviteBoard').value;
+    
     if (!email) return alert('Please enter an email address');
+    if (!wsId) return alert('Please select a workspace');
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return alert('Please enter a valid email address');
     
     if (!authToken) return alert('Not authenticated. Please log in again.');
+    
+    const btn = document.getElementById('wsInviteSendBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    
     try {
-        const res = await fetch(`/api/workspaces/${settingsWorkspaceId}/invite`, {
+        const res = await fetch(`/api/workspaces/${wsId}/invite`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, role })
+            body: JSON.stringify({ email, role, boardId: boardId || undefined })
         });
         const data = await res.json();
         if (data.success) {
             document.getElementById('wsInviteEmail').value = '';
+            document.getElementById('wsInviteEmailStatus').className = 'invite-email-status';
+            document.getElementById('wsInviteEmailError').textContent = '';
+            inviteEmailValid = false;
+            updateInviteSendBtn();
+            
             if (data.autoAdded) {
-                alert(`${data.member.userName || email} is already registered and was added directly to the workspace as ${data.member.role}!`);
-                // Refresh members list and cache
+                alert(`✓ ${data.member.userName || email} is already registered and was added directly as ${data.member.role}!`);
                 loadWorkspaceMembers();
                 loadActiveWorkspaceMembers();
             } else {
-                alert(`Invite sent to ${email}!\n\nInvite link: ${window.location.origin}/?invite=${data.invite.token}`);
+                alert(`✓ Invite sent to ${email}!\n\nInvite link: ${window.location.origin}/?invite=${data.invite.token}`);
                 loadWsPendingInvites();
             }
         } else {
@@ -5585,6 +5711,10 @@ async function sendWorkspaceInvite() {
         }
     } catch (e) {
         alert('Error sending invite');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send Invite';
+        updateInviteSendBtn();
     }
 }
 
@@ -5722,7 +5852,7 @@ function initWorkspaces() {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '28';
+const CURRENT_APP_VERSION = '29';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
