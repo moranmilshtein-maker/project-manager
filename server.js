@@ -1258,8 +1258,29 @@ app.delete('/api/workspaces/:workspaceId', requireAuth, requireWorkspacePermissi
 });
 
 // GET /api/workspaces/:workspaceId/members - Get all members
-app.get('/api/workspaces/:workspaceId/members', requireAuth, requireWorkspacePermission('board.view'), (req, res) => {
-  const members = workspaceStore.getWorkspaceMembers(req.params.workspaceId);
+app.get('/api/workspaces/:workspaceId/members', requireAuth, requireWorkspacePermission('board.view'), async (req, res) => {
+  const workspaceId = req.params.workspaceId;
+  
+  // Auto-reconcile: find registered users who were invited but never added as members
+  for (const [token, invite] of invites) {
+    if (invite.workspaceId === workspaceId && invite.email) {
+      // Find registered user with this email
+      for (const [key, user] of users.entries()) {
+        if (user.email === invite.email) {
+          // User exists — ensure they are a workspace member
+          const existing = workspaceStore.getMembership(user.id, workspaceId);
+          if (!existing) {
+            workspaceStore.addMembership(user.id, user.fullName, user.email, workspaceId, invite.role || 'member');
+            invite.used = true;
+            console.log(`[Reconcile] Auto-added ${user.email} to workspace ${workspaceId}`);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  const members = workspaceStore.getWorkspaceMembers(workspaceId);
   res.json({ success: true, members });
 });
 
