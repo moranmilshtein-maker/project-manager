@@ -1828,6 +1828,12 @@ tr.subtask-done .date-display {
     margin-bottom: 32px;
 }
 
+.auth-logo-img {
+    height: 40px;
+    width: auto;
+    object-fit: contain;
+}
+
 .auth-logo-text {
     font-size: 24px;
     font-weight: 700;
