@@ -1299,6 +1299,7 @@ app.get('/api/workspaces/:workspaceId/members', requireAuth, requireWorkspacePer
 
   // Persist any changes from reconciliation
   await workspaceStore.persistWorkspaces();
+  await persistAdminInvites();
 
   const members = workspaceStore.getWorkspaceMembers(workspaceId);
   res.json({ success: true, members });
@@ -1325,6 +1326,24 @@ app.post('/api/workspaces/:workspaceId/invite', requireAuth, requireWorkspacePer
     return res.status(403).json({ error: 'Cannot assign a role higher than your own' });
   }
 
+  // Check if already a member
+  const existingByEmail = findUserByEmail(email.toLowerCase().trim());
+  if (existingByEmail) {
+    const existingMembership = workspaceStore.getMembership(existingByEmail.id, req.params.workspaceId);
+    if (existingMembership) {
+      return res.status(409).json({ error: 'User is already a workspace member' });
+    }
+    // User is registered but not a member — add directly without invite email
+    workspaceStore.addMembership(existingByEmail.id, existingByEmail.fullName, existingByEmail.email, req.params.workspaceId, inviteRole);
+    await workspaceStore.persistWorkspaces();
+    console.log(`[Workspace] Auto-added registered user ${existingByEmail.email} to workspace ${req.params.workspaceId} as ${inviteRole}`);
+    return res.json({
+      success: true,
+      autoAdded: true,
+      member: { userId: existingByEmail.id, userName: existingByEmail.fullName, userEmail: existingByEmail.email, role: inviteRole }
+    });
+  }
+
   const workspace = workspaceStore.getWorkspace(req.params.workspaceId);
   const invite = workspaceStore.createWorkspaceInvite(
     req.params.workspaceId,
@@ -1349,6 +1368,7 @@ app.post('/api/workspaces/:workspaceId/invite', requireAuth, requireWorkspacePer
     expiresAt: invite.expiresAt,
     used: false
   });
+  await persistAdminInvites();
 
   // Try sending email (silent fail if email service not configured)
   try {
@@ -1513,6 +1533,28 @@ app.get('/api/workspaces/:workspaceId/permissions', requireAuth, (req, res) => {
 // Invite store: token -> { email, inviterEmail, orgName, boardId, createdAt, expiresAt, used }
 const invites = new Map();
 
+// Persist admin invites to database
+const INVITES_DATA_KEY = '__system__admin_invites';
+
+async function persistAdminInvites() {
+  const data = Object.fromEntries(invites);
+  await dataStore.writeUserData(INVITES_DATA_KEY, 'invites', data);
+}
+
+async function loadAdminInvites() {
+  try {
+    const data = await dataStore.readUserData(INVITES_DATA_KEY, 'invites');
+    if (data) {
+      for (const [key, value] of Object.entries(data)) {
+        invites.set(key, value);
+      }
+      console.log(`[Invites] Loaded ${invites.size} admin invites from database`);
+    }
+  } catch (e) {
+    console.error('[Invites] Failed to load:', e.message);
+  }
+}
+
 // Email preferences store: userKey -> { invites: bool, notifications: bool, updates: bool }
 const emailPreferences = new Map();
 
@@ -1573,6 +1615,7 @@ app.post('/api/invites/send', requireSuperAdmin, async (req, res) => {
     expiresAt,
     used: false
   });
+  await persistAdminInvites();
 
   const result = await emailService.sendInviteEmail(
     email,
@@ -1604,10 +1647,11 @@ app.get('/api/invites/verify/:token', (req, res) => {
 });
 
 // Mark invite as used (called after successful registration with invite)
-app.post('/api/invites/use/:token', (req, res) => {
+app.post('/api/invites/use/:token', async (req, res) => {
   const invite = invites.get(req.params.token);
   if (!invite) return res.status(404).json({ error: 'Invalid invite' });
   invite.used = true;
+  await persistAdminInvites();
 
   // If invite has a workspaceId, add the new user to that workspace
   if (invite.workspaceId) {
@@ -1627,8 +1671,9 @@ app.post('/api/invites/use/:token', (req, res) => {
 });
 
 // Get all pending invites (Super Admin)
-app.get('/api/invites', requireSuperAdmin, (req, res) => {
+app.get('/api/invites', requireSuperAdmin, async (req, res) => {
   const list = [];
+  let changed = false;
   invites.forEach((invite, token) => {
     // Auto-detect if invited user has already registered
     if (!invite.used) {
@@ -1637,12 +1682,14 @@ app.get('/api/invites', requireSuperAdmin, (req, res) => {
         if (user.email === invitedEmail) {
           // User exists — mark invite as accepted
           invite.used = true;
+          changed = true;
           break;
         }
       }
     }
     list.push({ ...invite, token: token.substring(0, 8) + '...' });
   });
+  if (changed) await persistAdminInvites();
   list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   res.json(list);
 });
@@ -1725,7 +1772,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '26';
+const APP_VERSION = '27';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
@@ -1781,6 +1828,12 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     await workspaceStore.loadWorkspaces();
   } catch (e) {
     console.error('[Startup] Failed to load workspaces:', e.message);
+  }
+  // Load admin invites from persistent storage
+  try {
+    await loadAdminInvites();
+  } catch (e) {
+    console.error('[Startup] Failed to load admin invites:', e.message);
   }
   // Initialize snapshot system
   try {

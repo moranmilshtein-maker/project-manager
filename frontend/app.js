@@ -5568,8 +5568,15 @@ async function sendWorkspaceInvite() {
         const data = await res.json();
         if (data.success) {
             document.getElementById('wsInviteEmail').value = '';
-            alert(`Invite sent to ${email}!\n\nInvite link: ${window.location.origin}/?invite=${data.invite.token}`);
-            loadWsPendingInvites();
+            if (data.autoAdded) {
+                alert(`${data.member.userName || email} is already registered and was added directly to the workspace as ${data.member.role}!`);
+                // Refresh members list and cache
+                loadWorkspaceMembers();
+                loadActiveWorkspaceMembers();
+            } else {
+                alert(`Invite sent to ${email}!\n\nInvite link: ${window.location.origin}/?invite=${data.invite.token}`);
+                loadWsPendingInvites();
+            }
         } else {
             alert(data.error || 'Failed to send invite');
         }
@@ -5712,7 +5719,7 @@ function initWorkspaces() {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '26';
+const CURRENT_APP_VERSION = '27';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
