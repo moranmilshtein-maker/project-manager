@@ -638,7 +638,7 @@ app.get('/api/auth/users', (req, res) => {
 });
 
 // Invite user (creates a placeholder) — invited users are NEVER super_admin
-app.post('/api/auth/invite', (req, res) => {
+app.post('/api/auth/invite', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const callerKey = sessions.get(token);
   if (!callerKey) return res.status(401).json({ error: 'Not authenticated' });
@@ -648,7 +648,7 @@ app.post('/api/auth/invite', (req, res) => {
     return res.status(403).json({ error: 'Permission denied' });
   }
 
-  const { emails, role, message } = req.body;
+  const { emails, role, message, workspaceId, boardId } = req.body;
   if (!emails || !Array.isArray(emails)) {
     return res.status(400).json({ error: 'Emails array is required' });
   }
@@ -659,35 +659,77 @@ app.post('/api/auth/invite', (req, res) => {
   const invited = [];
   const skipped = [];
 
-  emails.forEach(rawEmail => {
+  for (const rawEmail of emails) {
     const email = (rawEmail || '').toLowerCase().trim();
-    if (!email) return;
+    if (!email) continue;
     
-    const key = userKey(email, 'invited');
     // Check if this email already exists in ANY provider
     const existingUser = findUserByEmail(email);
-    if (existingUser) {
+    
+    if (existingUser && workspaceId) {
+      // User exists — add directly to workspace if not already a member
+      const existingMembership = workspaceStore.getMembership(existingUser.id, workspaceId);
+      if (!existingMembership) {
+        workspaceStore.addMembership(existingUser.id, existingUser.fullName, existingUser.email, workspaceId, safeRole);
+        invited.push(email);
+      } else {
+        skipped.push(email);
+      }
+    } else if (existingUser) {
       skipped.push(email);
-      return;
-    }
+    } else {
+      // New user — create invited record
+      const key = userKey(email, 'invited');
+      const user = {
+        id: crypto.randomUUID(),
+        fullName: email.split('@')[0],
+        email,
+        passwordHash: '',
+        role: safeRole,
+        provider: 'invited',
+        picture: '',
+        workspace: 'Main workspace',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: null,
+        lastLoginIP: null
+      };
+      users.set(key, user);
+      invited.push(email);
 
-    const user = {
-      id: crypto.randomUUID(),
-      fullName: email.split('@')[0],
-      email,
-      passwordHash: '',
-      role: safeRole,
-      provider: 'invited',
-      picture: '',
-      workspace: 'Main workspace',
-      createdAt: new Date().toISOString(),
-      lastLoginAt: null,
-      lastLoginIP: null
-    };
-    users.set(key, user);
-    invited.push(email);
-  });
+      // Create workspace invite if workspace selected
+      if (workspaceId) {
+        const workspace = workspaceStore.getWorkspace(workspaceId);
+        if (workspace) {
+          const wsInvite = workspaceStore.createWorkspaceInvite(workspaceId, caller.id, caller.fullName, email, safeRole);
+          // Also store in admin invites for tracking
+          invites.set(wsInvite.token, {
+            email,
+            inviterEmail: caller.email,
+            inviterName: caller.fullName,
+            orgName: workspace.name,
+            workspaceId,
+            boardId: boardId || null,
+            role: safeRole,
+            createdAt: new Date().toISOString(),
+            expiresAt: wsInvite.expiresAt,
+            used: false
+          });
+          // Send invite email
+          try {
+            await emailService.sendInviteEmail(email, caller.fullName, workspace.name, wsInvite.token);
+          } catch (e) {
+            console.warn('[Invite] Email send failed:', e.message);
+          }
+        }
+      }
+    }
+  }
+
   scheduleSaveUsers();
+  if (workspaceId) {
+    await workspaceStore.persistWorkspaces();
+    await persistAdminInvites();
+  }
 
   res.json({ success: true, invited, skipped, totalUsers: users.size });
 });
@@ -1789,7 +1831,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '29';
+const APP_VERSION = '30';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

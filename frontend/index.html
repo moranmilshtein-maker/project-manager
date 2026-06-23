@@ -363,7 +363,8 @@
                 <form onsubmit="handleInvite(event)">
                     <div class="invite-input-row">
                         <div class="invite-email-wrap">
-                            <input type="text" id="inviteEmail" class="form-input" placeholder="Name@example.com, Name@example.com ...">
+                            <input type="text" id="inviteEmail" class="form-input" placeholder="Name@example.com, Name@example.com ..." oninput="validateMainInviteEmail()">
+                            <span id="mainInviteEmailStatus" class="invite-email-status"></span>
                         </div>
                         <select id="inviteRole" class="form-input invite-role-select">
                             <option value="admin">Admin</option>
@@ -371,11 +372,29 @@
                             <option value="viewer">Viewer</option>
                         </select>
                     </div>
+                    <small id="mainInviteEmailError" class="invite-error"></small>
+
                     <div class="invite-role-descriptions">
                         <div class="invite-role-desc" data-role="admin"><strong>Admin</strong><br>Manage users and settings</div>
                         <div class="invite-role-desc active" data-role="member"><strong>Member</strong><br>Create, edit and collaborate</div>
                         <div class="invite-role-desc" data-role="viewer"><strong>Viewer</strong><br>View only, no edits (free)</div>
                     </div>
+
+                    <!-- Workspace & Board selection -->
+                    <div class="invite-selectors">
+                        <div class="invite-selector-field">
+                            <label class="invite-selector-label">Workspace</label>
+                            <select id="mainInviteWorkspace" class="form-input" onchange="onMainInviteWorkspaceChange()">
+                            </select>
+                        </div>
+                        <div class="invite-selector-field">
+                            <label class="invite-selector-label">Board <span class="invite-optional">(optional)</span></label>
+                            <select id="mainInviteBoard" class="form-input">
+                                <option value="">All boards</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="auth-field" style="margin-top:16px">
                         <label>Write a message (optional)</label>
                         <textarea id="inviteMessage" class="form-input" rows="2" placeholder="Add context for new members"></textarea>
@@ -387,7 +406,7 @@
                             <span class="material-icons-outlined" style="font-size:16px">link</span>
                             Copy invite link
                         </button>
-                        <button type="submit" class="modal-btn save-btn">Invite</button>
+                        <button type="submit" class="modal-btn save-btn" id="mainInviteBtn">Invite</button>
                     </div>
                 </form>
             </div>

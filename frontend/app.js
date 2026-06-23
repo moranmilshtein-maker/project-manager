@@ -2346,8 +2346,12 @@ function openInviteModal() {
     document.getElementById('inviteMessage').value = '';
     document.getElementById('inviteError').textContent = '';
     document.getElementById('inviteSuccess').textContent = '';
+    document.getElementById('mainInviteEmailStatus').className = 'invite-email-status';
+    document.getElementById('mainInviteEmailError').textContent = '';
     // Highlight the default role
     updateInviteRoleDescriptions('member');
+    // Populate workspace dropdown
+    initMainInviteSelectors();
 }
 
 function closeInviteModal() {
@@ -2370,16 +2374,22 @@ async function handleInvite(e) {
     const emailsStr = document.getElementById('inviteEmail').value.trim();
     const role = document.getElementById('inviteRole').value;
     const message = document.getElementById('inviteMessage').value.trim();
+    const workspaceId = document.getElementById('mainInviteWorkspace').value;
+    const boardId = document.getElementById('mainInviteBoard').value;
 
     if (!emailsStr) { document.getElementById('inviteError').textContent = 'Please enter email(s)'; return; }
 
     const emails = emailsStr.split(',').map(e => e.trim().toLowerCase()).filter(e => e && e.includes('@'));
     if (emails.length === 0) { document.getElementById('inviteError').textContent = 'Please enter valid email(s)'; return; }
 
+    const btn = document.getElementById('mainInviteBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
     try {
         const res = await authFetch('/api/auth/invite', {
             method: 'POST',
-            body: JSON.stringify({ emails, role, message })
+            body: JSON.stringify({ emails, role, message, workspaceId: workspaceId || undefined, boardId: boardId || undefined })
         });
         const data = await res.json();
         if (data.success) {
@@ -2387,12 +2397,19 @@ async function handleInvite(e) {
             let msg = `${data.invited.length} user(s) invited successfully!`;
             if (data.skipped.length > 0) msg += ` (${data.skipped.length} skipped - already exist)`;
             document.getElementById('inviteSuccess').textContent = msg;
+            document.getElementById('inviteEmail').value = '';
+            document.getElementById('mainInviteEmailStatus').className = 'invite-email-status';
+            document.getElementById('mainInviteEmailError').textContent = '';
             updateInviteCount();
+            loadActiveWorkspaceMembers();
         } else {
             document.getElementById('inviteError').textContent = data.error || 'Failed to invite';
         }
     } catch (err) {
         document.getElementById('inviteError').textContent = 'Connection error. Please try again.';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Invite';
     }
 }
 
@@ -2404,6 +2421,112 @@ function generateInviteLink() {
     }).catch(() => {
         document.getElementById('inviteSuccess').textContent = `Invite link: ${link}`;
     });
+}
+
+// ===== Main Invite Modal — Enhanced Flow =====
+let mainInviteEmailTimeout = null;
+
+function initMainInviteSelectors() {
+    const wsSelect = document.getElementById('mainInviteWorkspace');
+    if (!wsSelect) return;
+    
+    wsSelect.innerHTML = userWorkspaces.map(ws => 
+        `<option value="${ws.id}" ${ws.id === activeWorkspaceId ? 'selected' : ''}>${escapeHtml(ws.name)}</option>`
+    ).join('');
+    
+    onMainInviteWorkspaceChange();
+}
+
+function validateMainInviteEmail() {
+    const input = document.getElementById('inviteEmail');
+    const emailsStr = input.value.trim();
+    const statusEl = document.getElementById('mainInviteEmailStatus');
+    const errorEl = document.getElementById('mainInviteEmailError');
+    
+    if (mainInviteEmailTimeout) clearTimeout(mainInviteEmailTimeout);
+    
+    if (!emailsStr) {
+        statusEl.className = 'invite-email-status';
+        errorEl.textContent = '';
+        return;
+    }
+    
+    // Support multiple emails separated by comma
+    const emails = emailsStr.split(',').map(e => e.trim()).filter(e => e);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalidEmails = emails.filter(e => !emailRegex.test(e));
+    
+    if (invalidEmails.length > 0 && emails[emails.length - 1] !== '') {
+        // Only show error if the last email being typed is clearly invalid (has been completed)
+        const lastEmail = emails[emails.length - 1];
+        if (lastEmail.includes('@') && lastEmail.includes('.') && !emailRegex.test(lastEmail)) {
+            statusEl.className = 'invite-email-status invalid';
+            errorEl.textContent = `Invalid: ${invalidEmails[0]}`;
+        } else if (emails.length === 1 && !lastEmail.includes('@')) {
+            statusEl.className = 'invite-email-status';
+            errorEl.textContent = '';
+        } else {
+            statusEl.className = 'invite-email-status';
+            errorEl.textContent = '';
+        }
+        return;
+    }
+    
+    const validEmails = emails.filter(e => emailRegex.test(e));
+    if (validEmails.length === 0) {
+        statusEl.className = 'invite-email-status';
+        errorEl.textContent = '';
+        return;
+    }
+    
+    statusEl.className = 'invite-email-status valid';
+    errorEl.textContent = '';
+    
+    // Check first email for registered user hint (debounced)
+    if (validEmails.length === 1) {
+        statusEl.className = 'invite-email-status checking';
+        mainInviteEmailTimeout = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/users/check?email=${encodeURIComponent(validEmails[0])}`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                const data = await res.json();
+                if (data.exists) {
+                    statusEl.className = 'invite-email-status valid';
+                    errorEl.innerHTML = `<span class="invite-user-hint"><span class="material-icons-outlined">check_circle</span> ${escapeHtml(data.fullName)} — will be added directly</span>`;
+                } else {
+                    statusEl.className = 'invite-email-status valid';
+                    errorEl.textContent = '';
+                }
+            } catch (e) {
+                statusEl.className = 'invite-email-status valid';
+            }
+        }, 500);
+    }
+}
+
+async function onMainInviteWorkspaceChange() {
+    const wsId = document.getElementById('mainInviteWorkspace').value;
+    const boardSelect = document.getElementById('mainInviteBoard');
+    boardSelect.innerHTML = '<option value="">All boards</option>';
+    
+    if (!wsId || !authToken) return;
+    
+    try {
+        const res = await fetch(`/api/user-data/boards?workspaceId=${wsId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const data = await res.json();
+        if (data.success && data.data && data.data.boards) {
+            data.data.boards
+                .filter(b => !b.archived)
+                .forEach(b => {
+                    boardSelect.innerHTML += `<option value="${b.id}">${escapeHtml(b.name)}</option>`;
+                });
+        }
+    } catch (e) {
+        // Silent fail
+    }
 }
 
 async function updateInviteCount() {
@@ -5852,7 +5975,7 @@ function initWorkspaces() {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '29';
+const CURRENT_APP_VERSION = '30';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
