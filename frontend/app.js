@@ -5999,38 +5999,22 @@ function renderBoardOwnersStack() {
     const container = document.getElementById('boardOwnersStack');
     if (!container) return;
     
-    // Collect unique owners from all tasks in the active board
-    const ownerIds = new Set();
-    const ownerData = []; // [{name, picture, email}]
+    // Show all workspace members as board participants
+    const members = cachedWorkspaceMembers || [];
+    const ownerData = members.map(m => ({
+        name: m.userName || m.userEmail || '?',
+        picture: m.picture || '',
+        email: m.userEmail || ''
+    }));
     
-    if (boardData.groups) {
-        boardData.groups.forEach(group => {
-            if (group.tasks) {
-                group.tasks.forEach(task => {
-                    if (task.owner && !ownerIds.has(task.owner)) {
-                        ownerIds.add(task.owner);
-                        // Find member info from cached workspace members
-                        const member = cachedWorkspaceMembers.find(m => m.userId === task.owner || m.userEmail === task.owner);
-                        if (member) {
-                            ownerData.push({ name: member.userName || member.userEmail, picture: member.picture || '', email: member.userEmail });
-                        } else {
-                            // Fallback - try owner as name
-                            ownerData.push({ name: task.owner, picture: '', email: '' });
-                        }
-                    }
-                });
-            }
-        });
-    }
-    
-    // If no owners found, show current user
+    // If no members found, show current user
     if (ownerData.length === 0 && currentUser) {
         ownerData.push({ name: currentUser.fullName || currentUser.email, picture: currentUser.picture || '', email: currentUser.email });
     }
     
     // Update invite count
     const inviteCountEl = document.getElementById('inviteCount');
-    const memberCount = cachedWorkspaceMembers.length || 1;
+    const memberCount = ownerData.length || 1;
     if (inviteCountEl) inviteCountEl.textContent = memberCount;
     
     let html = '';
@@ -6465,7 +6449,7 @@ function triggerTaskAddedNotification(taskName, parentTaskName) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '35';
+const CURRENT_APP_VERSION = '36';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
