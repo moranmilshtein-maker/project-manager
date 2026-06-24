@@ -4733,6 +4733,50 @@ tr.subtask-row:hover .subtask-action-btn {
     color: #323338;
 }
 
+/* ===== BOARD OWNERS STACK ===== */
+.board-owners-stack {
+    display: flex;
+    align-items: center;
+    flex-direction: row-reverse;
+}
+
+.board-owners-stack .board-owner-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid white;
+    margin-left: -8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: white;
+    background: var(--primary-blue);
+    object-fit: cover;
+    position: relative;
+}
+
+.board-owners-stack .board-owner-avatar:last-child {
+    margin-left: 0;
+}
+
+.board-owners-stack .board-owner-more {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid white;
+    margin-left: -8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: #e6e9ef;
+    cursor: pointer;
+}
+
 /* ===== SHARE BOARD MODAL ===== */
 .share-board-modal {
     width: 480px;

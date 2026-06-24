@@ -2063,12 +2063,11 @@ function showAppScreen() {
 
         const boardAvatar = document.querySelector('.board-avatar');
         if (boardAvatar) {
-            if (currentUser.picture) {
-                boardAvatar.outerHTML = `<img src="${currentUser.picture}" alt="${initials}" class="user-avatar user-avatar-img board-avatar" style="width:28px;height:28px;" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'user-avatar user-avatar-initials board-avatar\\' style=\\'width:28px;height:28px;font-size:10px;\\'>${initials}</div>'">`;
-            } else {
-                boardAvatar.textContent = initials;
-            }
+            // Legacy single avatar - no longer used, replaced by boardOwnersStack
         }
+
+        // Render board owners stack
+        renderBoardOwnersStack();
 
         const sidebarAvatar = document.querySelector('.sidebar-user-info .user-avatar');
         if (sidebarAvatar) {
@@ -5184,6 +5183,7 @@ async function loadActiveWorkspaceMembers() {
         const data = await res.json();
         if (data.success) {
             cachedWorkspaceMembers = data.members || [];
+            renderBoardOwnersStack();
         }
     } catch (e) {
         cachedWorkspaceMembers = [];
@@ -5995,6 +5995,73 @@ function initWorkspaces() {
 let boardAccessSetting = 'workspace'; // 'workspace' or 'private'
 let notificationPrefs = {}; // { memberId: { statusUpdates: bool, messages: bool, tasksAdded: bool } }
 
+function renderBoardOwnersStack() {
+    const container = document.getElementById('boardOwnersStack');
+    if (!container) return;
+    
+    // Collect unique owners from all tasks in the active board
+    const ownerIds = new Set();
+    const ownerData = []; // [{name, picture, email}]
+    
+    if (boardData.groups) {
+        boardData.groups.forEach(group => {
+            if (group.tasks) {
+                group.tasks.forEach(task => {
+                    if (task.owner && !ownerIds.has(task.owner)) {
+                        ownerIds.add(task.owner);
+                        // Find member info from cached workspace members
+                        const member = cachedWorkspaceMembers.find(m => m.userId === task.owner || m.userEmail === task.owner);
+                        if (member) {
+                            ownerData.push({ name: member.userName || member.userEmail, picture: member.picture || '', email: member.userEmail });
+                        } else {
+                            // Fallback - try owner as name
+                            ownerData.push({ name: task.owner, picture: '', email: '' });
+                        }
+                    }
+                });
+            }
+        });
+    }
+    
+    // If no owners found, show current user
+    if (ownerData.length === 0 && currentUser) {
+        ownerData.push({ name: currentUser.fullName || currentUser.email, picture: currentUser.picture || '', email: currentUser.email });
+    }
+    
+    // Update invite count
+    const inviteCountEl = document.getElementById('inviteCount');
+    const memberCount = cachedWorkspaceMembers.length || 1;
+    if (inviteCountEl) inviteCountEl.textContent = memberCount;
+    
+    let html = '';
+    
+    if (ownerData.length <= 2) {
+        // Show individual avatars (reversed for overlap direction)
+        ownerData.forEach(owner => {
+            const initials = getInitials(owner.name || '?');
+            if (owner.picture) {
+                html += `<img src="${owner.picture}" class="board-owner-avatar" referrerpolicy="no-referrer" title="${escapeHtml(owner.name)}" onerror="this.outerHTML='<div class=\\'board-owner-avatar\\' title=\\'${escapeHtml(owner.name)}\\'>${initials}</div>'">`;
+            } else {
+                html += `<div class="board-owner-avatar" title="${escapeHtml(owner.name)}">${initials}</div>`;
+            }
+        });
+    } else {
+        // Show first 2 + "..." circle
+        for (let i = 0; i < 2; i++) {
+            const owner = ownerData[i];
+            const initials = getInitials(owner.name || '?');
+            if (owner.picture) {
+                html += `<img src="${owner.picture}" class="board-owner-avatar" referrerpolicy="no-referrer" title="${escapeHtml(owner.name)}" onerror="this.outerHTML='<div class=\\'board-owner-avatar\\' title=\\'${escapeHtml(owner.name)}\\'>${initials}</div>'">`;
+            } else {
+                html += `<div class="board-owner-avatar" title="${escapeHtml(owner.name)}">${initials}</div>`;
+            }
+        }
+        html += `<div class="board-owner-more" title="${ownerData.length} owners">···</div>`;
+    }
+    
+    container.innerHTML = html;
+}
+
 function openShareBoardModal() {
     const modal = document.getElementById('shareBoardModal');
     if (!modal) return;
@@ -6398,7 +6465,7 @@ function triggerTaskAddedNotification(taskName, parentTaskName) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '34';
+const CURRENT_APP_VERSION = '35';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
