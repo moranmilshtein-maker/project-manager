@@ -5452,6 +5452,7 @@ tr.subtask-row:hover .subtask-action-btn {
     direction: rtl;
     unicode-bidi: plaintext;
     word-break: break-word;
+    text-align: left;
 }
 
 .tdp-task-title:focus {
@@ -5594,7 +5595,7 @@ tr.subtask-row:hover .subtask-action-btn {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    margin-left: auto;
+    margin-left: 8px;
     color: var(--text-muted);
     transition: all 0.15s;
 }
@@ -5691,6 +5692,7 @@ tr.subtask-row:hover .subtask-action-btn {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
 }
 
 .tdp-subitem.completed .tdp-subitem-name {
@@ -5811,6 +5813,76 @@ tr.subtask-row:hover .subtask-action-btn {
 .tdp-message-time {
     font-size: 11px;
     color: var(--text-muted);
+}
+
+.tdp-message-actions-menu {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.tdp-message:hover .tdp-message-actions-menu {
+    opacity: 1;
+}
+
+.tdp-msg-action-btn {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--text-muted);
+    transition: all 0.15s;
+}
+
+.tdp-msg-action-btn:hover {
+    background: #f0f2f5;
+    color: var(--text-primary);
+}
+
+.tdp-msg-delete-btn:hover {
+    background: #fef0f0;
+    color: #e2445c;
+}
+
+.tdp-msg-action-btn .material-icons-outlined {
+    font-size: 14px;
+}
+
+.tdp-image-delete-btn {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    width: 22px;
+    height: 22px;
+    background: rgba(226, 68, 92, 0.85);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.tdp-message-image-wrap:hover .tdp-image-delete-btn {
+    opacity: 1;
+}
+
+.tdp-image-delete-btn:hover {
+    background: rgba(226, 68, 92, 1);
+}
+
+.tdp-image-delete-btn .material-icons-outlined {
+    font-size: 14px;
 }
 
 .tdp-message-text {
@@ -6027,6 +6099,116 @@ tr.subtask-row:hover .subtask-action-btn {
 }
 
 /* Responsive */
+/* TDP Message Image Wrap */
+.tdp-message-image-wrap {
+    position: relative;
+    display: inline-block;
+    margin-top: 8px;
+}
+
+.tdp-message-image-wrap img {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.tdp-message-image-wrap img:hover {
+    opacity: 0.85;
+}
+
+.tdp-image-download-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 28px;
+    height: 28px;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.tdp-message-image-wrap:hover .tdp-image-download-btn {
+    opacity: 1;
+}
+
+.tdp-image-download-btn:hover {
+    background: rgba(0,0,0,0.8);
+}
+
+.tdp-image-download-btn .material-icons-outlined {
+    font-size: 16px;
+}
+
+/* TDP Image Lightbox */
+.tdp-image-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 50000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.tdp-image-lightbox.active {
+    opacity: 1;
+}
+
+.tdp-lightbox-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    max-width: 90vw;
+    max-height: 90vh;
+}
+
+.tdp-lightbox-content img {
+    max-width: 90vw;
+    max-height: 75vh;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.tdp-lightbox-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.tdp-lightbox-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: none;
+    transition: background 0.15s;
+}
+
+.tdp-lightbox-btn:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+.tdp-lightbox-btn .material-icons-outlined {
+    font-size: 18px;
+}
+
 @media (max-width: 768px) {
     .task-details-panel {
         width: 100vw;

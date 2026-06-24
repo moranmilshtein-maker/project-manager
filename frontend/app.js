@@ -6760,7 +6760,7 @@ let tdpCurrentGroup = null;
 let tdpCurrentSubtask = null; // for subtask detail view
 let tdpIsFullscreen = false;
 let tdpIsLiked = false;
-let tdpIsPrivate = true;
+let tdpIsPrivate = false;
 let tdpMessages = {}; // taskId -> messages array
 let tdpLikedMap = {}; // taskId -> boolean
 let tdpPrivateMap = {}; // taskId -> boolean
@@ -6837,7 +6837,7 @@ function openSubtaskDetailsPanel(subId, taskId, groupId) {
     if (!tdpMessages[msgKey]) tdpMessages[msgKey] = [];
     
     tdpIsLiked = !!tdpLikedMap[msgKey];
-    tdpIsPrivate = tdpPrivateMap[msgKey] !== false; // default true
+    tdpIsPrivate = !!tdpPrivateMap[msgKey]; // default public (false)
     
     renderTaskDetailsPanel();
     
@@ -6865,7 +6865,7 @@ function openTaskDetailsPanel(taskId, groupId) {
     if (!tdpMessages[taskId]) tdpMessages[taskId] = [];
     
     tdpIsLiked = !!tdpLikedMap[taskId];
-    tdpIsPrivate = tdpPrivateMap[taskId] !== false; // default true
+    tdpIsPrivate = !!tdpPrivateMap[taskId]; // default public (false)
     
     renderTaskDetailsPanel();
     
@@ -6971,14 +6971,26 @@ function renderTaskDetailsPanel() {
 function renderTdpOwnerAvatars() {
     const container = document.getElementById('tdpOwnerAvatars');
     if (!cachedWorkspaceMembers || cachedWorkspaceMembers.length === 0) {
-        container.innerHTML = '';
+        // Show at least current user
+        if (currentUser) {
+            const initials = getInitials(currentUser.fullName || currentUser.email);
+            if (currentUser.picture) {
+                container.innerHTML = `<div class="tdp-avatar" title="${escapeHtml(currentUser.fullName || currentUser.email)}"><img src="${currentUser.picture}" referrerpolicy="no-referrer" alt=""></div>`;
+            } else {
+                container.innerHTML = `<div class="tdp-avatar" title="${escapeHtml(currentUser.fullName || currentUser.email)}">${initials}</div>`;
+            }
+        } else {
+            container.innerHTML = '';
+        }
         return;
     }
     container.innerHTML = cachedWorkspaceMembers.slice(0, 5).map(m => {
+        const name = m.userName || m.userEmail || '?';
+        const initials = getInitials(name);
         if (m.picture) {
-            return `<div class="tdp-avatar" title="${escapeHtml(m.name || m.email)}"><img src="${m.picture}" alt=""></div>`;
+            return `<div class="tdp-avatar" title="${escapeHtml(name)}"><img src="${m.picture}" referrerpolicy="no-referrer" alt="" onerror="this.parentElement.innerHTML='${initials}'"></div>`;
         }
-        return `<div class="tdp-avatar" title="${escapeHtml(m.name || m.email)}">${escapeHtml(getInitials(m.name || m.email))}</div>`;
+        return `<div class="tdp-avatar" title="${escapeHtml(name)}">${initials}</div>`;
     }).join('');
 }
 
@@ -7014,18 +7026,34 @@ function renderTdpMessages() {
         list.innerHTML = '<div class="tdp-no-messages">No messages yet</div>';
         return;
     }
-    list.innerHTML = messages.map(msg => {
+    list.innerHTML = messages.map((msg, idx) => {
         const avatar = msg.picture 
-            ? `<img src="${msg.picture}" alt="">` 
+            ? `<img src="${msg.picture}" referrerpolicy="no-referrer" alt="">` 
             : escapeHtml(getInitials(msg.author));
         const timeStr = formatTimeAgo(msg.timestamp);
-        const imgHtml = msg.image ? `<img src="${msg.image}" alt="attached image">` : '';
-        return `<div class="tdp-message">
+        const imgHtml = msg.image ? `<div class="tdp-message-image-wrap">
+            <img src="${msg.image}" alt="attached image" onclick="openTdpImageLightbox(this.src)">
+            <button class="tdp-image-delete-btn" onclick="deleteTdpMessageImage(${idx})" title="Remove image">
+                <span class="material-icons-outlined">close</span>
+            </button>
+            <a class="tdp-image-download-btn" href="${msg.image}" download="image_${msg.id || idx}.png" title="Download">
+                <span class="material-icons-outlined">download</span>
+            </a>
+        </div>` : '';
+        return `<div class="tdp-message" data-msg-idx="${idx}">
             <div class="tdp-message-avatar">${avatar}</div>
             <div class="tdp-message-content">
                 <div class="tdp-message-header">
                     <span class="tdp-message-author">${escapeHtml(msg.author)}</span>
                     <span class="tdp-message-time">${timeStr}</span>
+                    <div class="tdp-message-actions-menu">
+                        <button class="tdp-msg-action-btn" onclick="editTdpMessage(${idx})" title="Edit">
+                            <span class="material-icons-outlined">edit</span>
+                        </button>
+                        <button class="tdp-msg-action-btn tdp-msg-delete-btn" onclick="deleteTdpMessage(${idx})" title="Delete">
+                            <span class="material-icons-outlined">delete</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="tdp-message-text">${escapeHtml(msg.text)}${imgHtml}</div>
             </div>
@@ -7066,15 +7094,36 @@ function saveTdpChanges() {
 }
 
 // Status toggle
-function toggleTdpStatus() {
+function toggleTdpStatus(event) {
     if (!tdpCurrentTask) return;
-    const currentIdx = STATUS_OPTIONS.findIndex(s => s.id === tdpCurrentTask.status);
-    const nextIdx = (currentIdx + 1) % STATUS_OPTIONS.length;
-    tdpCurrentTask.status = STATUS_OPTIONS[nextIdx].id;
-    tdpCurrentTask.lastUpdated = nowISO();
-    renderTaskDetailsPanel();
-    renderBoard();
-    saveToStorage();
+    // Show status picker dropdown instead of cycling
+    const badge = document.getElementById('tdpStatusBadge');
+    const rect = badge.getBoundingClientRect();
+    
+    document.querySelectorAll('.tdp-status-picker').forEach(el => el.remove());
+    
+    const picker = document.createElement('div');
+    picker.className = 'tdp-status-picker';
+    
+    picker.innerHTML = STATUS_OPTIONS.map(s => {
+        return `<div class="tdp-status-picker-item" onclick="selectTdpStatus('${s.id}')">
+            <div class="status-dot" style="background:${s.color}"></div>
+            <span>${s.label || '(Empty)'}</span>
+        </div>`;
+    }).join('');
+    
+    picker.style.top = (rect.bottom + 4) + 'px';
+    picker.style.left = rect.left + 'px';
+    document.body.appendChild(picker);
+    
+    setTimeout(() => {
+        document.addEventListener('click', function closePicker(e) {
+            if (!picker.contains(e.target) && e.target !== badge) {
+                picker.remove();
+                document.removeEventListener('click', closePicker);
+            }
+        });
+    }, 10);
 }
 
 // Like toggle
@@ -7292,6 +7341,45 @@ function sendTdpMessage() {
     renderTdpMessages();
 }
 
+// Delete a message
+function deleteTdpMessage(idx) {
+    if (!tdpCurrentTask) return;
+    const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    const messages = tdpMessages[taskId];
+    if (!messages || !messages[idx]) return;
+    if (!confirm('Delete this message?')) return;
+    messages.splice(idx, 1);
+    saveTdpDataToServer();
+    renderTdpMessages();
+}
+
+// Edit a message
+function editTdpMessage(idx) {
+    if (!tdpCurrentTask) return;
+    const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    const messages = tdpMessages[taskId];
+    if (!messages || !messages[idx]) return;
+    
+    const msg = messages[idx];
+    const newText = prompt('Edit message:', msg.text);
+    if (newText === null) return; // cancelled
+    msg.text = newText;
+    msg.edited = true;
+    saveTdpDataToServer();
+    renderTdpMessages();
+}
+
+// Delete image from a message
+function deleteTdpMessageImage(idx) {
+    if (!tdpCurrentTask) return;
+    const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    const messages = tdpMessages[taskId];
+    if (!messages || !messages[idx]) return;
+    messages[idx].image = '';
+    saveTdpDataToServer();
+    renderTdpMessages();
+}
+
 // Image paste support
 function setupTdpImagePaste() {
     const inputEl = document.getElementById('tdpMessageInput');
@@ -7339,13 +7427,48 @@ function removeTdpPendingImage() {
     document.getElementById('tdpImagePreview').innerHTML = '';
 }
 
+// Image lightbox - click to enlarge
+function openTdpImageLightbox(imageSrc) {
+    // Remove existing lightbox if any
+    closeTdpImageLightbox();
+    
+    const lightbox = document.createElement('div');
+    lightbox.className = 'tdp-image-lightbox';
+    lightbox.onclick = function(e) { if (e.target === lightbox) closeTdpImageLightbox(); };
+    lightbox.innerHTML = `
+        <div class="tdp-lightbox-content">
+            <img src="${imageSrc}" alt="Full size image">
+            <div class="tdp-lightbox-actions">
+                <a class="tdp-lightbox-btn" href="${imageSrc}" download="image.png" title="Download">
+                    <span class="material-icons-outlined">download</span>
+                    Download
+                </a>
+                <button class="tdp-lightbox-btn" onclick="closeTdpImageLightbox()" title="Close">
+                    <span class="material-icons-outlined">close</span>
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(lightbox);
+    setTimeout(() => lightbox.classList.add('active'), 10);
+}
+
+function closeTdpImageLightbox() {
+    const lightbox = document.querySelector('.tdp-image-lightbox');
+    if (lightbox) {
+        lightbox.classList.remove('active');
+        setTimeout(() => lightbox.remove(), 200);
+    }
+}
+
 // Initialize paste listener when DOM ready
 document.addEventListener('DOMContentLoaded', function() {
     setupTdpImagePaste();
 });
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '42';
+const CURRENT_APP_VERSION = '44';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

@@ -1894,7 +1894,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '42';
+const APP_VERSION = '44';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
