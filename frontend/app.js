@@ -5373,9 +5373,22 @@ function showOwnerPopup(event, taskId, groupId, subtaskId) {
     
     document.body.appendChild(popup);
     
-    // Position popup near the clicked element
+    // Position popup near the clicked element (smart: flip up if near bottom)
     const rect = event.target.closest('.cell-owner').getBoundingClientRect();
-    popup.style.top = (rect.bottom + 4) + 'px';
+    const popupHeight = popup.offsetHeight || 220;
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    
+    let top;
+    if (spaceBelow >= popupHeight) {
+        top = rect.bottom + 4;
+    } else if (spaceAbove >= popupHeight) {
+        top = rect.top - popupHeight - 4;
+    } else {
+        top = Math.max(8, viewportHeight - popupHeight - 8);
+    }
+    popup.style.top = top + 'px';
     popup.style.left = Math.max(10, rect.left - 80) + 'px';
     
     // Render members list
@@ -6735,7 +6748,7 @@ function triggerTaskAddedNotification(taskName, parentTaskName) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '39';
+const CURRENT_APP_VERSION = '40';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
