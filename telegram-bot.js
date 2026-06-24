@@ -5,14 +5,85 @@
 
 const https = require('https');
 const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
 
 // Configuration
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8502064849:AAFSQe5tlZXteSOy8pKX8spqyz4MqqLEKIc';
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID || '713355556';
+const SYNC_FILE = path.join(__dirname, 'data', 'telegram-board-sync.json');
 
 // In-memory store for synced board data
 let syncedBoardData = null;
 let lastSyncTime = null;
+
+// Reference to dataStore (set externally via setDataStore)
+let dataStore = null;
+
+/**
+ * Allow server.js to pass the dataStore reference for DB persistence
+ */
+function setDataStore(ds) {
+    dataStore = ds;
+}
+
+/**
+ * Persist board data to disk (and DB if available) so it survives server restarts
+ */
+async function persistBoardData() {
+    // File-based persistence (works in dev and as fallback)
+    try {
+        const dir = path.dirname(SYNC_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(SYNC_FILE, JSON.stringify({ boardData: syncedBoardData, lastSyncTime }, null, 2));
+    } catch (e) {
+        console.error('[Telegram] Failed to persist board data to file:', e.message);
+    }
+    
+    // DB persistence (production - survives redeploys)
+    if (dataStore) {
+        try {
+            await dataStore.writeUserData('__system__telegram', 'board_sync', { boardData: syncedBoardData, lastSyncTime });
+        } catch (e) {
+            console.error('[Telegram] Failed to persist board data to DB:', e.message);
+        }
+    }
+}
+
+/**
+ * Load board data from disk/DB on startup
+ */
+async function loadPersistedBoardData() {
+    // Try DB first (production - most reliable)
+    if (dataStore) {
+        try {
+            const dbData = await dataStore.readUserData('__system__telegram', 'board_sync');
+            if (dbData && dbData.boardData) {
+                syncedBoardData = dbData.boardData;
+                lastSyncTime = dbData.lastSyncTime || null;
+                console.log(`[Telegram] Loaded persisted board data from DB (synced ${lastSyncTime || 'unknown time'})`);
+                return;
+            }
+        } catch (e) {
+            console.error('[Telegram] Failed to load from DB:', e.message);
+        }
+    }
+    
+    // Fallback: file-based
+    try {
+        if (fs.existsSync(SYNC_FILE)) {
+            const raw = fs.readFileSync(SYNC_FILE, 'utf8');
+            const parsed = JSON.parse(raw);
+            if (parsed.boardData) {
+                syncedBoardData = parsed.boardData;
+                lastSyncTime = parsed.lastSyncTime || null;
+                console.log(`[Telegram] Loaded persisted board data from file (synced ${lastSyncTime || 'unknown time'})`);
+            }
+        }
+    } catch (e) {
+        console.error('[Telegram] Failed to load persisted board data from file:', e.message);
+    }
+}
 
 /**
  * Send a message via Telegram Bot API
@@ -72,6 +143,7 @@ function updateBoardData(data) {
     syncedBoardData = data;
     lastSyncTime = new Date().toISOString();
     console.log(`[Telegram] Board data synced at ${lastSyncTime}`);
+    persistBoardData(); // async, fire-and-forget
 }
 
 /**
@@ -214,6 +286,9 @@ async function checkAndNotify() {
  * Runs every day at 08:00 AM Israel time
  */
 function initScheduler() {
+    // Load persisted board data on startup (async)
+    loadPersistedBoardData();
+    
     // Run at 08:00 every day (Israel timezone UTC+3)
     cron.schedule('0 8 * * *', () => {
         console.log('[Telegram] Running daily due-date check...');
@@ -238,5 +313,6 @@ module.exports = {
     initScheduler,
     triggerCheck,
     sendTelegramMessage,
+    setDataStore,
     getSyncStatus: () => ({ lastSyncTime, hasBoardData: !!syncedBoardData })
 };

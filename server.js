@@ -21,9 +21,10 @@ try {
 let telegramBot;
 try {
   telegramBot = require('./telegram-bot');
+  telegramBot.setDataStore(dataStore);
 } catch (e) {
   console.warn('[Telegram] Failed to load telegram-bot module:', e.message);
-  telegramBot = { initScheduler: () => {}, updateBoardData: () => {}, triggerCheck: async () => {}, sendTelegramMessage: async () => {}, getSyncStatus: () => ({ lastSyncTime: null, hasBoardData: false }) };
+  telegramBot = { initScheduler: () => {}, updateBoardData: () => {}, triggerCheck: async () => {}, sendTelegramMessage: async () => {}, setDataStore: () => {}, getSyncStatus: () => ({ lastSyncTime: null, hasBoardData: false }) };
 }
 
 const app = express();
@@ -1107,6 +1108,38 @@ app.put('/api/user-data/columns', async (req, res) => {
   }
 });
 
+// GET /api/user-data/notifications - Get user's notifications for workspace
+app.get('/api/user-data/notifications', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const workspaceId = req.query.workspaceId || 'default';
+  const storageKey = `notifications_${workspaceId}`;
+  const data = await dataStore.readUserData(key, storageKey);
+  res.json({ success: true, data: data || [] });
+});
+
+// PUT /api/user-data/notifications - Save user's notifications for workspace
+app.put('/api/user-data/notifications', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { data, workspaceId } = req.body;
+  if (!data) return res.status(400).json({ error: 'data is required' });
+
+  const storageKey = `notifications_${workspaceId || 'default'}`;
+  // Keep only last 50 notifications
+  const trimmed = Array.isArray(data) ? data.slice(0, 50) : [];
+  const success = await dataStore.writeUserData(key, storageKey, trimmed);
+  if (success) {
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ error: 'Failed to save notifications' });
+  }
+});
+
 // GET /api/user-data/status - Get storage status (admin/debug)
 app.get('/api/user-data/status', (req, res) => {
   res.json(dataStore.getStatus());
@@ -1831,7 +1864,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '36';
+const APP_VERSION = '37';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

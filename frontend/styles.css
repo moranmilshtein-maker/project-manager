@@ -61,7 +61,8 @@ body {
     background: var(--header-bg);
     border-bottom: 1px solid var(--header-border);
     padding: 0 16px;
-    z-index: 100;
+    position: relative;
+    z-index: 1000;
 }
 
 .header-right {
@@ -1737,7 +1738,7 @@ tr.subtask-done .date-display {
     background: #fff;
     border-radius: 8px;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
-    z-index: 500;
+    z-index: 2000;
     padding: 8px;
     min-width: 140px;
 }
@@ -5071,8 +5072,8 @@ tr.subtask-row:hover .subtask-action-btn {
     position: absolute;
     top: 40px;
     right: 0;
-    width: 340px;
-    max-height: 420px;
+    width: 400px;
+    max-height: 560px;
     background: white;
     border-radius: 10px;
     box-shadow: 0 8px 30px rgba(0,0,0,0.15);
@@ -5103,7 +5104,7 @@ tr.subtask-row:hover .subtask-action-btn {
 }
 
 .notif-list {
-    max-height: 360px;
+    max-height: 480px;
     overflow-y: auto;
 }
 
@@ -5125,6 +5126,10 @@ tr.subtask-row:hover .subtask-action-btn {
 
 .notif-item:hover {
     background: var(--row-hover);
+}
+
+.notif-item-unread {
+    background: #f0f7ff;
 }
 
 .notif-item-avatar {
@@ -5168,8 +5173,9 @@ tr.subtask-row:hover .subtask-action-btn {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    z-index: 2500;
+    z-index: 200000;
     animation: slideInRight 0.3s ease;
+    transition: bottom 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
 }
 
 @keyframes slideInRight {

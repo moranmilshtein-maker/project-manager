@@ -1373,9 +1373,7 @@ function showSubtaskStatusDropdown(event, subtaskId, taskId, groupId) {
     });
     dropdown.innerHTML = html;
     const rect = event.target.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + 4) + 'px';
-    dropdown.style.left = rect.left + 'px';
-    dropdown.classList.add('active');
+    positionDropdown(dropdown, rect);
 }
 
 function setSubtaskStatus(subtaskId, taskId, groupId, statusId) {
@@ -1424,9 +1422,7 @@ function showSubtaskPriorityDropdown(event, subtaskId, taskId, groupId) {
     });
     dropdown.innerHTML = html;
     const rect = event.target.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + 4) + 'px';
-    dropdown.style.left = rect.left + 'px';
-    dropdown.classList.add('active');
+    positionDropdown(dropdown, rect);
 }
 
 function setSubtaskPriority(subtaskId, taskId, groupId, priorityId) {
@@ -1530,6 +1526,43 @@ function toggleGroup(groupId) {
 }
 
 // ===== Status Dropdown =====
+function positionDropdown(dropdown, rect) {
+    // Calculate dropdown height (render off-screen to measure)
+    dropdown.style.visibility = 'hidden';
+    dropdown.style.display = 'block';
+    dropdown.style.top = '-9999px';
+    const dropdownHeight = dropdown.offsetHeight;
+    dropdown.style.visibility = '';
+    dropdown.style.display = '';
+    
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    
+    let top;
+    if (spaceBelow >= dropdownHeight) {
+        // Enough space below - show below
+        top = rect.bottom + 4;
+    } else if (spaceAbove >= dropdownHeight) {
+        // Not enough below, but enough above - show above
+        top = rect.top - dropdownHeight - 4;
+    } else {
+        // Not enough space either way - position to fit in viewport
+        top = Math.max(8, viewportHeight - dropdownHeight - 8);
+    }
+    
+    // Horizontal: ensure it doesn't go off-screen right
+    let left = rect.left;
+    const dropdownWidth = dropdown.offsetWidth || 140;
+    if (left + dropdownWidth > window.innerWidth - 8) {
+        left = window.innerWidth - dropdownWidth - 8;
+    }
+    
+    dropdown.style.top = top + 'px';
+    dropdown.style.left = left + 'px';
+    dropdown.classList.add('active');
+}
+
 function showStatusDropdown(event, taskId, groupId) {
     event.stopPropagation();
     const dropdown = document.getElementById('dropdownMenu');
@@ -1539,9 +1572,7 @@ function showStatusDropdown(event, taskId, groupId) {
     });
     dropdown.innerHTML = html;
     const rect = event.target.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + 4) + 'px';
-    dropdown.style.left = rect.left + 'px';
-    dropdown.classList.add('active');
+    positionDropdown(dropdown, rect);
 }
 
 function setTaskStatus(taskId, groupId, statusId) {
@@ -1573,9 +1604,7 @@ function showPriorityDropdown(event, taskId, groupId) {
     });
     dropdown.innerHTML = html;
     const rect = event.target.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + 4) + 'px';
-    dropdown.style.left = rect.left + 'px';
-    dropdown.classList.add('active');
+    positionDropdown(dropdown, rect);
 }
 
 function setTaskPriority(taskId, groupId, priorityId) {
@@ -5418,6 +5447,9 @@ async function switchWorkspace(workspaceId) {
     localStorage.setItem('activeWorkspaceId', workspaceId);
     serverDataLoaded = false;
     
+    // Load persistent notifications for this workspace
+    loadNotificationsFromStorage();
+    
     // Load new workspace data from server
     const wsParam = `?workspaceId=${workspaceId}`;
     try {
@@ -5438,6 +5470,8 @@ async function switchWorkspace(workspaceId) {
             renderBoard();
             renderBoardSidebar();
             serverDataLoaded = true;
+            // Sync board data to server for Telegram notifications
+            syncBoardToServer();
         } else {
             // No data for this workspace - try legacy migration
             let migrated = false;
@@ -5987,6 +6021,7 @@ async function processPendingInvite() {
 // Initialize workspaces on page load (after auth)
 function initWorkspaces() {
     activeWorkspaceId = localStorage.getItem('activeWorkspaceId') || null;
+    loadNotificationsFromStorage();
     loadWorkspaces();
     checkInviteLink();
 }
@@ -6294,11 +6329,80 @@ function updateNotifPref(entityId, type, value) {
 // ===== NOTIFICATIONS PANEL (Bell Icon) =====
 let notifications = [];
 
+function saveNotificationsToStorage() {
+    if (!activeWorkspaceId) return;
+    try {
+        const data = notifications.map(n => ({
+            ...n,
+            time: n.time instanceof Date ? n.time.toISOString() : n.time
+        }));
+        localStorage.setItem('notifications_' + activeWorkspaceId, JSON.stringify(data));
+        // Also persist to server (fire and forget)
+        saveNotificationsToServer(data);
+    } catch (e) { /* quota exceeded or private mode */ }
+}
+
+async function saveNotificationsToServer(data) {
+    try {
+        await authFetch('/api/user-data/notifications', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data, workspaceId: activeWorkspaceId })
+        });
+    } catch (e) { /* silent - localStorage is primary */ }
+}
+
+function loadNotificationsFromStorage() {
+    if (!activeWorkspaceId) return;
+    try {
+        const raw = localStorage.getItem('notifications_' + activeWorkspaceId);
+        if (raw) {
+            notifications = JSON.parse(raw).map(n => ({
+                ...n,
+                time: new Date(n.time)
+            }));
+            // Keep only last 50 and discard notifications older than 7 days
+            const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            notifications = notifications.filter(n => new Date(n.time).getTime() > sevenDaysAgo).slice(0, 50);
+        } else {
+            notifications = [];
+        }
+    } catch (e) {
+        notifications = [];
+    }
+    renderNotifications();
+    updateNotifBadge();
+    // Also try to load from server (in case localStorage was cleared)
+    loadNotificationsFromServer();
+}
+
+async function loadNotificationsFromServer() {
+    if (!activeWorkspaceId) return;
+    try {
+        const res = await authFetch('/api/user-data/notifications?workspaceId=' + activeWorkspaceId);
+        const result = await res.json();
+        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+            // Merge server data with local data (server is backup)
+            const serverNotifs = result.data.map(n => ({ ...n, time: new Date(n.time) }));
+            // If local is empty but server has data, use server data
+            if (notifications.length === 0 && serverNotifs.length > 0) {
+                notifications = serverNotifs;
+                const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+                notifications = notifications.filter(n => new Date(n.time).getTime() > sevenDaysAgo).slice(0, 50);
+                renderNotifications();
+                updateNotifBadge();
+            }
+        }
+    } catch (e) { /* silent */ }
+}
+
 function toggleNotificationsPanel() {
     const panel = document.getElementById('notificationsPanel');
     if (!panel) return;
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
+        // Mark all as read when panel opens
+        markNotificationsAsRead();
         // Close on outside click
         setTimeout(() => {
             document.addEventListener('click', closeNotifPanelOutside);
@@ -6325,11 +6429,19 @@ function addNotification(type, message, user, detail) {
         message,
         user, // { name, picture, email }
         detail,
-        time: new Date()
+        time: new Date(),
+        read: false
     };
     notifications.unshift(notif);
     if (notifications.length > 50) notifications = notifications.slice(0, 50);
+    saveNotificationsToStorage();
     renderNotifications();
+    updateNotifBadge();
+}
+
+function markNotificationsAsRead() {
+    notifications.forEach(n => { n.read = true; });
+    saveNotificationsToStorage();
     updateNotifBadge();
 }
 
@@ -6349,9 +6461,10 @@ function renderNotifications() {
             : `<div class="notif-item-avatar">${initials}</div>`;
         
         const timeAgo = getTimeAgo(n.time);
+        const unreadClass = n.read ? '' : ' notif-item-unread';
         
         return `
-            <div class="notif-item">
+            <div class="notif-item${unreadClass}">
                 ${avatarHtml}
                 <div class="notif-item-content">
                     <div class="notif-item-text">${n.message}</div>
@@ -6365,8 +6478,9 @@ function renderNotifications() {
 function updateNotifBadge() {
     const badge = document.getElementById('notifBadge');
     if (!badge) return;
-    if (notifications.length > 0) {
-        badge.textContent = notifications.length > 9 ? '9+' : notifications.length;
+    const unreadCount = notifications.filter(n => !n.read).length;
+    if (unreadCount > 0) {
+        badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
         badge.style.display = 'block';
     } else {
         badge.style.display = 'none';
@@ -6375,6 +6489,7 @@ function updateNotifBadge() {
 
 function clearAllNotifications() {
     notifications = [];
+    saveNotificationsToStorage();
     renderNotifications();
     updateNotifBadge();
 }
@@ -6390,43 +6505,87 @@ function getTimeAgo(date) {
     return `${Math.floor(diffHours / 24)}d ago`;
 }
 
-// ===== TASK ADDED POPUP (bottom-right) =====
-let taskAddedPopupTimeout = null;
+// ===== TASK ADDED POPUP (bottom-right, stacking) =====
+let activePopups = []; // [{id, element, timeout}]
 
 function showTaskAddedPopup(taskName, addedBy, note) {
-    const popup = document.getElementById('taskAddedPopup');
-    if (!popup) return;
-    
-    const titleEl = document.getElementById('taskAddedTitle');
-    const detailEl = document.getElementById('taskAddedDetail');
-    
-    if (titleEl) titleEl.textContent = taskName || 'New task added';
+    // Create a new popup element
+    const popupId = 'popup_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
     
     const initials = getInitials(addedBy ? addedBy.name : '?');
     const avatarHtml = addedBy && addedBy.picture
         ? `<img src="${addedBy.picture}" class="task-added-user-avatar" referrerpolicy="no-referrer">`
         : `<div class="task-added-user-avatar">${initials}</div>`;
     
-    if (detailEl) {
-        detailEl.innerHTML = `
-            ${avatarHtml}
-            <span><strong>${escapeHtml(addedBy ? addedBy.name : 'Someone')}</strong> added this task${note ? ': ' + escapeHtml(note.substring(0, 60)) : ''}</span>
-        `;
+    const popup = document.createElement('div');
+    popup.id = popupId;
+    popup.className = 'task-added-popup';
+    popup.innerHTML = `
+        <div class="task-added-content">
+            <div class="task-added-header">
+                <span class="material-icons-outlined">assignment</span>
+                <span class="task-added-title">${escapeHtml(taskName || 'New task added')}</span>
+                <button class="task-added-close" onclick="dismissSinglePopup('${popupId}')">&times;</button>
+            </div>
+            <div class="task-added-detail">
+                ${avatarHtml}
+                <span><strong>${escapeHtml(addedBy ? addedBy.name : 'Someone')}</strong> added this task${note ? ': ' + escapeHtml(note.substring(0, 60)) : ''}</span>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(popup);
+    
+    // Position: stack above existing popups
+    repositionPopups();
+    
+    // Auto-dismiss after 10 seconds
+    const timeout = setTimeout(() => {
+        dismissSinglePopup(popupId);
+    }, 10000);
+    
+    activePopups.push({ id: popupId, element: popup, timeout });
+    repositionPopups();
+}
+
+function dismissSinglePopup(popupId) {
+    const idx = activePopups.findIndex(p => p.id === popupId);
+    if (idx === -1) return;
+    
+    const popupData = activePopups[idx];
+    clearTimeout(popupData.timeout);
+    
+    // Animate out
+    popupData.element.style.opacity = '0';
+    popupData.element.style.transform = 'translateX(100%)';
+    setTimeout(() => {
+        popupData.element.remove();
+    }, 300);
+    
+    activePopups.splice(idx, 1);
+    
+    // Reposition remaining
+    setTimeout(() => repositionPopups(), 310);
+}
+
+function repositionPopups() {
+    let bottomOffset = 20;
+    // Stack from bottom up (newest at bottom)
+    for (let i = activePopups.length - 1; i >= 0; i--) {
+        const p = activePopups[i];
+        p.element.style.bottom = bottomOffset + 'px';
+        p.element.style.right = '20px';
+        bottomOffset += (p.element.offsetHeight || 70) + 10;
     }
-    
-    popup.style.display = 'block';
-    
-    // Auto-dismiss after 5 seconds
-    if (taskAddedPopupTimeout) clearTimeout(taskAddedPopupTimeout);
-    taskAddedPopupTimeout = setTimeout(() => {
-        dismissTaskAddedPopup();
-    }, 5000);
 }
 
 function dismissTaskAddedPopup() {
-    const popup = document.getElementById('taskAddedPopup');
-    if (popup) popup.style.display = 'none';
-    if (taskAddedPopupTimeout) { clearTimeout(taskAddedPopupTimeout); taskAddedPopupTimeout = null; }
+    // Legacy - individual popups are now managed by dismissSinglePopup
+    activePopups.forEach(p => {
+        clearTimeout(p.timeout);
+        p.element.remove();
+    });
+    activePopups = [];
 }
 
 // Hook into task creation to trigger notifications
@@ -6449,7 +6608,7 @@ function triggerTaskAddedNotification(taskName, parentTaskName) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '36';
+const CURRENT_APP_VERSION = '37';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
