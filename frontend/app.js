@@ -990,7 +990,7 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
                     ${priority.label || ''}
                 </div>
             </td>`;
-        case 'notes': return `<td class="cell-notes" ${!isViewer ? `ondblclick="editNotes('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(task.notes || '')}</td>`;
+        case 'notes': return `<td class="cell-notes" ${task.notes ? `onmouseenter="showNotesTooltip(event, this)" onmouseleave="hideNotesTooltip()"` : ''} ${!isViewer ? `ondblclick="editNotes('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(task.notes || '')}</td>`;
         case 'budget': return `<td class="cell-budget" ${!isViewer ? `ondblclick="editBudget('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${task.budget ? '$' + task.budget.toLocaleString() : ''}</td>`;
         case 'files': return `<td class="cell-files">
                 <div class="file-icon">
@@ -1210,7 +1210,7 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
                     ${subPriority.label || ''}
                 </div>
             </td>`;
-        case 'notes': return `<td class="cell-notes" ${!isViewer ? `ondblclick="editSubtaskNotes('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.notes || '')}</td>`;
+        case 'notes': return `<td class="cell-notes" ${sub.notes ? `onmouseenter="showNotesTooltip(event, this)" onmouseleave="hideNotesTooltip()"` : ''} ${!isViewer ? `ondblclick="editSubtaskNotes('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.notes || '')}</td>`;
         case 'budget': return `<td class="cell-budget" ${!isViewer ? `ondblclick="editSubtaskBudget('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${sub.budget ? '$' + sub.budget.toLocaleString() : ''}</td>`;
         case 'files': return `<td class="cell-files">
                 <div class="file-icon">
@@ -1744,6 +1744,49 @@ function editDueDate(taskId, groupId, cell) {
     input.addEventListener('change', save);
     input.addEventListener('blur', save);
     input.focus();
+}
+
+// ===== Notes Tooltip =====
+let notesTooltipEl = null;
+
+function showNotesTooltip(event, cell) {
+    // Only show tooltip if text is actually truncated
+    if (cell.scrollWidth <= cell.clientWidth) return;
+    
+    hideNotesTooltip();
+    const text = cell.textContent;
+    if (!text) return;
+    
+    notesTooltipEl = document.createElement('div');
+    notesTooltipEl.className = 'notes-tooltip';
+    notesTooltipEl.textContent = text;
+    document.body.appendChild(notesTooltipEl);
+    
+    // Position below the cell
+    const rect = cell.getBoundingClientRect();
+    const tooltipRect = notesTooltipEl.getBoundingClientRect();
+    
+    let top = rect.bottom + 6;
+    let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+    
+    // Keep within viewport
+    if (top + tooltipRect.height > window.innerHeight - 8) {
+        top = rect.top - tooltipRect.height - 6;
+    }
+    if (left < 8) left = 8;
+    if (left + tooltipRect.width > window.innerWidth - 8) {
+        left = window.innerWidth - tooltipRect.width - 8;
+    }
+    
+    notesTooltipEl.style.top = top + 'px';
+    notesTooltipEl.style.left = left + 'px';
+}
+
+function hideNotesTooltip() {
+    if (notesTooltipEl) {
+        notesTooltipEl.remove();
+        notesTooltipEl = null;
+    }
 }
 
 function editNotes(taskId, groupId, cell) {
@@ -6692,7 +6735,7 @@ function triggerTaskAddedNotification(taskName, parentTaskName) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '38';
+const CURRENT_APP_VERSION = '39';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
