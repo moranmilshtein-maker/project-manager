@@ -866,6 +866,130 @@
         </div>
     </div>
 
+    <!-- ==================== TASK DETAILS SLIDING PANEL ==================== -->
+    <div id="taskDetailsPanel" class="task-details-panel">
+        <div class="task-details-panel-inner">
+            <!-- Panel Header -->
+            <div class="tdp-header">
+                <div class="tdp-header-left">
+                    <div class="tdp-status-badge" id="tdpStatusBadge" onclick="toggleTdpStatus()"></div>
+                    <button class="tdp-like-btn" id="tdpLikeBtn" onclick="toggleTdpLike()" title="Like">
+                        <span class="material-icons-outlined">favorite_border</span>
+                    </button>
+                </div>
+                <div class="tdp-header-right">
+                    <div class="tdp-owner-avatars" id="tdpOwnerAvatars"></div>
+                    <button class="tdp-header-btn" onclick="toggleTdpFullscreen()" title="Fullscreen">
+                        <span class="material-icons-outlined">fullscreen</span>
+                    </button>
+                    <button class="tdp-header-btn disabled" title="Link (coming soon)">
+                        <span class="material-icons-outlined">link</span>
+                    </button>
+                    <button class="tdp-header-btn disabled" title="More options (coming soon)">
+                        <span class="material-icons-outlined">more_horiz</span>
+                    </button>
+                    <button class="tdp-header-btn tdp-close-btn" onclick="closeTaskDetailsPanel()" title="Close">
+                        <span class="material-icons-outlined">chevron_right</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Task Title -->
+            <div class="tdp-title-section">
+                <h2 class="tdp-task-title" id="tdpTaskTitle" contenteditable="true" dir="rtl"></h2>
+            </div>
+
+            <!-- Privacy Toggle -->
+            <div class="tdp-privacy" id="tdpPrivacy">
+                <span class="material-icons-outlined">lock</span>
+                <span class="tdp-privacy-text">Private</span>
+                <button class="tdp-make-public-btn" onclick="toggleTdpPrivacy()">Make public</button>
+            </div>
+
+            <!-- Fields Section -->
+            <div class="tdp-fields">
+                <div class="tdp-field-row">
+                    <label class="tdp-field-label">
+                        <span class="material-icons-outlined">person</span>
+                        Owner
+                    </label>
+                    <div class="tdp-field-value" id="tdpOwnerField" onclick="openTdpOwnerPicker(event)">
+                        <span class="tdp-placeholder">No owner</span>
+                    </div>
+                </div>
+                <div class="tdp-field-row">
+                    <label class="tdp-field-label">
+                        <span class="material-icons-outlined">calendar_today</span>
+                        Due date
+                    </label>
+                    <div class="tdp-field-value" id="tdpDueDateField">
+                        <input type="date" id="tdpDueDateInput" class="tdp-date-input" onchange="updateTdpDueDate(this.value)">
+                    </div>
+                </div>
+                <div class="tdp-field-row">
+                    <label class="tdp-field-label">
+                        <span class="material-icons-outlined">workspaces</span>
+                        Workspace
+                    </label>
+                    <div class="tdp-field-value" id="tdpWorkspaceField">
+                        <span class="tdp-workspace-name"></span>
+                    </div>
+                </div>
+                <div class="tdp-field-row">
+                    <label class="tdp-field-label">
+                        <span class="material-icons-outlined">flag</span>
+                        Status
+                    </label>
+                    <div class="tdp-field-value" id="tdpStatusField" onclick="openTdpStatusPicker(event)">
+                        <span class="tdp-status-chip"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Description Section -->
+            <div class="tdp-section">
+                <h3 class="tdp-section-title">Description</h3>
+                <div class="tdp-description" id="tdpDescription" contenteditable="true" dir="rtl" data-placeholder="Add a description..."></div>
+            </div>
+
+            <!-- Subitems Section -->
+            <div class="tdp-section">
+                <h3 class="tdp-section-title">
+                    <span class="material-icons-outlined">subdirectory_arrow_right</span>
+                    Subitems
+                    <button class="tdp-add-subitem-btn" onclick="addTdpSubitem()" title="Add subitem">
+                        <span class="material-icons-outlined">add</span>
+                    </button>
+                </h3>
+                <div class="tdp-subitems-list" id="tdpSubitemsList"></div>
+            </div>
+
+            <!-- Messages Section -->
+            <div class="tdp-section tdp-messages-section">
+                <h3 class="tdp-section-title">
+                    <span class="material-icons-outlined">chat</span>
+                    Messages
+                </h3>
+                <div class="tdp-messages-list" id="tdpMessagesList">
+                    <div class="tdp-no-messages">No messages yet</div>
+                </div>
+                <div class="tdp-message-input-area">
+                    <div class="tdp-message-input" id="tdpMessageInput" contenteditable="true" data-placeholder="Write a message..." dir="rtl"></div>
+                    <div class="tdp-message-actions">
+                        <button class="tdp-attach-btn" onclick="document.getElementById('tdpImageUpload').click()" title="Attach image">
+                            <span class="material-icons-outlined">image</span>
+                        </button>
+                        <button class="tdp-send-btn" onclick="sendTdpMessage()" title="Send">
+                            <span class="material-icons-outlined">send</span>
+                        </button>
+                    </div>
+                    <input type="file" id="tdpImageUpload" accept="image/*" style="display:none" onchange="handleTdpImageUpload(event)">
+                    <div id="tdpImagePreview" class="tdp-image-preview" style="display:none"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== VERSION UPDATE POPUP ==================== -->
     <div id="versionUpdatePopup" class="version-update-popup" style="display:none">
         <div class="version-update-content">

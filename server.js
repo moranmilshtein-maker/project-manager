@@ -1108,6 +1108,36 @@ app.put('/api/user-data/columns', async (req, res) => {
   }
 });
 
+// GET /api/user-data/task-details - Get task details panel data (messages, likes, privacy)
+app.get('/api/user-data/task-details', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const workspaceId = req.query.workspaceId || 'default';
+  const storageKey = `task_details_${workspaceId}`;
+  const data = await dataStore.readUserData(key, storageKey);
+  res.json({ success: true, data: data || {} });
+});
+
+// PUT /api/user-data/task-details - Save task details panel data
+app.put('/api/user-data/task-details', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { data, workspaceId } = req.body;
+  if (!data) return res.status(400).json({ error: 'data is required' });
+
+  const storageKey = `task_details_${workspaceId || 'default'}`;
+  const success = await dataStore.writeUserData(key, storageKey, data);
+  if (success) {
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ error: 'Failed to save task details data' });
+  }
+});
+
 // GET /api/user-data/notifications - Get user's notifications for workspace
 app.get('/api/user-data/notifications', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
@@ -1864,7 +1894,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '40';
+const APP_VERSION = '42';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

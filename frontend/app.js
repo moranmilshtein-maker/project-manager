@@ -957,7 +957,7 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
         case 'task': return `<td class="cell-task" ${!isViewer ? `ondblclick="editTaskName('${taskIdStr}', '${groupIdStr}', this)"` : ''}>
                 <div class="cell-task-content">
                     ${expandBtn}
-                    <span class="task-name">${escapeHtml(task.name)}</span>
+                    <span class="task-name" onclick="openTaskDetailsPanel('${taskIdStr}', '${groupIdStr}')">${escapeHtml(task.name)}</span>
                     ${subtaskBadge}
                     <div class="task-icons">
                         <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')" title="Expand details">
@@ -965,6 +965,9 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
                         </button>
                         <button class="task-icon-btn" onclick="event.stopPropagation(); openChat('${taskIdStr}')" title="Open chat">
                             <span class="material-icons-outlined">chat_bubble_outline</span>
+                        </button>
+                        <button class="task-icon-btn task-details-btn" onclick="event.stopPropagation(); openTaskDetailsPanel('${taskIdStr}', '${groupIdStr}')" title="Details">
+                            <span class="material-icons-outlined">chevron_left</span>
                         </button>
                     </div>
                 </div>
@@ -1181,9 +1184,12 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
     switch(col) {
         case 'task': return `<td class="cell-task subtask-task-cell">
                 <div class="cell-task-content subtask-task-content">
-                    <span class="task-name subtask-name" ${!isViewer ? `ondblclick="editSubtaskName('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.name)}</span>
+                    <span class="task-name subtask-name" onclick="openSubtaskDetailsPanel('${subIdStr}', '${taskIdStr}', '${groupIdStr}')" ${!isViewer ? `ondblclick="event.stopPropagation(); editSubtaskName('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.name)}</span>
                     <div class="subtask-actions">
-                        ${!isViewer ? `<button class="subtask-delete-btn" onclick="deleteSubtask('${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Delete subitem">
+                        <button class="task-icon-btn task-details-btn" onclick="event.stopPropagation(); openSubtaskDetailsPanel('${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Details">
+                            <span class="material-icons-outlined">chevron_left</span>
+                        </button>
+                        ${!isViewer ? `<button class="subtask-delete-btn" onclick="event.stopPropagation(); deleteSubtask('${subIdStr}', '${taskIdStr}', '${groupIdStr}')" title="Delete subitem">
                             <span class="material-icons-outlined">close</span>
                         </button>` : ''}
                     </div>
@@ -2262,6 +2268,7 @@ function showAppScreen() {
     // Load data from server (async - will re-render if server has newer data)
     loadFromServer();
     loadColumnStateFromServer();
+    loadTdpDataFromServer();
     processPendingInvite();
 }
 
@@ -6747,8 +6754,598 @@ function triggerTaskAddedNotification(taskName, parentTaskName) {
     addNotification('task_added', msgHtml, user, taskName);
 }
 
+// ===== TASK DETAILS PANEL (Asana-style sliding panel) =====
+let tdpCurrentTask = null;
+let tdpCurrentGroup = null;
+let tdpCurrentSubtask = null; // for subtask detail view
+let tdpIsFullscreen = false;
+let tdpIsLiked = false;
+let tdpIsPrivate = true;
+let tdpMessages = {}; // taskId -> messages array
+let tdpLikedMap = {}; // taskId -> boolean
+let tdpPrivateMap = {}; // taskId -> boolean
+let tdpPendingImage = null;
+let tdpDataLoaded = false;
+
+// Load all task details data from server
+async function loadTdpDataFromServer() {
+    if (!authToken || !activeWorkspaceId) return;
+    try {
+        const res = await fetch(`/api/user-data/task-details?workspaceId=${activeWorkspaceId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        if (!res.ok) return;
+        const result = await res.json();
+        if (result.success && result.data) {
+            tdpMessages = result.data.messages || {};
+            tdpLikedMap = result.data.liked || {};
+            tdpPrivateMap = result.data.privacy || {};
+            tdpDataLoaded = true;
+        }
+    } catch (e) {
+        console.error('[TDP] Failed to load task details from server:', e);
+    }
+}
+
+// Save all task details data to server
+async function saveTdpDataToServer() {
+    if (!authToken || !activeWorkspaceId) return;
+    try {
+        await fetch('/api/user-data/task-details', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({
+                workspaceId: activeWorkspaceId,
+                data: {
+                    messages: tdpMessages,
+                    liked: tdpLikedMap,
+                    privacy: tdpPrivateMap
+                }
+            })
+        });
+    } catch (e) {
+        console.error('[TDP] Failed to save task details to server:', e);
+    }
+}
+
+// Single-click on task cell opens details panel
+function handleTaskCellClick(event, taskId, groupId) {
+    // Don't open if user clicked on a button, checkbox, or expand icon
+    if (event.target.closest('.task-icon-btn, .subtask-expand-btn, .subtask-info-badge, button, input')) return;
+    openTaskDetailsPanel(taskId, groupId);
+}
+
+// Single-click on subtask cell opens details panel
+function handleSubtaskCellClick(event, subId, taskId, groupId) {
+    if (event.target.closest('.task-icon-btn, .subtask-delete-btn, button, input')) return;
+    openSubtaskDetailsPanel(subId, taskId, groupId);
+}
+
+// Open details panel for a subtask
+function openSubtaskDetailsPanel(subId, taskId, groupId) {
+    const { group, task } = findTask(taskId, groupId);
+    if (!task) return;
+    const subtask = (task.subtasks || []).find(s => String(s.id) === String(subId));
+    if (!subtask) return;
+    
+    // Use a "virtual task" representation for the subtask
+    tdpCurrentTask = subtask;
+    tdpCurrentGroup = group;
+    tdpCurrentSubtask = { subId, taskId, groupId, parentTask: task };
+    
+    const msgKey = `sub_${subId}`;
+    if (!tdpMessages[msgKey]) tdpMessages[msgKey] = [];
+    
+    tdpIsLiked = !!tdpLikedMap[msgKey];
+    tdpIsPrivate = tdpPrivateMap[msgKey] !== false; // default true
+    
+    renderTaskDetailsPanel();
+    
+    const panel = document.getElementById('taskDetailsPanel');
+    panel.classList.add('open');
+    
+    let overlay = document.querySelector('.tdp-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'tdp-overlay';
+        overlay.onclick = closeTaskDetailsPanel;
+        document.body.appendChild(overlay);
+    }
+    setTimeout(() => overlay.classList.add('active'), 10);
+}
+
+function openTaskDetailsPanel(taskId, groupId) {
+    const { group, task } = findTask(taskId, groupId);
+    if (!task) return;
+    tdpCurrentTask = task;
+    tdpCurrentGroup = group;
+    tdpCurrentSubtask = null; // Not a subtask
+    
+    // Use server-persisted data maps
+    if (!tdpMessages[taskId]) tdpMessages[taskId] = [];
+    
+    tdpIsLiked = !!tdpLikedMap[taskId];
+    tdpIsPrivate = tdpPrivateMap[taskId] !== false; // default true
+    
+    renderTaskDetailsPanel();
+    
+    // Show panel
+    const panel = document.getElementById('taskDetailsPanel');
+    panel.classList.add('open');
+    
+    // Add overlay
+    let overlay = document.querySelector('.tdp-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'tdp-overlay';
+        overlay.onclick = closeTaskDetailsPanel;
+        document.body.appendChild(overlay);
+    }
+    setTimeout(() => overlay.classList.add('active'), 10);
+}
+
+function closeTaskDetailsPanel() {
+    // Save any edits
+    saveTdpChanges();
+    
+    const panel = document.getElementById('taskDetailsPanel');
+    panel.classList.remove('open', 'fullscreen');
+    tdpIsFullscreen = false;
+    
+    const overlay = document.querySelector('.tdp-overlay');
+    if (overlay) {
+        overlay.classList.remove('active');
+        setTimeout(() => overlay.remove(), 300);
+    }
+    
+    // Remove any open pickers
+    document.querySelectorAll('.tdp-owner-picker, .tdp-status-picker').forEach(el => el.remove());
+    
+    tdpCurrentTask = null;
+    tdpCurrentGroup = null;
+}
+
+function renderTaskDetailsPanel() {
+    if (!tdpCurrentTask) return;
+    const task = tdpCurrentTask;
+    
+    // Status badge
+    const status = getStatusInfo(task.status);
+    const statusBadge = document.getElementById('tdpStatusBadge');
+    statusBadge.style.background = status.color;
+    statusBadge.textContent = status.label || 'No status';
+    
+    // Task title
+    document.getElementById('tdpTaskTitle').textContent = task.name;
+    
+    // Like button
+    const likeBtn = document.getElementById('tdpLikeBtn');
+    likeBtn.classList.toggle('liked', tdpIsLiked);
+    likeBtn.querySelector('.material-icons-outlined').textContent = tdpIsLiked ? 'favorite' : 'favorite_border';
+    
+    // Privacy
+    const privacyEl = document.getElementById('tdpPrivacy');
+    if (tdpIsPrivate) {
+        privacyEl.innerHTML = `<span class="material-icons-outlined">lock</span><span class="tdp-privacy-text">Private</span><button class="tdp-make-public-btn" onclick="toggleTdpPrivacy()">Make public</button>`;
+    } else {
+        privacyEl.innerHTML = `<span class="material-icons-outlined">public</span><span class="tdp-privacy-text">Public</span><button class="tdp-make-public-btn" onclick="toggleTdpPrivacy()">Make private</button>`;
+    }
+    
+    // Owner field
+    const ownerField = document.getElementById('tdpOwnerField');
+    if (task.owner) {
+        const member = cachedWorkspaceMembers.find(m => m.name === task.owner || m.email === task.owner);
+        const pic = member && member.picture ? `<img src="${member.picture}" style="width:22px;height:22px;border-radius:50%;margin-left:6px;">` : '';
+        ownerField.innerHTML = `${pic}<span>${escapeHtml(task.owner)}</span>`;
+    } else {
+        ownerField.innerHTML = '<span class="tdp-placeholder">No owner</span>';
+    }
+    
+    // Due date
+    document.getElementById('tdpDueDateInput').value = task.dueDate || '';
+    
+    // Workspace
+    const activeWs = userWorkspaces.find(ws => ws.id === activeWorkspaceId);
+    document.querySelector('#tdpWorkspaceField .tdp-workspace-name').textContent = activeWs ? activeWs.name : 'No workspace';
+    
+    // Status field
+    const statusField = document.getElementById('tdpStatusField');
+    const statusChip = statusField.querySelector('.tdp-status-chip');
+    statusChip.style.background = status.color;
+    statusChip.textContent = status.label || 'No status';
+    
+    // Owner avatars in header
+    renderTdpOwnerAvatars();
+    
+    // Subitems
+    renderTdpSubitems();
+    
+    // Messages
+    renderTdpMessages();
+    
+    // Description
+    const descEl = document.getElementById('tdpDescription');
+    descEl.textContent = task.notes || '';
+}
+
+function renderTdpOwnerAvatars() {
+    const container = document.getElementById('tdpOwnerAvatars');
+    if (!cachedWorkspaceMembers || cachedWorkspaceMembers.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    container.innerHTML = cachedWorkspaceMembers.slice(0, 5).map(m => {
+        if (m.picture) {
+            return `<div class="tdp-avatar" title="${escapeHtml(m.name || m.email)}"><img src="${m.picture}" alt=""></div>`;
+        }
+        return `<div class="tdp-avatar" title="${escapeHtml(m.name || m.email)}">${escapeHtml(getInitials(m.name || m.email))}</div>`;
+    }).join('');
+}
+
+function renderTdpSubitems() {
+    const list = document.getElementById('tdpSubitemsList');
+    // Subtasks don't have their own sub-items
+    if (tdpCurrentSubtask) {
+        list.innerHTML = '<div class="tdp-no-messages" style="padding:12px">Subitems not available for sub-items</div>';
+        return;
+    }
+    const subtasks = tdpCurrentTask.subtasks || [];
+    if (subtasks.length === 0) {
+        list.innerHTML = '<div class="tdp-no-messages" style="padding:12px">No subitems yet</div>';
+        return;
+    }
+    list.innerHTML = subtasks.map((st, idx) => {
+        const stStatus = getStatusInfo(st.status);
+        const isDone = st.status === 'done';
+        return `<div class="tdp-subitem ${isDone ? 'completed' : ''}" data-idx="${idx}">
+            <div class="tdp-subitem-check ${isDone ? 'done' : ''}" onclick="toggleTdpSubitemDone(${idx})"></div>
+            <span class="tdp-subitem-name">${escapeHtml(st.name)}</span>
+            <span class="tdp-subitem-status" style="background:${stStatus.color}">${stStatus.label || ''}</span>
+            <button class="tdp-subitem-delete" onclick="deleteTdpSubitem(${idx})"><span class="material-icons-outlined">close</span></button>
+        </div>`;
+    }).join('');
+}
+
+function renderTdpMessages() {
+    const list = document.getElementById('tdpMessagesList');
+    const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    const messages = tdpMessages[taskId] || [];
+    if (messages.length === 0) {
+        list.innerHTML = '<div class="tdp-no-messages">No messages yet</div>';
+        return;
+    }
+    list.innerHTML = messages.map(msg => {
+        const avatar = msg.picture 
+            ? `<img src="${msg.picture}" alt="">` 
+            : escapeHtml(getInitials(msg.author));
+        const timeStr = formatTimeAgo(msg.timestamp);
+        const imgHtml = msg.image ? `<img src="${msg.image}" alt="attached image">` : '';
+        return `<div class="tdp-message">
+            <div class="tdp-message-avatar">${avatar}</div>
+            <div class="tdp-message-content">
+                <div class="tdp-message-header">
+                    <span class="tdp-message-author">${escapeHtml(msg.author)}</span>
+                    <span class="tdp-message-time">${timeStr}</span>
+                </div>
+                <div class="tdp-message-text">${escapeHtml(msg.text)}${imgHtml}</div>
+            </div>
+        </div>`;
+    }).join('');
+    list.scrollTop = list.scrollHeight;
+}
+
+function formatTimeAgo(timestamp) {
+    const diff = Date.now() - new Date(timestamp).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+}
+
+function saveTdpChanges() {
+    if (!tdpCurrentTask) return;
+    
+    // Save title
+    const titleEl = document.getElementById('tdpTaskTitle');
+    if (titleEl && titleEl.textContent.trim()) {
+        tdpCurrentTask.name = titleEl.textContent.trim();
+    }
+    
+    // Save description to notes
+    const descEl = document.getElementById('tdpDescription');
+    if (descEl) {
+        tdpCurrentTask.notes = descEl.textContent.trim();
+    }
+    
+    tdpCurrentTask.lastUpdated = nowISO();
+    renderBoard();
+    saveToStorage();
+}
+
+// Status toggle
+function toggleTdpStatus() {
+    if (!tdpCurrentTask) return;
+    const currentIdx = STATUS_OPTIONS.findIndex(s => s.id === tdpCurrentTask.status);
+    const nextIdx = (currentIdx + 1) % STATUS_OPTIONS.length;
+    tdpCurrentTask.status = STATUS_OPTIONS[nextIdx].id;
+    tdpCurrentTask.lastUpdated = nowISO();
+    renderTaskDetailsPanel();
+    renderBoard();
+    saveToStorage();
+}
+
+// Like toggle
+function toggleTdpLike() {
+    if (!tdpCurrentTask) return;
+    tdpIsLiked = !tdpIsLiked;
+    const key = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    tdpLikedMap[key] = tdpIsLiked;
+    saveTdpDataToServer();
+    const likeBtn = document.getElementById('tdpLikeBtn');
+    likeBtn.classList.toggle('liked', tdpIsLiked);
+    likeBtn.querySelector('.material-icons-outlined').textContent = tdpIsLiked ? 'favorite' : 'favorite_border';
+}
+
+// Privacy toggle
+function toggleTdpPrivacy() {
+    if (!tdpCurrentTask) return;
+    tdpIsPrivate = !tdpIsPrivate;
+    const key = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    tdpPrivateMap[key] = tdpIsPrivate;
+    saveTdpDataToServer();
+    renderTaskDetailsPanel();
+}
+
+// Fullscreen toggle
+function toggleTdpFullscreen() {
+    const panel = document.getElementById('taskDetailsPanel');
+    tdpIsFullscreen = !tdpIsFullscreen;
+    panel.classList.toggle('fullscreen', tdpIsFullscreen);
+}
+
+// Owner picker
+function openTdpOwnerPicker(event) {
+    event.stopPropagation();
+    // Remove existing
+    document.querySelectorAll('.tdp-owner-picker').forEach(el => el.remove());
+    
+    const picker = document.createElement('div');
+    picker.className = 'tdp-owner-picker';
+    
+    const members = cachedWorkspaceMembers || [];
+    let html = members.map(m => {
+        const pic = m.picture ? `<img src="${m.picture}" alt="">` : escapeHtml(getInitials(m.name || m.email));
+        return `<div class="tdp-owner-picker-item" onclick="selectTdpOwner('${escapeHtml(m.name || m.email)}')">
+            <div class="owner-pic">${pic}</div>
+            <span>${escapeHtml(m.name || m.email)}</span>
+        </div>`;
+    }).join('');
+    
+    // Add "Remove owner" option
+    html += `<div class="tdp-owner-picker-item" onclick="selectTdpOwner('')" style="color:var(--text-muted)">
+        <div class="owner-pic" style="background:#ccc"><span class="material-icons-outlined" style="font-size:14px;color:#fff">close</span></div>
+        <span>No owner</span>
+    </div>`;
+    
+    picker.innerHTML = html;
+    
+    // Position near the field
+    const rect = event.currentTarget.getBoundingClientRect();
+    picker.style.top = (rect.bottom + 4) + 'px';
+    picker.style.left = rect.left + 'px';
+    document.body.appendChild(picker);
+    
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', function closePicker(e) {
+            if (!picker.contains(e.target)) {
+                picker.remove();
+                document.removeEventListener('click', closePicker);
+            }
+        });
+    }, 10);
+}
+
+function selectTdpOwner(ownerName) {
+    if (!tdpCurrentTask) return;
+    tdpCurrentTask.owner = ownerName;
+    tdpCurrentTask.lastUpdated = nowISO();
+    document.querySelectorAll('.tdp-owner-picker').forEach(el => el.remove());
+    renderTaskDetailsPanel();
+    renderBoard();
+    saveToStorage();
+}
+
+// Status picker
+function openTdpStatusPicker(event) {
+    event.stopPropagation();
+    document.querySelectorAll('.tdp-status-picker').forEach(el => el.remove());
+    
+    const picker = document.createElement('div');
+    picker.className = 'tdp-status-picker';
+    
+    picker.innerHTML = STATUS_OPTIONS.map(s => {
+        return `<div class="tdp-status-picker-item" onclick="selectTdpStatus('${s.id}')">
+            <div class="status-dot" style="background:${s.color}"></div>
+            <span>${s.label || '(Empty)'}</span>
+        </div>`;
+    }).join('');
+    
+    const rect = event.currentTarget.getBoundingClientRect();
+    picker.style.top = (rect.bottom + 4) + 'px';
+    picker.style.left = rect.left + 'px';
+    document.body.appendChild(picker);
+    
+    setTimeout(() => {
+        document.addEventListener('click', function closePicker(e) {
+            if (!picker.contains(e.target)) {
+                picker.remove();
+                document.removeEventListener('click', closePicker);
+            }
+        });
+    }, 10);
+}
+
+function selectTdpStatus(statusId) {
+    if (!tdpCurrentTask) return;
+    tdpCurrentTask.status = statusId;
+    tdpCurrentTask.lastUpdated = nowISO();
+    document.querySelectorAll('.tdp-status-picker').forEach(el => el.remove());
+    renderTaskDetailsPanel();
+    renderBoard();
+    saveToStorage();
+}
+
+// Due date
+function updateTdpDueDate(value) {
+    if (!tdpCurrentTask) return;
+    tdpCurrentTask.dueDate = value;
+    tdpCurrentTask.lastUpdated = nowISO();
+    renderBoard();
+    saveToStorage();
+}
+
+// Subitems
+function addTdpSubitem() {
+    if (!tdpCurrentTask) return;
+    const name = prompt('Subitem name:');
+    if (!name || !name.trim()) return;
+    if (!tdpCurrentTask.subtasks) tdpCurrentTask.subtasks = [];
+    tdpCurrentTask.subtasks.push({
+        id: Date.now(),
+        name: name.trim(),
+        status: '',
+        priority: '',
+        dueDate: '',
+        timelineStart: '',
+        timelineEnd: '',
+        lastUpdated: nowISO()
+    });
+    tdpCurrentTask.lastUpdated = nowISO();
+    renderTdpSubitems();
+    renderBoard();
+    saveToStorage();
+}
+
+function toggleTdpSubitemDone(idx) {
+    if (!tdpCurrentTask || !tdpCurrentTask.subtasks) return;
+    const st = tdpCurrentTask.subtasks[idx];
+    if (!st) return;
+    st.status = st.status === 'done' ? '' : 'done';
+    st.lastUpdated = nowISO();
+    tdpCurrentTask.lastUpdated = nowISO();
+    renderTdpSubitems();
+    renderBoard();
+    saveToStorage();
+}
+
+function deleteTdpSubitem(idx) {
+    if (!tdpCurrentTask || !tdpCurrentTask.subtasks) return;
+    tdpCurrentTask.subtasks.splice(idx, 1);
+    tdpCurrentTask.lastUpdated = nowISO();
+    renderTdpSubitems();
+    renderBoard();
+    saveToStorage();
+}
+
+// Messages
+function sendTdpMessage() {
+    if (!tdpCurrentTask || !currentUser) return;
+    const inputEl = document.getElementById('tdpMessageInput');
+    const text = inputEl.textContent.trim();
+    const image = tdpPendingImage;
+    
+    if (!text && !image) return;
+    
+    const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    if (!tdpMessages[taskId]) tdpMessages[taskId] = [];
+    
+    const msg = {
+        id: Date.now(),
+        author: currentUser.fullName || currentUser.email,
+        picture: currentUser.picture || '',
+        text: text,
+        image: image || '',
+        timestamp: new Date().toISOString()
+    };
+    
+    tdpMessages[taskId].push(msg);
+    
+    // Save to server
+    saveTdpDataToServer();
+    
+    // Clear input
+    inputEl.textContent = '';
+    tdpPendingImage = null;
+    document.getElementById('tdpImagePreview').style.display = 'none';
+    document.getElementById('tdpImagePreview').innerHTML = '';
+    
+    // Send notification to task owner if different from current user
+    if (tdpCurrentTask.owner && tdpCurrentTask.owner !== currentUser.fullName && tdpCurrentTask.owner !== currentUser.email) {
+        const msgHtml = `<strong>${escapeHtml(msg.author)}</strong> commented on "<strong>${escapeHtml(tdpCurrentTask.name)}</strong>"`;
+        addNotification('message', msgHtml, { name: msg.author, picture: msg.picture }, tdpCurrentTask.name);
+    }
+    
+    renderTdpMessages();
+}
+
+// Image paste support
+function setupTdpImagePaste() {
+    const inputEl = document.getElementById('tdpMessageInput');
+    if (!inputEl) return;
+    
+    inputEl.addEventListener('paste', function(e) {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                e.preventDefault();
+                const blob = items[i].getAsFile();
+                const reader = new FileReader();
+                reader.onload = function(ev) {
+                    tdpPendingImage = ev.target.result;
+                    const preview = document.getElementById('tdpImagePreview');
+                    preview.style.display = 'block';
+                    preview.innerHTML = `<div style="position:relative;display:inline-block"><img src="${ev.target.result}" alt="preview"><button class="tdp-remove-image" onclick="removeTdpPendingImage()">&times;</button></div>`;
+                };
+                reader.readAsDataURL(blob);
+                break;
+            }
+        }
+    });
+}
+
+function handleTdpImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+        tdpPendingImage = ev.target.result;
+        const preview = document.getElementById('tdpImagePreview');
+        preview.style.display = 'block';
+        preview.innerHTML = `<div style="position:relative;display:inline-block"><img src="${ev.target.result}" alt="preview"><button class="tdp-remove-image" onclick="removeTdpPendingImage()">&times;</button></div>`;
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+}
+
+function removeTdpPendingImage() {
+    tdpPendingImage = null;
+    document.getElementById('tdpImagePreview').style.display = 'none';
+    document.getElementById('tdpImagePreview').innerHTML = '';
+}
+
+// Initialize paste listener when DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+    setupTdpImagePaste();
+});
+
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '40';
+const CURRENT_APP_VERSION = '42';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
