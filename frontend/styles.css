@@ -1212,6 +1212,7 @@ img.owner-popup-avatar {
     white-space: nowrap;
     position: relative;
     overflow: hidden;
+    width: 100%;
 }
 
 .timeline-bar.has-dates {
@@ -1532,6 +1533,8 @@ tr.subtask-done .date-display {
     justify-content: center;
     height: 100%;
     min-height: 38px;
+    width: 100%;
+    padding: 0 4px;
 }
 
 .summary-timeline-bar {
@@ -1545,6 +1548,7 @@ tr.subtask-done .date-display {
     color: #fff;
     padding: 0 8px;
     white-space: nowrap;
+    width: 100%;
 }
 
 .summary-files {

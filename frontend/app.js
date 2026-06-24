@@ -120,7 +120,23 @@ function formatDate(dateStr) {
 
 function formatTimeline(start, end) {
     if (!start || !end) return '';
-    return `${formatDate(start)} - ${formatDate(end).split(' ')[1]}`;
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return '';
+    
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const startMonth = months[startDate.getMonth()];
+    const endMonth = months[endDate.getMonth()];
+    const startDay = startDate.getDate();
+    const endDay = endDate.getDate();
+    
+    if (startDate.getMonth() === endDate.getMonth() && startDate.getFullYear() === endDate.getFullYear()) {
+        // Same month: "Jul 1 - 31"
+        return `${startMonth} ${startDay} - ${endDay}`;
+    } else {
+        // Different months: "Jun 25 - Jul 31"
+        return `${startMonth} ${startDay} - ${endMonth} ${endDay}`;
+    }
 }
 
 // Real timestamp for lastUpdated - returns ISO string
@@ -1023,14 +1039,14 @@ function renderGroup(group) {
         if (t.timelineEnd) { const d = new Date(t.timelineEnd); if (!isNaN(d) && (!maxDate || d > maxDate)) maxDate = d; }
     });
     const summaryTimeline = minDate && maxDate
-        ? `${formatDate(minDate.toISOString())} - ${formatDate(maxDate.toISOString()).split(' ')[1]}` : '';
+        ? formatTimeline(minDate.toISOString(), maxDate.toISOString()) : '';
 
     let minDue = null, maxDue = null;
     group.tasks.forEach(t => {
         if (t.dueDate) { const d = new Date(t.dueDate); if (!isNaN(d) && (!minDue || d < minDue)) minDue = d; if (!isNaN(d) && (!maxDue || d > maxDue)) maxDue = d; }
     });
     const summaryDueDate = minDue && maxDue
-        ? `${formatDate(minDue.toISOString())} - ${formatDate(maxDue.toISOString()).split(' ')[1]}` : '';
+        ? formatTimeline(minDue.toISOString(), maxDue.toISOString()) : '';
 
     const numCols = getOrderedColumns().length + 3; // color + checkbox + columns + add
 
@@ -1477,36 +1493,104 @@ function editSubtaskBudget(subtaskId, taskId, groupId, cell) {
     input.select();
 }
 
-// Subtask timeline edit
+// Subtask timeline edit - opens full subtask modal
 function editSubtaskTimeline(subtaskId, taskId, groupId) {
+    openSubtaskModal(subtaskId, taskId, groupId);
+}
+
+// Full subtask edit modal (similar to task modal)
+let currentSubModalSubtask = null;
+let currentSubModalTask = null;
+let currentSubModalGroup = null;
+
+function openSubtaskModal(subtaskId, taskId, groupId) {
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
     if (!subtask) return;
-    const start = subtask.timelineStart || '';
-    const end = subtask.timelineEnd || '';
+    const group = boardData.groups.find(g => String(g.id) === String(groupId));
+    currentSubModalSubtask = subtask;
+    currentSubModalTask = task;
+    currentSubModalGroup = group;
+    
     const modal = document.createElement('div');
-    modal.className = 'timeline-modal-overlay';
-    modal.innerHTML = `<div class="timeline-modal">
-        <h3 style="margin:0 0 12px">Set Timeline</h3>
-        <label style="font-size:12px;color:#666">Start date</label>
-        <input type="date" id="subTimelineStart" value="${start}" style="width:100%;padding:6px;margin:4px 0 8px;border:1px solid #ddd;border-radius:4px">
-        <label style="font-size:12px;color:#666">End date</label>
-        <input type="date" id="subTimelineEnd" value="${end}" style="width:100%;padding:6px;margin:4px 0 12px;border:1px solid #ddd;border-radius:4px">
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button onclick="this.closest('.timeline-modal-overlay').remove()" style="padding:6px 12px;border:1px solid #ddd;border-radius:4px;cursor:pointer;background:#fff">Cancel</button>
-            <button id="subTimelineSave" style="padding:6px 12px;border:none;border-radius:4px;cursor:pointer;background:#0073ea;color:#fff">Save</button>
+    modal.className = 'modal-overlay active';
+    modal.id = 'subtaskModalOverlay';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `<div class="modal-content" style="max-width:500px">
+        <div class="modal-header">
+            <h2 class="modal-title">${escapeHtml(subtask.name)}</h2>
+            <button class="modal-close-btn" onclick="document.getElementById('subtaskModalOverlay').remove()">×</button>
+        </div>
+        <div class="modal-body" style="padding:16px 20px">
+            <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Task Name</label>
+            <input type="text" id="subModalName" value="${escapeHtml(subtask.name)}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;margin-bottom:12px">
+            
+            <div style="display:flex;gap:12px;margin-bottom:12px">
+                <div style="flex:1">
+                    <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Status</label>
+                    <select id="subModalStatus" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                        ${STATUS_OPTIONS.map(s => `<option value="${s.id}" ${subtask.status === s.id ? 'selected' : ''}>${s.label || '(Empty)'}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="flex:1">
+                    <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Priority</label>
+                    <select id="subModalPriority" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                        ${PRIORITY_OPTIONS.map(p => `<option value="${p.id}" ${subtask.priority === p.id ? 'selected' : ''}>${p.label || '(Empty)'}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            
+            <div style="display:flex;gap:12px;margin-bottom:12px">
+                <div style="flex:1">
+                    <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Due Date</label>
+                    <input type="date" id="subModalDueDate" value="${subtask.dueDate || ''}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                </div>
+                <div style="flex:1">
+                    <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Budget</label>
+                    <input type="number" id="subModalBudget" value="${subtask.budget || ''}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                </div>
+            </div>
+            
+            <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Notes</label>
+            <textarea id="subModalNotes" rows="3" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical;margin-bottom:12px">${escapeHtml(subtask.notes || '')}</textarea>
+            
+            <div style="display:flex;gap:12px;margin-bottom:16px">
+                <div style="flex:1">
+                    <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Timeline Start</label>
+                    <input type="date" id="subModalTimelineStart" value="${subtask.timelineStart || ''}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                </div>
+                <div style="flex:1">
+                    <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:4px">Timeline End</label>
+                    <input type="date" id="subModalTimelineEnd" value="${subtask.timelineEnd || ''}" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                </div>
+            </div>
+            
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button onclick="saveSubtaskFromModal()" style="padding:8px 20px;border:none;border-radius:6px;cursor:pointer;background:#0073ea;color:#fff;font-weight:600;font-size:13px">Save</button>
+                <button onclick="document.getElementById('subtaskModalOverlay').remove()" style="padding:8px 20px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:13px">Cancel</button>
+            </div>
         </div>
     </div>`;
     document.body.appendChild(modal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
-    document.getElementById('subTimelineSave').addEventListener('click', () => {
-        subtask.timelineStart = document.getElementById('subTimelineStart').value;
-        subtask.timelineEnd = document.getElementById('subTimelineEnd').value;
-        subtask.lastUpdated = nowISO();
-        task.lastUpdated = nowISO();
-        saveToStorage();
-        renderBoard();
-        modal.remove();
-    });
+}
+
+function saveSubtaskFromModal() {
+    if (!currentSubModalSubtask) return;
+    currentSubModalSubtask.name = document.getElementById('subModalName').value.trim() || currentSubModalSubtask.name;
+    currentSubModalSubtask.status = document.getElementById('subModalStatus').value;
+    currentSubModalSubtask.priority = document.getElementById('subModalPriority').value;
+    currentSubModalSubtask.dueDate = document.getElementById('subModalDueDate').value;
+    currentSubModalSubtask.budget = parseFloat(document.getElementById('subModalBudget').value) || 0;
+    currentSubModalSubtask.notes = document.getElementById('subModalNotes').value;
+    currentSubModalSubtask.timelineStart = document.getElementById('subModalTimelineStart').value;
+    currentSubModalSubtask.timelineEnd = document.getElementById('subModalTimelineEnd').value;
+    currentSubModalSubtask.lastUpdated = nowISO();
+    if (currentSubModalTask) currentSubModalTask.lastUpdated = nowISO();
+    document.getElementById('subtaskModalOverlay').remove();
+    saveToStorage();
+    renderBoard();
+    currentSubModalSubtask = null;
+    currentSubModalTask = null;
+    currentSubModalGroup = null;
 }
 
 // ===== Find task by string ID =====
@@ -6608,7 +6692,7 @@ function triggerTaskAddedNotification(taskName, parentTaskName) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '37';
+const CURRENT_APP_VERSION = '38';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
