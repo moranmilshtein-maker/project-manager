@@ -7407,6 +7407,58 @@ function setupTdpImagePaste() {
     });
 }
 
+// Drag and drop image support
+function setupTdpDragDrop() {
+    const dropZone = document.querySelector('.tdp-message-input-area');
+    if (!dropZone) return;
+
+    let dragCounter = 0;
+
+    dropZone.addEventListener('dragenter', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter++;
+        dropZone.classList.add('tdp-drag-over');
+    });
+
+    dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    dropZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter--;
+        if (dragCounter <= 0) {
+            dragCounter = 0;
+            dropZone.classList.remove('tdp-drag-over');
+        }
+    });
+
+    dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter = 0;
+        dropZone.classList.remove('tdp-drag-over');
+
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (!files || files.length === 0) return;
+
+        const file = files[0];
+        if (!file.type.startsWith('image/')) return;
+
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            tdpPendingImage = ev.target.result;
+            const preview = document.getElementById('tdpImagePreview');
+            preview.style.display = 'block';
+            preview.innerHTML = `<div style="position:relative;display:inline-block"><img src="${ev.target.result}" alt="preview"><button class="tdp-remove-image" onclick="removeTdpPendingImage()">&times;</button></div>`;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 function handleTdpImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -7462,13 +7514,14 @@ function closeTdpImageLightbox() {
     }
 }
 
-// Initialize paste listener when DOM ready
+// Initialize paste and drag-drop listeners when DOM ready
 document.addEventListener('DOMContentLoaded', function() {
     setupTdpImagePaste();
+    setupTdpDragDrop();
 });
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '44';
+const CURRENT_APP_VERSION = '45';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

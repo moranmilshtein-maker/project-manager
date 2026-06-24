@@ -5905,6 +5905,33 @@ tr.subtask-row:hover .subtask-action-btn {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     overflow: hidden;
+    transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+    position: relative;
+}
+
+.tdp-message-input-area.tdp-drag-over {
+    border-color: #0073ea;
+    background-color: rgba(0, 115, 234, 0.04);
+    box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.15);
+}
+
+.tdp-message-input-area.tdp-drag-over::after {
+    content: 'Drop image here';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 115, 234, 0.06);
+    color: #0073ea;
+    font-size: 14px;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 5;
+    border-radius: 8px;
 }
 
 .tdp-message-input {
