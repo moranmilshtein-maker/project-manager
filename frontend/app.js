@@ -1305,6 +1305,8 @@ function addSubtaskInline(taskId, groupId) {
                     lastUpdated: nowISO()
                 });
                 task.subtasksExpanded = true;
+                // Trigger subtask added notification + popup
+                triggerTaskAddedNotification(name, task.name);
                 task.lastUpdated = nowISO();
             }
         }
@@ -1545,7 +1547,20 @@ function showStatusDropdown(event, taskId, groupId) {
 function setTaskStatus(taskId, groupId, statusId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { group, task } = findTask(taskId, groupId);
-    if (task) { task.status = statusId; task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
+    if (task) {
+        const oldStatus = task.status;
+        task.status = statusId;
+        task.lastUpdated = nowISO();
+        saveToStorage();
+        renderBoard();
+        // Trigger status change notification
+        if (oldStatus !== statusId && currentUser) {
+            const statusInfo = STATUS_OPTIONS.find(s => s.id === statusId) || { label: statusId };
+            const user = { name: currentUser.fullName || currentUser.email, picture: currentUser.picture || '' };
+            const msg = `<strong>${escapeHtml(user.name)}</strong> changed status of "<strong>${escapeHtml(task.name)}</strong>" to <strong>${escapeHtml(statusInfo.label || statusId)}</strong>`;
+            addNotification('status_change', msg, user, task.name);
+        }
+    }
 }
 
 // ===== Priority Dropdown =====
@@ -1741,6 +1756,8 @@ function addTaskInline(groupId) {
                     subtasks: [],
                     subtasksExpanded: false
                 });
+                // Trigger task added notification + popup
+                triggerTaskAddedNotification(name);
             }
         }
         renderBoard();
@@ -5974,8 +5991,414 @@ function initWorkspaces() {
     checkInviteLink();
 }
 
+// ===== SHARE BOARD MODAL =====
+let boardAccessSetting = 'workspace'; // 'workspace' or 'private'
+let notificationPrefs = {}; // { memberId: { statusUpdates: bool, messages: bool, tasksAdded: bool } }
+
+function openShareBoardModal() {
+    const modal = document.getElementById('shareBoardModal');
+    if (!modal) return;
+    
+    // Set board name in title
+    const titleEl = document.getElementById('shareBoardTitle');
+    const board = boardData.boards ? boardData.boards.find(b => b.id === boardData.activeBoard) : null;
+    const boardName = board ? board.name : 'Board';
+    if (titleEl) titleEl.textContent = `Share ${boardName}`;
+    
+    // Set workspace name in access settings
+    const ws = userWorkspaces.find(w => w.id === activeWorkspaceId);
+    const wsName = ws ? ws.name : 'My Workspace';
+    const accessLabel = document.getElementById('accessSettingsLabel');
+    const accessWsName = document.getElementById('accessWsName');
+    if (accessLabel) accessLabel.textContent = boardAccessSetting === 'workspace' ? wsName : 'Private';
+    if (accessWsName) accessWsName.textContent = wsName;
+    
+    // Check if user can change to private (owner or admin only)
+    const privateOption = document.getElementById('accessPrivateOption');
+    if (privateOption) {
+        const canSetPrivate = currentUser && ['super_admin', 'admin'].includes(currentUser.role);
+        privateOption.style.display = canSetPrivate ? 'flex' : 'none';
+    }
+    
+    // Render members
+    renderShareBoardMembers();
+    
+    modal.style.display = 'flex';
+}
+
+function closeShareBoardModal() {
+    const modal = document.getElementById('shareBoardModal');
+    if (modal) modal.style.display = 'none';
+    // Close access dropdown
+    const dd = document.getElementById('accessDropdown');
+    if (dd) dd.style.display = 'none';
+}
+
+function toggleAccessDropdown() {
+    const dd = document.getElementById('accessDropdown');
+    if (!dd) return;
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+function setAccessSetting(setting) {
+    boardAccessSetting = setting;
+    const ws = userWorkspaces.find(w => w.id === activeWorkspaceId);
+    const wsName = ws ? ws.name : 'My Workspace';
+    const accessLabel = document.getElementById('accessSettingsLabel');
+    if (accessLabel) accessLabel.textContent = setting === 'workspace' ? wsName : 'Private';
+    
+    // Close dropdown
+    const dd = document.getElementById('accessDropdown');
+    if (dd) dd.style.display = 'none';
+    
+    showToast(setting === 'private' ? 'Board set to private' : `Board accessible to ${wsName}`);
+}
+
+function renderShareBoardMembers() {
+    const container = document.getElementById('shareBoardMembers');
+    if (!container) return;
+    
+    const members = cachedWorkspaceMembers || [];
+    const canManage = currentUser && ['super_admin', 'admin'].includes(currentUser.role);
+    
+    if (members.length === 0) {
+        container.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:13px;">No members found</div>';
+        return;
+    }
+    
+    // Add workspace group header
+    const ws = userWorkspaces.find(w => w.id === activeWorkspaceId);
+    const wsName = ws ? ws.name : 'My Workspace';
+    
+    let html = `
+        <div class="share-member-row" style="border-bottom:none;padding-bottom:4px;">
+            <div class="share-member-avatar" style="background:#6c6f7c;font-size:14px;"><span class="material-icons-outlined" style="font-size:16px;color:white;">group</span></div>
+            <div class="share-member-info">
+                <div class="share-member-name">${escapeHtml(wsName)}</div>
+                <div class="share-member-email">${members.length} people</div>
+            </div>
+            <span class="share-member-role">Member</span>
+        </div>
+    `;
+    
+    members.forEach(m => {
+        const initials = getInitials(m.userName || m.userEmail || '?');
+        const avatarHtml = m.picture
+            ? `<img src="${m.picture}" class="share-member-avatar" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'share-member-avatar\\'>${initials}</div>'">`
+            : `<div class="share-member-avatar">${initials}</div>`;
+        
+        const roleLabel = m.role === 'owner' ? 'Admin' : (m.role === 'admin' ? 'Admin' : (m.role === 'viewer' ? 'Viewer' : 'Member'));
+        
+        const roleHtml = canManage && m.role !== 'owner' ? `
+            <select class="share-member-role" onchange="changeShareMemberRole('${m.userId}', this.value)" style="border:1px solid var(--border-color);border-radius:4px;padding:3px 6px;font-size:12px;cursor:pointer;">
+                <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>Admin</option>
+                <option value="member" ${m.role === 'member' ? 'selected' : ''}>Member</option>
+                <option value="viewer" ${m.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+            </select>
+        ` : `<span class="share-member-role">${roleLabel}</span>`;
+        
+        html += `
+            <div class="share-member-row">
+                ${avatarHtml}
+                <div class="share-member-info">
+                    <div class="share-member-name">${escapeHtml(m.userName || 'Unknown')}</div>
+                    <div class="share-member-email">${escapeHtml(m.userEmail || '')}</div>
+                </div>
+                ${roleHtml}
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+async function changeShareMemberRole(userId, newRole) {
+    if (!authToken) return;
+    try {
+        await fetch(`/api/workspaces/${activeWorkspaceId}/members/${userId}/role`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: newRole })
+        });
+        await loadActiveWorkspaceMembers();
+        renderShareBoardMembers();
+    } catch (e) {
+        showToast('Error changing role');
+    }
+}
+
+// ===== NOTIFICATION SETTINGS MODAL =====
+function openNotifSettingsModal() {
+    const modal = document.getElementById('notifSettingsModal');
+    if (!modal) return;
+    renderNotifSettings();
+    modal.style.display = 'flex';
+}
+
+function closeNotifSettingsModal() {
+    const modal = document.getElementById('notifSettingsModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function renderNotifSettings() {
+    const container = document.getElementById('notifSettingsList');
+    if (!container) return;
+    
+    const members = cachedWorkspaceMembers || [];
+    const canManage = currentUser && ['super_admin', 'admin'].includes(currentUser.role);
+    
+    // Load saved prefs from localStorage
+    const savedPrefs = JSON.parse(localStorage.getItem('notifPrefs_' + activeWorkspaceId) || '{}');
+    notificationPrefs = savedPrefs;
+    
+    let html = '';
+    
+    // Your notifications section
+    if (currentUser) {
+        const myPrefs = savedPrefs[currentUser.id] || { statusUpdates: true, messages: true, tasksAdded: true };
+        const initials = getInitials(currentUser.fullName || currentUser.email);
+        const avatarHtml = currentUser.picture
+            ? `<img src="${currentUser.picture}" class="notif-settings-avatar" referrerpolicy="no-referrer">`
+            : `<div class="notif-settings-avatar">${initials}</div>`;
+        
+        html += `<div class="notif-settings-section-title">Your notifications</div>`;
+        html += `
+            <div class="notif-settings-row">
+                <div class="notif-settings-user">
+                    ${avatarHtml}
+                    <div>
+                        <div class="notif-settings-name">${escapeHtml(currentUser.fullName || currentUser.email)}</div>
+                        <div class="notif-settings-email">${escapeHtml(currentUser.email)}</div>
+                    </div>
+                </div>
+                <input type="checkbox" ${myPrefs.statusUpdates ? 'checked' : ''} onchange="updateNotifPref('${currentUser.id}', 'statusUpdates', this.checked)">
+                <input type="checkbox" ${myPrefs.messages ? 'checked' : ''} onchange="updateNotifPref('${currentUser.id}', 'messages', this.checked)">
+                <input type="checkbox" ${myPrefs.tasksAdded ? 'checked' : ''} onchange="updateNotifPref('${currentUser.id}', 'tasksAdded', this.checked)">
+            </div>
+        `;
+    }
+    
+    // Teams section
+    const ws = userWorkspaces.find(w => w.id === activeWorkspaceId);
+    const wsName = ws ? ws.name : 'My Workspace';
+    const wsPrefs = savedPrefs['team_' + activeWorkspaceId] || { statusUpdates: false, messages: false, tasksAdded: false };
+    
+    html += `<div class="notif-settings-section-title">Teams</div>`;
+    html += `
+        <div class="notif-settings-row">
+            <div class="notif-settings-user">
+                <div class="notif-settings-avatar" style="background:#6c6f7c;"><span class="material-icons-outlined" style="font-size:14px;color:white;">group</span></div>
+                <div>
+                    <div class="notif-settings-name">${escapeHtml(wsName)}</div>
+                    <div class="notif-settings-email">${members.length} people</div>
+                </div>
+            </div>
+            <input type="checkbox" ${wsPrefs.statusUpdates ? 'checked' : ''} onchange="updateNotifPref('team_${activeWorkspaceId}', 'statusUpdates', this.checked)">
+            <input type="checkbox" ${wsPrefs.messages ? 'checked' : ''} onchange="updateNotifPref('team_${activeWorkspaceId}', 'messages', this.checked)">
+            <input type="checkbox" ${wsPrefs.tasksAdded ? 'checked' : ''} onchange="updateNotifPref('team_${activeWorkspaceId}', 'tasksAdded', this.checked)">
+        </div>
+    `;
+    
+    // People section (other members)
+    const otherMembers = members.filter(m => !currentUser || m.userEmail !== currentUser.email);
+    if (otherMembers.length > 0) {
+        html += `<div class="notif-settings-section-title">People</div>`;
+        otherMembers.forEach(m => {
+            const mPrefs = savedPrefs[m.userId] || { statusUpdates: true, messages: true, tasksAdded: true };
+            const initials = getInitials(m.userName || m.userEmail || '?');
+            const avatarHtml = m.picture
+                ? `<img src="${m.picture}" class="notif-settings-avatar" referrerpolicy="no-referrer">`
+                : `<div class="notif-settings-avatar">${initials}</div>`;
+            
+            const disabled = !canManage && currentUser && m.userId !== currentUser.id ? 'disabled' : '';
+            
+            html += `
+                <div class="notif-settings-row">
+                    <div class="notif-settings-user">
+                        ${avatarHtml}
+                        <div>
+                            <div class="notif-settings-name">${escapeHtml(m.userName || 'Unknown')}</div>
+                            <div class="notif-settings-email">${escapeHtml(m.userEmail || '')}</div>
+                        </div>
+                    </div>
+                    <input type="checkbox" ${mPrefs.statusUpdates ? 'checked' : ''} ${disabled} onchange="updateNotifPref('${m.userId}', 'statusUpdates', this.checked)">
+                    <input type="checkbox" ${mPrefs.messages ? 'checked' : ''} ${disabled} onchange="updateNotifPref('${m.userId}', 'messages', this.checked)">
+                    <input type="checkbox" ${mPrefs.tasksAdded ? 'checked' : ''} ${disabled} onchange="updateNotifPref('${m.userId}', 'tasksAdded', this.checked)">
+                </div>
+            `;
+        });
+    }
+    
+    container.innerHTML = html;
+}
+
+function updateNotifPref(entityId, type, value) {
+    const savedPrefs = JSON.parse(localStorage.getItem('notifPrefs_' + activeWorkspaceId) || '{}');
+    if (!savedPrefs[entityId]) savedPrefs[entityId] = { statusUpdates: true, messages: true, tasksAdded: true };
+    savedPrefs[entityId][type] = value;
+    localStorage.setItem('notifPrefs_' + activeWorkspaceId, JSON.stringify(savedPrefs));
+    notificationPrefs = savedPrefs;
+}
+
+// ===== NOTIFICATIONS PANEL (Bell Icon) =====
+let notifications = [];
+
+function toggleNotificationsPanel() {
+    const panel = document.getElementById('notificationsPanel');
+    if (!panel) return;
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        // Close on outside click
+        setTimeout(() => {
+            document.addEventListener('click', closeNotifPanelOutside);
+        }, 10);
+    } else {
+        panel.style.display = 'none';
+        document.removeEventListener('click', closeNotifPanelOutside);
+    }
+}
+
+function closeNotifPanelOutside(e) {
+    const panel = document.getElementById('notificationsPanel');
+    const wrapper = document.querySelector('.notification-bell-wrapper');
+    if (panel && wrapper && !wrapper.contains(e.target)) {
+        panel.style.display = 'none';
+        document.removeEventListener('click', closeNotifPanelOutside);
+    }
+}
+
+function addNotification(type, message, user, detail) {
+    const notif = {
+        id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+        type, // 'task_added', 'status_change', 'message'
+        message,
+        user, // { name, picture, email }
+        detail,
+        time: new Date()
+    };
+    notifications.unshift(notif);
+    if (notifications.length > 50) notifications = notifications.slice(0, 50);
+    renderNotifications();
+    updateNotifBadge();
+}
+
+function renderNotifications() {
+    const container = document.getElementById('notifList');
+    if (!container) return;
+    
+    if (notifications.length === 0) {
+        container.innerHTML = '<div class="notif-empty">No notifications</div>';
+        return;
+    }
+    
+    container.innerHTML = notifications.map(n => {
+        const initials = getInitials(n.user ? n.user.name : '?');
+        const avatarHtml = n.user && n.user.picture
+            ? `<img src="${n.user.picture}" class="notif-item-avatar" referrerpolicy="no-referrer">`
+            : `<div class="notif-item-avatar">${initials}</div>`;
+        
+        const timeAgo = getTimeAgo(n.time);
+        
+        return `
+            <div class="notif-item">
+                ${avatarHtml}
+                <div class="notif-item-content">
+                    <div class="notif-item-text">${n.message}</div>
+                    <div class="notif-item-time">${timeAgo}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateNotifBadge() {
+    const badge = document.getElementById('notifBadge');
+    if (!badge) return;
+    if (notifications.length > 0) {
+        badge.textContent = notifications.length > 9 ? '9+' : notifications.length;
+        badge.style.display = 'block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function clearAllNotifications() {
+    notifications = [];
+    renderNotifications();
+    updateNotifBadge();
+}
+
+function getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - new Date(date);
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${Math.floor(diffHours / 24)}d ago`;
+}
+
+// ===== TASK ADDED POPUP (bottom-right) =====
+let taskAddedPopupTimeout = null;
+
+function showTaskAddedPopup(taskName, addedBy, note) {
+    const popup = document.getElementById('taskAddedPopup');
+    if (!popup) return;
+    
+    const titleEl = document.getElementById('taskAddedTitle');
+    const detailEl = document.getElementById('taskAddedDetail');
+    
+    if (titleEl) titleEl.textContent = taskName || 'New task added';
+    
+    const initials = getInitials(addedBy ? addedBy.name : '?');
+    const avatarHtml = addedBy && addedBy.picture
+        ? `<img src="${addedBy.picture}" class="task-added-user-avatar" referrerpolicy="no-referrer">`
+        : `<div class="task-added-user-avatar">${initials}</div>`;
+    
+    if (detailEl) {
+        detailEl.innerHTML = `
+            ${avatarHtml}
+            <span><strong>${escapeHtml(addedBy ? addedBy.name : 'Someone')}</strong> added this task${note ? ': ' + escapeHtml(note.substring(0, 60)) : ''}</span>
+        `;
+    }
+    
+    popup.style.display = 'block';
+    
+    // Auto-dismiss after 5 seconds
+    if (taskAddedPopupTimeout) clearTimeout(taskAddedPopupTimeout);
+    taskAddedPopupTimeout = setTimeout(() => {
+        dismissTaskAddedPopup();
+    }, 5000);
+}
+
+function dismissTaskAddedPopup() {
+    const popup = document.getElementById('taskAddedPopup');
+    if (popup) popup.style.display = 'none';
+    if (taskAddedPopupTimeout) { clearTimeout(taskAddedPopupTimeout); taskAddedPopupTimeout = null; }
+}
+
+// Hook into task creation to trigger notifications
+const originalAddTask = typeof addTask === 'function' ? addTask : null;
+
+function triggerTaskAddedNotification(taskName, parentTaskName) {
+    if (!currentUser) return;
+    
+    const user = { name: currentUser.fullName || currentUser.email, picture: currentUser.picture || '' };
+    const label = parentTaskName ? `Subtask in "${parentTaskName}"` : 'New task';
+    
+    // Show bottom-right popup
+    showTaskAddedPopup(taskName, user, '');
+    
+    // Add to notifications panel
+    const msgHtml = parentTaskName
+        ? `<strong>${escapeHtml(user.name)}</strong> added subtask "<strong>${escapeHtml(taskName)}</strong>" to "${escapeHtml(parentTaskName)}"`
+        : `<strong>${escapeHtml(user.name)}</strong> added task "<strong>${escapeHtml(taskName)}</strong>"`;
+    addNotification('task_added', msgHtml, user, taskName);
+}
+
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '33';
+const CURRENT_APP_VERSION = '34';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
