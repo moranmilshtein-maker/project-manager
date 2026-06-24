@@ -1205,15 +1205,23 @@ img.owner-popup-avatar {
 .cell-files {
     width: 70px;
     text-align: center;
+    overflow: visible;
+    position: relative;
 }
 
 .file-icon {
     cursor: pointer;
     color: var(--text-muted);
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 100%;
+    position: relative;
+    padding: 2px 0;
+}
+
+.file-icon.has-files {
+    color: #0073ea;
 }
 
 .file-icon:hover {
@@ -1222,6 +1230,24 @@ img.owner-popup-avatar {
 
 .file-icon .material-icons-outlined {
     font-size: 18px;
+}
+
+.file-count-badge {
+    position: absolute;
+    top: 2px;
+    left: calc(50% + 2px);
+    background: #0073ea;
+    color: #fff;
+    font-size: 7px;
+    font-weight: 700;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
 }
 
 /* Timeline Cell */

@@ -960,6 +960,9 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
                     <span class="task-name" onclick="openTaskDetailsPanel('${taskIdStr}', '${groupIdStr}')">${escapeHtml(task.name)}</span>
                     ${subtaskBadge}
                     <div class="task-icons">
+                        ${!isViewer ? `<button class="task-icon-btn" onclick="event.stopPropagation(); addSubtaskFromRow('${taskIdStr}', '${groupIdStr}')" title="Add subitem">
+                            <span class="material-icons-outlined">account_tree</span>
+                        </button>` : ''}
                         <button class="task-icon-btn" onclick="event.stopPropagation(); openTaskModal('${taskIdStr}', '${groupIdStr}')" title="Expand details">
                             <span class="material-icons-outlined">open_in_new</span>
                         </button>
@@ -995,13 +998,15 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
             </td>`;
         case 'notes': return `<td class="cell-notes" ${task.notes ? `onmouseenter="showNotesTooltip(event, this)" onmouseleave="hideNotesTooltip()"` : ''} ${!isViewer ? `ondblclick="editNotes('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(task.notes || '')}</td>`;
         case 'budget': return `<td class="cell-budget" ${!isViewer ? `ondblclick="editBudget('${taskIdStr}', '${groupIdStr}', this)"` : ''}>${task.budget ? '$' + task.budget.toLocaleString() : ''}</td>`;
-        case 'files': return `<td class="cell-files">
-                <div class="file-icon">
-                    ${task.files > 0
-                        ? `<span class="material-icons-outlined" style="color:#0073ea">description</span>`
-                        : `<span class="material-icons-outlined">attach_file</span>`}
+        case 'files': {
+                const fileCount = getTaskOwnFileCount(taskIdStr);
+                return `<td class="cell-files">
+                <div class="file-icon${fileCount > 0 ? ' has-files' : ''}" ${fileCount > 0 ? `title="${fileCount} file${fileCount > 1 ? 's' : ''}" onclick="openTaskDetailsPanel('${taskIdStr}', '${groupIdStr}', true)"` : ''}>
+                    <span class="material-icons-outlined">attach_file</span>
+                    ${fileCount > 0 ? `<span class="file-count-badge">${fileCount}</span>` : ''}
                 </div>
             </td>`;
+            }
         case 'timeline': return `<td class="cell-timeline">
                 ${hasTimeline
                     ? `<div class="timeline-bar has-dates" style="background:${timelineColor}" ${!isViewer ? `ondblclick="editTimeline('${taskIdStr}', '${groupIdStr}')"` : ''}>${timelineText}</div>`
@@ -1022,7 +1027,7 @@ function renderGroup(group) {
     const isCollapsed = group.collapsed;
 
     const totalBudget = group.tasks.reduce((sum, t) => sum + (t.budget || 0), 0);
-    const totalFiles = group.tasks.reduce((sum, t) => sum + (t.files || 0), 0);
+    const totalFiles = group.tasks.reduce((sum, t) => sum + getTaskTotalFileCount(t), 0);
 
     const statusCounts = {};
     group.tasks.forEach(t => {
@@ -1218,13 +1223,15 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
             </td>`;
         case 'notes': return `<td class="cell-notes" ${sub.notes ? `onmouseenter="showNotesTooltip(event, this)" onmouseleave="hideNotesTooltip()"` : ''} ${!isViewer ? `ondblclick="editSubtaskNotes('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${escapeHtml(sub.notes || '')}</td>`;
         case 'budget': return `<td class="cell-budget" ${!isViewer ? `ondblclick="editSubtaskBudget('${subIdStr}', '${taskIdStr}', '${groupIdStr}', this)"` : ''}>${sub.budget ? '$' + sub.budget.toLocaleString() : ''}</td>`;
-        case 'files': return `<td class="cell-files">
-                <div class="file-icon">
-                    ${(sub.files || 0) > 0
-                        ? `<span class="material-icons-outlined" style="color:#0073ea">description</span>`
-                        : `<span class="material-icons-outlined">attach_file</span>`}
+        case 'files': {
+                const subFileCount = getTdpFileCount('sub_' + sub.id);
+                return `<td class="cell-files">
+                <div class="file-icon${subFileCount > 0 ? ' has-files' : ''}" ${subFileCount > 0 ? `title="${subFileCount} file${subFileCount > 1 ? 's' : ''}" onclick="openSubtaskDetailsPanel('${subIdStr}', '${taskIdStr}', '${groupIdStr}', true)"` : ''}>
+                    <span class="material-icons-outlined">attach_file</span>
+                    ${subFileCount > 0 ? `<span class="file-count-badge">${subFileCount}</span>` : ''}
                 </div>
             </td>`;
+            }
         case 'timeline': return `<td class="cell-timeline">
                 ${hasTimeline
                     ? `<div class="timeline-bar has-dates" style="background:${timelineColor}" ${!isViewer ? `ondblclick="editSubtaskTimeline('${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''}>${timelineText}</div>`
@@ -1282,6 +1289,18 @@ function toggleSubtasks(taskId, groupId) {
     if (!task.subtasks) task.subtasks = [];
     task.subtasksExpanded = !task.subtasksExpanded;
     renderBoard();
+}
+
+// Add subtask from row icon - expand subtasks and trigger inline add
+function addSubtaskFromRow(taskId, groupId) {
+    const { task } = findTask(taskId, groupId);
+    if (!task) return;
+    if (!task.subtasks) task.subtasks = [];
+    if (!task.subtasksExpanded) {
+        task.subtasksExpanded = true;
+        renderBoard();
+    }
+    setTimeout(() => addSubtaskInline(taskId, groupId), 50);
 }
 
 // Add subtask inline
@@ -6821,8 +6840,24 @@ function handleSubtaskCellClick(event, subId, taskId, groupId) {
     openSubtaskDetailsPanel(subId, taskId, groupId);
 }
 
+// Adjust TDP panel width to extend to Priority column right edge
+function adjustTdpPanelWidth(panel) {
+    const priorityTh = document.querySelector('th[data-col="priority"]');
+    if (priorityTh) {
+        const rect = priorityTh.getBoundingClientRect();
+        const panelWidth = window.innerWidth - rect.right;
+        if (panelWidth >= 400) {
+            panel.style.width = panelWidth + 'px';
+        } else {
+            panel.style.width = ''; // fallback to CSS default
+        }
+    } else {
+        panel.style.width = ''; // fallback to CSS default
+    }
+}
+
 // Open details panel for a subtask
-function openSubtaskDetailsPanel(subId, taskId, groupId) {
+function openSubtaskDetailsPanel(subId, taskId, groupId, scrollToFiles) {
     const { group, task } = findTask(taskId, groupId);
     if (!task) return;
     const subtask = (task.subtasks || []).find(s => String(s.id) === String(subId));
@@ -6842,7 +6877,16 @@ function openSubtaskDetailsPanel(subId, taskId, groupId) {
     renderTaskDetailsPanel();
     
     const panel = document.getElementById('taskDetailsPanel');
+    adjustTdpPanelWidth(panel);
     panel.classList.add('open');
+    
+    // Scroll to messages/files if requested
+    if (scrollToFiles) {
+        setTimeout(() => {
+            const messagesSection = panel.querySelector('.tdp-messages-section');
+            if (messagesSection) messagesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 350);
+    }
     
     let overlay = document.querySelector('.tdp-overlay');
     if (!overlay) {
@@ -6854,7 +6898,7 @@ function openSubtaskDetailsPanel(subId, taskId, groupId) {
     setTimeout(() => overlay.classList.add('active'), 10);
 }
 
-function openTaskDetailsPanel(taskId, groupId) {
+function openTaskDetailsPanel(taskId, groupId, scrollToFiles) {
     const { group, task } = findTask(taskId, groupId);
     if (!task) return;
     tdpCurrentTask = task;
@@ -6871,7 +6915,16 @@ function openTaskDetailsPanel(taskId, groupId) {
     
     // Show panel
     const panel = document.getElementById('taskDetailsPanel');
+    adjustTdpPanelWidth(panel);
     panel.classList.add('open');
+    
+    // Scroll to messages/files if requested
+    if (scrollToFiles) {
+        setTimeout(() => {
+            const messagesSection = panel.querySelector('.tdp-messages-section');
+            if (messagesSection) messagesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 350);
+    }
     
     // Add overlay
     let overlay = document.querySelector('.tdp-overlay');
@@ -6890,6 +6943,7 @@ function closeTaskDetailsPanel() {
     
     const panel = document.getElementById('taskDetailsPanel');
     panel.classList.remove('open', 'fullscreen');
+    panel.style.width = ''; // reset dynamic width
     tdpIsFullscreen = false;
     
     const overlay = document.querySelector('.tdp-overlay');
@@ -7519,6 +7573,28 @@ document.addEventListener('DOMContentLoaded', function() {
     setupTdpImagePaste();
     setupTdpDragDrop();
 });
+
+// Count files (images) in TDP messages for a given task/subtask
+function getTdpFileCount(taskId) {
+    const messages = tdpMessages[String(taskId)] || [];
+    return messages.filter(m => m.image && m.image.length > 0).length;
+}
+
+// Count total files for a task - only its OWN messages (not subtasks)
+function getTaskOwnFileCount(taskId) {
+    return getTdpFileCount(taskId);
+}
+
+// Count total files for a task including all its subtasks (for summary row)
+function getTaskTotalFileCount(task) {
+    let count = getTdpFileCount(task.id);
+    if (task.subtasks && task.subtasks.length > 0) {
+        task.subtasks.forEach(sub => {
+            count += getTdpFileCount('sub_' + sub.id);
+        });
+    }
+    return count;
+}
 
 // ===== VERSION UPDATE CHECKER =====
 const CURRENT_APP_VERSION = '45';
