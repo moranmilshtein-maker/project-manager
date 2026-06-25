@@ -1078,30 +1078,20 @@ app.get('/api/user-data/boards', async (req, res) => {
       }
     }
     
-    // INTEGRITY: Auto-fix orphan boardGroups on read
+    // CLEANUP: Remove boardGroups keys that don't have a matching board (stale data)
     if (data && data.boardGroups && data.boards) {
       const boardIds = new Set(data.boards.map(b => b.id));
-      const colors = ['#0073ea', '#fdab3d', '#00c875', '#e2445c', '#a25ddc', '#579bfc'];
-      let fixed = false;
+      let cleaned = false;
       for (const bgId of Object.keys(data.boardGroups)) {
         if (!boardIds.has(bgId)) {
-          const groups = data.boardGroups[bgId] || [];
-          const customGroup = groups.find(g => !['To-Do', 'In Progress', 'Completed'].includes(g.name));
-          data.boards.push({
-            id: bgId,
-            name: customGroup ? customGroup.name : `Board ${bgId.slice(-4)}`,
-            color: colors[data.boards.length % colors.length],
-            archived: false,
-            createdAt: null
-          });
-          fixed = true;
+          delete data.boardGroups[bgId];
+          cleaned = true;
         }
       }
-      if (fixed) {
-        // Persist the fix
+      if (cleaned) {
         const fixKey = `workspace_shared_${wsId}`;
         await dataStore.writeUserData(fixKey, 'boards', data);
-        console.log(`[Integrity] Auto-fixed orphan boards on read for workspace ${wsId}`);
+        console.log(`[Cleanup] Removed stale boardGroups keys for workspace ${wsId}`);
       }
     }
 
@@ -1168,23 +1158,13 @@ app.put('/api/user-data/boards', async (req, res) => {
       }
     }
     
-    // INTEGRITY: Ensure boards array includes all boardGroups keys (prevent orphan boards)
+    // CLEANUP: Remove stale boardGroups keys on save
     if (data.boardGroups && data.boards) {
       const boardIds = new Set(data.boards.map(b => b.id));
-      const colors = ['#0073ea', '#fdab3d', '#00c875', '#e2445c', '#a25ddc', '#579bfc'];
       for (const bgId of Object.keys(data.boardGroups)) {
         if (!boardIds.has(bgId)) {
-          // Board exists in groups but not in boards array — auto-recover
-          const groups = data.boardGroups[bgId] || [];
-          const customGroup = groups.find(g => !['To-Do', 'In Progress', 'Completed'].includes(g.name));
-          data.boards.push({
-            id: bgId,
-            name: customGroup ? customGroup.name : `Board ${bgId.slice(-4)}`,
-            color: colors[data.boards.length % colors.length],
-            archived: false,
-            createdAt: null
-          });
-          console.log(`[Integrity] Auto-recovered orphan board ${bgId} in workspace ${wsId}`);
+          delete data.boardGroups[bgId];
+          console.log(`[Cleanup] Removed stale boardGroup key ${bgId} on save for workspace ${wsId}`);
         }
       }
     }
@@ -2152,7 +2132,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '53';
+const APP_VERSION = '54';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
