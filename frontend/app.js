@@ -60,15 +60,31 @@ function getAvatarHTML(user, size, extraClass) {
     return `<div class="user-avatar user-avatar-initials ${extraClass}" style="width:${size}px;height:${size}px;font-size:${Math.round(size*0.34)}px;">${initials}</div>`;
 }
 
+// Helper: Find workspace member by owner name (used by Owner + Last Updated columns)
+function findMemberByOwnerName(ownerName) {
+    if (!ownerName) return null;
+    return cachedWorkspaceMembers.find(m => 
+        m.userName === ownerName || getInitials(m.userName || m.userEmail) === ownerName
+    ) || null;
+}
+
+// Helper: Get avatar for "Owner" column - shows profile picture if available
+function getOwnerAvatarHTML(ownerName, clickAttr, extraClass) {
+    extraClass = extraClass || '';
+    if (!ownerName) return `<div class="owner-avatar no-owner ${extraClass}" ${clickAttr} title="Assign this task"><span class="owner-plus-icon">+</span></div>`;
+    const member = findMemberByOwnerName(ownerName);
+    const displayName = member ? (member.userName || member.userEmail || ownerName) : ownerName;
+    const initials = escapeHtml(getInitials(displayName));
+    if (member && member.picture) {
+        return `<div class="owner-avatar has-owner ${extraClass}" ${clickAttr} title="${escapeHtml(displayName)}"><img src="${member.picture}" class="owner-avatar-img" referrerpolicy="no-referrer" onerror="this.outerHTML='${initials}'"></div>`;
+    }
+    return `<div class="owner-avatar has-owner ${extraClass}" ${clickAttr} title="${escapeHtml(displayName)}">${initials}</div>`;
+}
+
 // Helper: Get avatar for "Last Updated" column - shows picture or initials circle
-// Uses the same style as the Owner column avatar
 function getUpdatedAvatarHTML(ownerName) {
     if (!ownerName) return '';
-    // Try to find member in cached workspace members by name
-    const member = cachedWorkspaceMembers.find(m => 
-        m.userName === ownerName || getInitials(m.userName || m.userEmail) === ownerName
-    );
-    // Use member's full name for initials if matched, otherwise use ownerName directly
+    const member = findMemberByOwnerName(ownerName);
     const displayName = member ? (member.userName || member.userEmail || ownerName) : ownerName;
     const initials = getInitials(displayName);
     if (member && member.picture) {
@@ -1278,10 +1294,7 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
                 </div>
             </td>`;
         case 'owner': return `<td class="cell-owner">
-                ${task.owner
-                    ? `<div class="owner-avatar has-owner" ${!isViewer ? `onclick="toggleOwner(event, '${taskIdStr}', '${groupIdStr}')"` : ''} title="${escapeHtml(task.owner)}">${escapeHtml(getInitials(task.owner))}</div>`
-                    : `<div class="owner-avatar no-owner" ${!isViewer ? `onclick="toggleOwner(event, '${taskIdStr}', '${groupIdStr}')"` : ''} title="Assign this task"><span class="owner-plus-icon">+</span></div>`
-                }
+                ${getOwnerAvatarHTML(task.owner, !isViewer ? `onclick="toggleOwner(event, '${taskIdStr}', '${groupIdStr}')"` : '')}
             </td>`;
         case 'status': return `<td class="cell-status">
                 <div class="status-label" style="background:${status.color}"
@@ -1503,10 +1516,7 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
                 </div>
             </td>`;
         case 'owner': return `<td class="cell-owner">
-                ${sub.owner
-                    ? `<div class="owner-avatar has-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''} title="${escapeHtml(sub.owner)}">${escapeHtml(getInitials(sub.owner))}</div>`
-                    : `<div class="owner-avatar no-owner subtask-avatar" ${!isViewer ? `onclick="toggleSubtaskOwner(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : ''} title="Assign this task"><span class="owner-plus-icon">+</span></div>`
-                }
+                ${getOwnerAvatarHTML(sub.owner, !isViewer ? `onclick="toggleSubtaskOwner(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : '', 'subtask-avatar')}
             </td>`;
         case 'status': return `<td class="cell-status">
                 <div class="status-label subtask-status-label" style="background:${subStatus.color}"
@@ -8074,7 +8084,7 @@ function getTaskTotalFileCount(task) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '51';
+const CURRENT_APP_VERSION = '52';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
