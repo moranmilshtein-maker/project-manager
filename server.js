@@ -164,6 +164,14 @@ function findUserByEmail(email) {
   return null;
 }
 
+// Helper: find user store key by user ID
+function findUserKeyById(userId) {
+  for (const [key, user] of users) {
+    if (user.id === userId) return key;
+  }
+  return null;
+}
+
 // Helper: find user by email and specific provider
 function findUserByEmailAndProvider(email, provider) {
   return users.get(userKey(email, provider)) || null;
@@ -402,6 +410,23 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       user.id, user.fullName, user.email, 'My Workspace'
     );
     user.activeWorkspaceId = defaultWs.id;
+
+    // Initialize shared board data with default groups
+    const defBoardId = 'board_' + Date.now();
+    const defBoardData = {
+      boards: [{ id: defBoardId, name: 'Main Table', archived: false }],
+      activeBoard: defBoardId,
+      boardGroups: {
+        [defBoardId]: [
+          { id: 'g_' + Date.now() + '_1', name: 'To-Do', color: '#6161ff', collapsed: false, tasks: [] },
+          { id: 'g_' + Date.now() + '_2', name: 'In Progress', color: '#ff7575', collapsed: false, tasks: [] },
+          { id: 'g_' + Date.now() + '_3', name: 'Completed', color: '#00c875', collapsed: false, tasks: [] }
+        ]
+      },
+      groups: []
+    };
+    await dataStore.writeUserData(`workspace_shared_${defaultWs.id}`, 'boards', defBoardData);
+
     await workspaceStore.persistWorkspaces();
 
     const token = generateToken();
@@ -1003,20 +1028,65 @@ telegramBot.initScheduler();
 // ===== Board Data Persistence API =====
 // Store/retrieve board data, archived tasks, and column state per user on the server
 // This ensures data survives code deploys, localStorage clears, and browser changes
+// WORKSPACE BOARD DATA IS SHARED: all members of a workspace read/write the same data
 
-// GET /api/user-data/boards - Get user's board data (supports ?workspaceId=X)
+// Helper: get user ID from session key
+function getUserFromSession(token) {
+  const key = sessions.get(token);
+  if (!key) return null;
+  const user = users.get(key);
+  return user ? { key, user } : null;
+}
+
+// Helper: check if user is member of workspace
+function isWorkspaceMember(userId, workspaceId) {
+  if (!workspaceId) return true; // default workspace accessible to all
+  return !!workspaceStore.getMembership(userId, workspaceId);
+}
+
+// GET /api/user-data/boards - Get board data (SHARED per workspace)
 app.get('/api/user-data/boards', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
+  const user = users.get(key);
   const wsId = req.query.workspaceId;
-  const dataKey = wsId ? `ws_${wsId}_boards` : 'boards';
-  const data = await dataStore.readUserData(key, dataKey);
-  res.json({ success: true, data: data });
+  
+  if (wsId) {
+    // Workspace board data is SHARED — stored under workspace key
+    if (!isWorkspaceMember(user.id, wsId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${wsId}`;
+    let data = await dataStore.readUserData(sharedKey, 'boards');
+    
+    // Migration: if no shared data exists, try to load from the workspace owner's personal data
+    if (!data) {
+      const ws = workspaceStore.getWorkspace(wsId);
+      if (ws && ws.ownerId) {
+        const ownerKey = findUserKeyById(ws.ownerId);
+        if (ownerKey) {
+          const ownerData = await dataStore.readUserData(ownerKey, `ws_${wsId}_boards`);
+          if (ownerData) {
+            // Migrate owner's data to shared storage
+            await dataStore.writeUserData(sharedKey, 'boards', ownerData);
+            data = ownerData;
+            console.log(`[Migration] Migrated workspace ${wsId} board data from owner to shared storage`);
+          }
+        }
+      }
+    }
+    
+    res.json({ success: true, data: data });
+  } else {
+    // Personal board data (no workspace) — per user
+    const data = await dataStore.readUserData(key, 'boards');
+    res.json({ success: true, data: data });
+  }
 });
 
-// PUT /api/user-data/boards - Save user's board data (supports ?workspaceId=X)
+// PUT /api/user-data/boards - Save board data (SHARED per workspace)
 app.put('/api/user-data/boards', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
@@ -1025,32 +1095,47 @@ app.put('/api/user-data/boards', async (req, res) => {
   const { data } = req.body;
   if (!data) return res.status(400).json({ error: 'data is required' });
 
+  const user = users.get(key);
   const wsId = req.query.workspaceId || req.body.workspaceId;
-  const dataKey = wsId ? `ws_${wsId}_boards` : 'boards';
   
-  // SAFETY: Never overwrite real data with empty/default data
-  const hasRealContent = data.boardGroups && Object.keys(data.boardGroups).length > 0 &&
-    Object.values(data.boardGroups).some(groups => groups && groups.length > 0 && 
-      groups.some(g => g.tasks && g.tasks.length > 0));
-  
-  if (!hasRealContent) {
-    // Check if there's existing data we'd be overwriting
-    const existing = await dataStore.readUserData(key, dataKey);
-    if (existing && existing.boardGroups) {
-      const existingHasContent = Object.values(existing.boardGroups).some(groups => 
-        groups && groups.length > 0 && groups.some(g => g.tasks && g.tasks.length > 0));
-      if (existingHasContent) {
-        console.log(`[Safety] Blocked empty overwrite of ${dataKey} - existing data has tasks`);
-        return res.json({ success: true, blocked: true });
+  if (wsId) {
+    // Workspace board data is SHARED
+    if (!isWorkspaceMember(user.id, wsId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${wsId}`;
+    
+    // SAFETY: Never overwrite real data with empty/default data
+    const hasRealContent = data.boardGroups && Object.keys(data.boardGroups).length > 0 &&
+      Object.values(data.boardGroups).some(groups => groups && groups.length > 0 && 
+        groups.some(g => g.tasks && g.tasks.length > 0));
+    
+    if (!hasRealContent) {
+      const existing = await dataStore.readUserData(sharedKey, 'boards');
+      if (existing && existing.boardGroups) {
+        const existingHasContent = Object.values(existing.boardGroups).some(groups => 
+          groups && groups.length > 0 && groups.some(g => g.tasks && g.tasks.length > 0));
+        if (existingHasContent) {
+          console.log(`[Safety] Blocked empty overwrite of shared workspace ${wsId} boards`);
+          return res.json({ success: true, blocked: true });
+        }
       }
     }
-  }
-  
-  const success = await dataStore.writeUserData(key, dataKey, data);
-  if (success) {
-    res.json({ success: true });
+    
+    const success = await dataStore.writeUserData(sharedKey, 'boards', data);
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to save data' });
+    }
   } else {
-    res.status(500).json({ error: 'Failed to save data' });
+    // Personal board data (no workspace)
+    const success = await dataStore.writeUserData(key, 'boards', data);
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to save data' });
+    }
   }
 });
 
@@ -1108,33 +1193,75 @@ app.put('/api/user-data/columns', async (req, res) => {
   }
 });
 
-// GET /api/user-data/task-details - Get task details panel data (messages, likes, privacy)
+// GET /api/user-data/task-details - Get task details panel data (SHARED per workspace)
 app.get('/api/user-data/task-details', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
+  const user = users.get(key);
   const workspaceId = req.query.workspaceId || 'default';
-  const storageKey = `task_details_${workspaceId}`;
-  const data = await dataStore.readUserData(key, storageKey);
-  res.json({ success: true, data: data || {} });
+  
+  if (workspaceId !== 'default') {
+    if (!isWorkspaceMember(user.id, workspaceId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${workspaceId}`;
+    let data = await dataStore.readUserData(sharedKey, 'task_details');
+    
+    // Migration: try owner's personal data
+    if (!data) {
+      const ws = workspaceStore.getWorkspace(workspaceId);
+      if (ws && ws.ownerId) {
+        const ownerKey = findUserKeyById(ws.ownerId);
+        if (ownerKey) {
+          const ownerData = await dataStore.readUserData(ownerKey, `task_details_${workspaceId}`);
+          if (ownerData) {
+            await dataStore.writeUserData(sharedKey, 'task_details', ownerData);
+            data = ownerData;
+            console.log(`[Migration] Migrated workspace ${workspaceId} task details from owner to shared`);
+          }
+        }
+      }
+    }
+    
+    res.json({ success: true, data: data || {} });
+  } else {
+    const data = await dataStore.readUserData(key, 'task_details_default');
+    res.json({ success: true, data: data || {} });
+  }
 });
 
-// PUT /api/user-data/task-details - Save task details panel data
+// PUT /api/user-data/task-details - Save task details panel data (SHARED per workspace)
 app.put('/api/user-data/task-details', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
+  const user = users.get(key);
   const { data, workspaceId } = req.body;
   if (!data) return res.status(400).json({ error: 'data is required' });
 
-  const storageKey = `task_details_${workspaceId || 'default'}`;
-  const success = await dataStore.writeUserData(key, storageKey, data);
-  if (success) {
-    res.json({ success: true });
+  const wsId = workspaceId || 'default';
+  
+  if (wsId !== 'default') {
+    if (!isWorkspaceMember(user.id, wsId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${wsId}`;
+    const success = await dataStore.writeUserData(sharedKey, 'task_details', data);
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to save task details data' });
+    }
   } else {
-    res.status(500).json({ error: 'Failed to save task details data' });
+    const success = await dataStore.writeUserData(key, 'task_details_default', data);
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to save task details data' });
+    }
   }
 });
 
@@ -1280,6 +1407,23 @@ app.post('/api/workspaces', requireAuth, async (req, res) => {
       name,
       description || ''
     );
+
+    // Initialize shared board data with default groups (To-Do, In Progress, Completed)
+    const defaultBoardId = 'board_' + Date.now();
+    const defaultBoardData = {
+      boards: [{ id: defaultBoardId, name: 'Main Table', archived: false }],
+      activeBoard: defaultBoardId,
+      boardGroups: {
+        [defaultBoardId]: [
+          { id: 'g_' + Date.now() + '_1', name: 'To-Do', color: '#6161ff', collapsed: false, tasks: [] },
+          { id: 'g_' + Date.now() + '_2', name: 'In Progress', color: '#ff7575', collapsed: false, tasks: [] },
+          { id: 'g_' + Date.now() + '_3', name: 'Completed', color: '#00c875', collapsed: false, tasks: [] }
+        ]
+      },
+      groups: []
+    };
+    const sharedKey = `workspace_shared_${workspace.id}`;
+    await dataStore.writeUserData(sharedKey, 'boards', defaultBoardData);
 
     await workspaceStore.persistWorkspaces();
     res.json({ success: true, workspace });
@@ -1894,7 +2038,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '45';
+const APP_VERSION = '46';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
