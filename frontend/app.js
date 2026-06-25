@@ -7300,6 +7300,8 @@ async function loadTdpDataFromServer() {
             tdpLikedMap = result.data.liked || {};
             tdpPrivateMap = result.data.privacy || {};
             tdpDataLoaded = true;
+            // Re-render board to update Files column badges
+            if (typeof renderBoard === 'function') renderBoard();
         }
     } catch (e) {
         console.error('[TDP] Failed to load task details from server:', e);
@@ -8571,7 +8573,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '57';
+const CURRENT_APP_VERSION = '58';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
