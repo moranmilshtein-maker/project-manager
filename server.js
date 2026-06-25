@@ -1078,6 +1078,33 @@ app.get('/api/user-data/boards', async (req, res) => {
       }
     }
     
+    // INTEGRITY: Auto-fix orphan boardGroups on read
+    if (data && data.boardGroups && data.boards) {
+      const boardIds = new Set(data.boards.map(b => b.id));
+      const colors = ['#0073ea', '#fdab3d', '#00c875', '#e2445c', '#a25ddc', '#579bfc'];
+      let fixed = false;
+      for (const bgId of Object.keys(data.boardGroups)) {
+        if (!boardIds.has(bgId)) {
+          const groups = data.boardGroups[bgId] || [];
+          const customGroup = groups.find(g => !['To-Do', 'In Progress', 'Completed'].includes(g.name));
+          data.boards.push({
+            id: bgId,
+            name: customGroup ? customGroup.name : `Board ${bgId.slice(-4)}`,
+            color: colors[data.boards.length % colors.length],
+            archived: false,
+            createdAt: null
+          });
+          fixed = true;
+        }
+      }
+      if (fixed) {
+        // Persist the fix
+        const fixKey = `workspace_shared_${wsId}`;
+        await dataStore.writeUserData(fixKey, 'boards', data);
+        console.log(`[Integrity] Auto-fixed orphan boards on read for workspace ${wsId}`);
+      }
+    }
+
     // Board-level permission: if user only has access to a specific board, filter
     if (data) {
       const membership = workspaceStore.getMembership(user.id, wsId);
@@ -1137,6 +1164,27 @@ app.put('/api/user-data/boards', async (req, res) => {
         if (existingHasContent) {
           console.log(`[Safety] Blocked empty overwrite of shared workspace ${wsId} boards`);
           return res.json({ success: true, blocked: true });
+        }
+      }
+    }
+    
+    // INTEGRITY: Ensure boards array includes all boardGroups keys (prevent orphan boards)
+    if (data.boardGroups && data.boards) {
+      const boardIds = new Set(data.boards.map(b => b.id));
+      const colors = ['#0073ea', '#fdab3d', '#00c875', '#e2445c', '#a25ddc', '#579bfc'];
+      for (const bgId of Object.keys(data.boardGroups)) {
+        if (!boardIds.has(bgId)) {
+          // Board exists in groups but not in boards array — auto-recover
+          const groups = data.boardGroups[bgId] || [];
+          const customGroup = groups.find(g => !['To-Do', 'In Progress', 'Completed'].includes(g.name));
+          data.boards.push({
+            id: bgId,
+            name: customGroup ? customGroup.name : `Board ${bgId.slice(-4)}`,
+            color: colors[data.boards.length % colors.length],
+            archived: false,
+            createdAt: null
+          });
+          console.log(`[Integrity] Auto-recovered orphan board ${bgId} in workspace ${wsId}`);
         }
       }
     }
@@ -2104,7 +2152,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '47';
+const APP_VERSION = '48';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
