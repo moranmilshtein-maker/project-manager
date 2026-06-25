@@ -898,6 +898,10 @@ async function executeMoveTo(type, opts) {
     const subItems = getSelectedSubtaskObjects();
     let movedCount = 0;
 
+    // Filter out subtasks whose parent task is already being moved (parent carries subtasks with it)
+    const movedTaskIds = new Set(items.map(i => String(i.task.id)));
+    const orphanSubItems = subItems.filter(s => !movedTaskIds.has(String(s.task.id)));
+
     function buildTaskFromSub(subtask) {
         return { id: subtask.id, name: subtask.name, owner: subtask.owner || '', status: subtask.status || '', dueDate: subtask.dueDate || '', priority: subtask.priority || '', notes: subtask.notes || '', budget: subtask.budget || 0, files: subtask.files || 0, timelineStart: subtask.timelineStart || '', timelineEnd: subtask.timelineEnd || '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false };
     }
@@ -914,7 +918,7 @@ async function executeMoveTo(type, opts) {
             targetGroup.tasks.push(removed);
             movedCount++;
         });
-        subItems.forEach(({ group, task, subtask }) => {
+        orphanSubItems.forEach(({ group, task, subtask }) => {
             if (!task || !task.subtasks) return;
             const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
             if (subIdx === -1) return;
@@ -938,7 +942,7 @@ async function executeMoveTo(type, opts) {
             targetGroup.tasks.push(removed);
             movedCount++;
         });
-        subItems.forEach(({ group, task, subtask }) => {
+        orphanSubItems.forEach(({ group, task, subtask }) => {
             if (!task || !task.subtasks) return;
             const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
             if (subIdx === -1) return;
@@ -969,7 +973,7 @@ async function executeMoveTo(type, opts) {
                 tasksToMove.push(removed);
                 movedCount++;
             });
-            subItems.forEach(({ group, task, subtask }) => {
+            orphanSubItems.forEach(({ group, task, subtask }) => {
                 if (!task || !task.subtasks) return;
                 const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
                 if (subIdx === -1) return;
@@ -8068,7 +8072,7 @@ function getTaskTotalFileCount(task) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '49';
+const CURRENT_APP_VERSION = '50';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

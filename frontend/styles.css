@@ -1073,7 +1073,7 @@ img.owner-popup-avatar {
 
 /* Status Cell */
 .cell-status {
-    width: 120px;
+    width: 150px;
     text-align: center;
     padding: 4px 2px !important;
 }
@@ -1087,9 +1087,10 @@ img.owner-popup-avatar {
     font-size: 12px;
     font-weight: 500;
     color: #fff;
-    width: 110px;
+    width: 140px;
     cursor: pointer;
     height: 28px;
+    white-space: nowrap;
     user-select: none;
     transition: opacity 0.15s;
 }
@@ -1497,7 +1498,8 @@ tr.subtask-done .date-display {
 .subtask-status-label {
     font-size: 12px !important;
     padding: 3px 8px !important;
-    min-width: 90px;
+    min-width: 120px;
+    white-space: nowrap;
 }
 
 .subtask-actions {
@@ -1803,7 +1805,7 @@ tr.subtask-done .date-display {
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
     z-index: 2000;
     padding: 8px;
-    min-width: 140px;
+    min-width: 160px;
 }
 
 .dropdown-menu.active {
