@@ -2131,8 +2131,102 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
   res.json({ success: true, preferences: prefs });
 });
 
+// ===== @MENTION NOTIFICATIONS =====
+// In-memory store for mention notifications (per user)
+// Structure: { userId: [{ id, senderName, senderPicture, taskTitle, messageText, taskId, groupId, subtaskId, timestamp, workspaceId }] }
+const mentionNotifications = new Map();
+
+// POST /api/mentions/notify - Send mention notifications to tagged users
+app.post('/api/mentions/notify', requireAuth, async (req, res) => {
+  try {
+    const { workspaceId, boardId, taskId, groupId, subtaskId, taskTitle, messageText, senderName, senderPicture, mentions, timestamp } = req.body;
+    if (!workspaceId || !mentions || mentions.length === 0) {
+      return res.json({ success: true }); // Nothing to notify
+    }
+    
+    const senderId = req.user.id;
+    
+    // Resolve mention targets
+    let targetUserIds = [];
+    const isAll = mentions.some(m => m.userId === '__all__');
+    
+    if (isAll) {
+      // Get all workspace members with board access
+      const memberships = await workspaceStore.getWorkspaceMembers(workspaceId);
+      targetUserIds = memberships
+        .filter(m => m.userId !== senderId && (!m.boardId || m.boardId === boardId))
+        .map(m => m.userId);
+    } else {
+      targetUserIds = mentions
+        .filter(m => m.userId !== senderId && m.userId !== '__all__')
+        .map(m => m.userId);
+    }
+    
+    // Create notification for each target user
+    const notification = {
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+      senderName,
+      senderPicture: senderPicture || '',
+      taskTitle: taskTitle || '',
+      messageText: (messageText || '').substring(0, 200),
+      taskId: taskId || '',
+      groupId: groupId || '',
+      subtaskId: subtaskId || null,
+      timestamp: timestamp || new Date().toISOString(),
+      workspaceId
+    };
+    
+    targetUserIds.forEach(userId => {
+      if (!mentionNotifications.has(userId)) {
+        mentionNotifications.set(userId, []);
+      }
+      const userNotifs = mentionNotifications.get(userId);
+      userNotifs.push(notification);
+      // Keep max 50 notifications
+      if (userNotifs.length > 50) {
+        mentionNotifications.set(userId, userNotifs.slice(-50));
+      }
+    });
+    
+    res.json({ success: true, notifiedCount: targetUserIds.length });
+  } catch (e) {
+    console.error('[Mentions] notify error:', e);
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/mentions/check - Check for new mention notifications
+app.get('/api/mentions/check', requireAuth, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const since = parseInt(req.query.since) || 0;
+    const workspaceId = req.query.workspaceId;
+    
+    const userNotifs = mentionNotifications.get(userId) || [];
+    
+    // Filter by workspace and timestamp
+    const newMentions = userNotifs.filter(n => {
+      const notifTime = new Date(n.timestamp).getTime();
+      return notifTime > since && (!workspaceId || n.workspaceId === workspaceId);
+    });
+    
+    // Clear delivered notifications
+    if (newMentions.length > 0) {
+      const remaining = userNotifs.filter(n => {
+        const notifTime = new Date(n.timestamp).getTime();
+        return notifTime <= since || (workspaceId && n.workspaceId !== workspaceId);
+      });
+      mentionNotifications.set(userId, remaining);
+    }
+    
+    res.json({ success: true, mentions: newMentions });
+  } catch (e) {
+    res.json({ success: true, mentions: [] });
+  }
+});
+
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '55';
+const APP_VERSION = '56';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

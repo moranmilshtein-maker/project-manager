@@ -2612,6 +2612,8 @@ function showAppScreen() {
     loadColumnStateFromServer();
     loadTdpDataFromServer();
     processPendingInvite();
+    // Start mention polling
+    startMentionPolling();
 }
 
 function showLoginForm() {
@@ -7607,7 +7609,7 @@ function renderTdpMessages() {
                         </button>
                     </div>
                 </div>
-                <div class="tdp-message-text">${escapeHtml(msg.text)}${imgHtml}</div>
+                <div class="tdp-message-text">${renderMessageTextWithMentions(msg.text, msg.mentions)}${imgHtml}</div>
             </div>
         </div>`;
     }).join('');
@@ -7864,13 +7866,34 @@ function sendTdpMessage() {
     const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
     if (!tdpMessages[taskId]) tdpMessages[taskId] = [];
     
+    // Capture mentions from pending list + parse any @Name in text
+    const mentions = [...pendingMentions];
+    // Also detect any @Name patterns in text that weren't from dropdown
+    const mentionRegex = /@(\w[\w\s]*?)(?=\s|$)/g;
+    let match;
+    while ((match = mentionRegex.exec(text)) !== null) {
+        const mentionedName = match[1].trim();
+        if (mentionedName.toLowerCase() === 'all' && !mentions.find(m => m.userId === '__all__')) {
+            mentions.push({ userId: '__all__', name: 'All' });
+        } else {
+            const member = cachedWorkspaceMembers.find(m => 
+                (m.userName || '').toLowerCase() === mentionedName.toLowerCase() ||
+                (m.userEmail || '').toLowerCase() === mentionedName.toLowerCase()
+            );
+            if (member && !mentions.find(m => m.userId === member.userId)) {
+                mentions.push({ userId: member.userId, name: member.userName || member.userEmail });
+            }
+        }
+    }
+    
     const msg = {
         id: Date.now(),
         author: currentUser.fullName || currentUser.email,
         picture: currentUser.picture || '',
         text: text,
         image: image || '',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        mentions: mentions.length > 0 ? mentions : undefined
     };
     
     tdpMessages[taskId].push(msg);
@@ -7881,16 +7904,52 @@ function sendTdpMessage() {
     // Clear input
     inputEl.textContent = '';
     tdpPendingImage = null;
+    pendingMentions = [];
     document.getElementById('tdpImagePreview').style.display = 'none';
     document.getElementById('tdpImagePreview').innerHTML = '';
+    closeMentionDropdown();
     
-    // Send notification to task owner if different from current user
-    if (tdpCurrentTask.owner && tdpCurrentTask.owner !== currentUser.fullName && tdpCurrentTask.owner !== currentUser.email) {
+    // Send mention notifications to server
+    if (mentions.length > 0) {
+        sendMentionNotifications(mentions, msg, taskId);
+    }
+    
+    // Send notification to task owner if different from current user (legacy)
+    if (!mentions.length && tdpCurrentTask.owner && tdpCurrentTask.owner !== currentUser.fullName && tdpCurrentTask.owner !== currentUser.email) {
         const msgHtml = `<strong>${escapeHtml(msg.author)}</strong> commented on "<strong>${escapeHtml(tdpCurrentTask.name)}</strong>"`;
         addNotification('message', msgHtml, { name: msg.author, picture: msg.picture }, tdpCurrentTask.name);
     }
     
     renderTdpMessages();
+}
+
+async function sendMentionNotifications(mentions, msg, taskId) {
+    if (!authToken || !activeWorkspaceId) return;
+    try {
+        const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : '';
+        const subtaskId = tdpCurrentSubtask ? tdpCurrentSubtask.subId : null;
+        const taskTitle = tdpCurrentTask ? tdpCurrentTask.name : '';
+        
+        await authFetch('/api/mentions/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                workspaceId: activeWorkspaceId,
+                boardId: activeBoard,
+                taskId: taskId,
+                groupId: groupId,
+                subtaskId: subtaskId,
+                taskTitle: taskTitle,
+                messageText: msg.text,
+                senderName: msg.author,
+                senderPicture: msg.picture || '',
+                mentions: mentions,
+                timestamp: msg.timestamp
+            })
+        });
+    } catch (e) {
+        console.error('[Mentions] Failed to send notifications:', e);
+    }
 }
 
 // Delete a message
@@ -8066,10 +8125,12 @@ function closeTdpImageLightbox() {
     }
 }
 
-// Initialize paste and drag-drop listeners when DOM ready
+// Initialize paste, drag-drop, and mention listeners when DOM ready
 document.addEventListener('DOMContentLoaded', function() {
     setupTdpImagePaste();
     setupTdpDragDrop();
+    setupTdpEnterKey();
+    setupMentionDetection();
 });
 
 // Count files (images) in TDP messages for a given task/subtask
@@ -8094,8 +8155,417 @@ function getTaskTotalFileCount(task) {
     return count;
 }
 
+// ===== ENTER KEY TO SEND MESSAGE =====
+function setupTdpEnterKey() {
+    const inputEl = document.getElementById('tdpMessageInput');
+    if (!inputEl) return;
+    inputEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendTdpMessage();
+        }
+    });
+}
+
+// ===== @MENTION SYSTEM =====
+let mentionDropdownVisible = false;
+let mentionSearchText = '';
+let mentionStartPos = -1; // character offset in text where @ was typed
+let mentionSelectedIndex = 0;
+let pendingMentions = []; // [{userId, name}] to store when message is sent
+
+function setupMentionDetection() {
+    const inputEl = document.getElementById('tdpMessageInput');
+    if (!inputEl) return;
+    
+    inputEl.addEventListener('input', handleMentionInput);
+    inputEl.addEventListener('keydown', handleMentionKeydown);
+    inputEl.addEventListener('blur', function() {
+        // Delay closing to allow click on dropdown
+        setTimeout(() => {
+            if (!document.querySelector('.mention-dropdown:hover')) {
+                closeMentionDropdown();
+            }
+        }, 200);
+    });
+}
+
+function handleMentionInput(e) {
+    const inputEl = document.getElementById('tdpMessageInput');
+    const text = inputEl.textContent || '';
+    
+    // Check if we're in a mention context
+    if (mentionDropdownVisible) {
+        // Find the @ symbol and get text after it
+        const afterAt = text.substring(mentionStartPos + 1);
+        const spaceIdx = afterAt.indexOf(' ');
+        if (spaceIdx === -1) {
+            mentionSearchText = afterAt;
+        } else {
+            // Space found - close dropdown
+            closeMentionDropdown();
+            return;
+        }
+        renderMentionDropdown();
+        return;
+    }
+    
+    // Detect new @ typing - look for @ at current position
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    
+    // Get caret position in text
+    const range = sel.getRangeAt(0);
+    const preRange = range.cloneRange();
+    preRange.selectNodeContents(inputEl);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    const caretPos = preRange.toString().length;
+    
+    // Check if character before caret is @
+    if (caretPos > 0 && text[caretPos - 1] === '@') {
+        // Make sure it's at start or after a space
+        if (caretPos === 1 || text[caretPos - 2] === ' ' || text[caretPos - 2] === '\n') {
+            mentionStartPos = caretPos - 1;
+            mentionSearchText = '';
+            mentionSelectedIndex = 0;
+            showMentionDropdown();
+        }
+    }
+}
+
+function handleMentionKeydown(e) {
+    if (!mentionDropdownVisible) return;
+    
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        mentionSelectedIndex++;
+        const items = getMentionFilteredMembers();
+        if (mentionSelectedIndex >= items.length) mentionSelectedIndex = 0;
+        renderMentionDropdown();
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        mentionSelectedIndex--;
+        if (mentionSelectedIndex < 0) {
+            const items = getMentionFilteredMembers();
+            mentionSelectedIndex = items.length - 1;
+        }
+        renderMentionDropdown();
+    } else if (e.key === 'Enter' && mentionDropdownVisible) {
+        e.preventDefault();
+        e.stopPropagation();
+        const items = getMentionFilteredMembers();
+        if (items.length > 0 && mentionSelectedIndex < items.length) {
+            selectMention(items[mentionSelectedIndex]);
+        }
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMentionDropdown();
+    }
+}
+
+function getMentionFilteredMembers() {
+    // Get members with board access
+    let members = cachedWorkspaceMembers.filter(m => {
+        // Filter to members who have access to the current board
+        if (m.boardId && m.boardId !== activeBoard) return false;
+        // Exclude current user from mention list
+        if (m.userId === (currentUser && currentUser.id)) return false;
+        return true;
+    });
+    
+    // Add @All option at top
+    const results = [{ userId: '__all__', userName: 'All', userEmail: '', picture: '', isAll: true }];
+    
+    // Filter by search text
+    const search = mentionSearchText.toLowerCase();
+    if (search) {
+        const filtered = members.filter(m => {
+            const name = (m.userName || '').toLowerCase();
+            const email = (m.userEmail || '').toLowerCase();
+            return name.includes(search) || email.includes(search);
+        });
+        // Also filter @All
+        if ('all'.includes(search)) {
+            return [...results, ...filtered];
+        }
+        return filtered;
+    }
+    
+    return [...results, ...members];
+}
+
+function showMentionDropdown() {
+    mentionDropdownVisible = true;
+    renderMentionDropdown();
+}
+
+function renderMentionDropdown() {
+    let dropdown = document.getElementById('mentionDropdown');
+    if (!dropdown) {
+        dropdown = document.createElement('div');
+        dropdown.id = 'mentionDropdown';
+        dropdown.className = 'mention-dropdown';
+        document.querySelector('.tdp-message-input-area').appendChild(dropdown);
+    }
+    
+    const items = getMentionFilteredMembers();
+    if (items.length === 0) {
+        dropdown.innerHTML = '<div class="mention-no-results">No members found</div>';
+        dropdown.style.display = 'block';
+        return;
+    }
+    
+    dropdown.innerHTML = items.map((m, idx) => {
+        const name = m.userName || m.userEmail || '?';
+        const initials = getInitials(name);
+        const avatarHtml = m.picture 
+            ? `<img src="${m.picture}" class="mention-avatar" referrerpolicy="no-referrer">`
+            : `<div class="mention-avatar">${initials}</div>`;
+        const isSelected = idx === mentionSelectedIndex ? ' mention-item-selected' : '';
+        const allIcon = m.isAll ? '<span class="material-icons-outlined mention-all-icon">groups</span>' : avatarHtml;
+        const emailHint = m.userEmail && !m.isAll ? `<span class="mention-email">${escapeHtml(m.userEmail)}</span>` : '';
+        return `<div class="mention-item${isSelected}" onmousedown="selectMentionByIndex(${idx})" onmouseenter="mentionSelectedIndex=${idx};renderMentionDropdown()">
+            ${allIcon}
+            <div class="mention-item-info">
+                <span class="mention-name">${escapeHtml(name)}</span>
+                ${emailHint}
+            </div>
+        </div>`;
+    }).join('');
+    
+    dropdown.style.display = 'block';
+}
+
+function selectMentionByIndex(idx) {
+    const items = getMentionFilteredMembers();
+    if (idx >= 0 && idx < items.length) {
+        selectMention(items[idx]);
+    }
+}
+
+function selectMention(member) {
+    const inputEl = document.getElementById('tdpMessageInput');
+    if (!inputEl) return;
+    
+    const text = inputEl.textContent || '';
+    const name = member.userName || member.userEmail || 'All';
+    
+    // Replace @search with @Name
+    const before = text.substring(0, mentionStartPos);
+    const afterAt = text.substring(mentionStartPos + 1);
+    const spaceIdx = afterAt.indexOf(' ');
+    const after = spaceIdx >= 0 ? afterAt.substring(spaceIdx) : '';
+    
+    const newText = before + '@' + name + ' ' + after;
+    inputEl.textContent = newText;
+    
+    // Store this mention in pending list
+    pendingMentions.push({ userId: member.userId, name: name });
+    
+    // Move cursor after the inserted mention
+    const cursorPos = before.length + 1 + name.length + 1;
+    placeCaretAtPosition(inputEl, cursorPos);
+    
+    closeMentionDropdown();
+}
+
+function placeCaretAtPosition(el, pos) {
+    const range = document.createRange();
+    const sel = window.getSelection();
+    const textNode = el.firstChild;
+    if (!textNode) return;
+    const safePos = Math.min(pos, textNode.textContent.length);
+    range.setStart(textNode, safePos);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    el.focus();
+}
+
+function closeMentionDropdown() {
+    mentionDropdownVisible = false;
+    mentionSearchText = '';
+    mentionStartPos = -1;
+    mentionSelectedIndex = 0;
+    const dropdown = document.getElementById('mentionDropdown');
+    if (dropdown) dropdown.style.display = 'none';
+}
+
+// ===== RENDER MENTIONS IN MESSAGE TEXT =====
+function renderMessageTextWithMentions(text, mentions) {
+    if (!text) return '';
+    let html = escapeHtml(text);
+    // Highlight @mentions in the text
+    if (mentions && mentions.length > 0) {
+        mentions.forEach(m => {
+            const name = m.name || 'All';
+            const escaped = escapeHtml(name);
+            // Replace @Name with highlighted version
+            const regex = new RegExp('@' + escaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+            html = html.replace(regex, `<span class="mention-highlight">@${escaped}</span>`);
+        });
+    }
+    // Also highlight any @All
+    html = html.replace(/@All\b/g, '<span class="mention-highlight">@All</span>');
+    return html;
+}
+
+// ===== MENTION POPUP NOTIFICATIONS =====
+let mentionPopups = []; // [{id, element, timeout, frozen}]
+
+function showMentionPopup(senderName, senderPicture, taskTitle, messageText, taskId, groupId, subtaskInfo) {
+    const popupId = 'mpopup_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    
+    const initials = getInitials(senderName || '?');
+    const avatarHtml = senderPicture
+        ? `<img src="${senderPicture}" class="mention-popup-avatar" referrerpolicy="no-referrer">`
+        : `<div class="mention-popup-avatar">${initials}</div>`;
+    
+    const popup = document.createElement('div');
+    popup.id = popupId;
+    popup.className = 'mention-popup';
+    popup.innerHTML = `
+        <div class="mention-popup-content">
+            <button class="mention-popup-close" onclick="dismissMentionPopup('${popupId}')">&times;</button>
+            <div class="mention-popup-header">
+                ${avatarHtml}
+                <span class="mention-popup-sender">${escapeHtml(senderName || 'Someone')}</span>
+            </div>
+            <div class="mention-popup-task-title">${escapeHtml(taskTitle || 'Task')}</div>
+            <div class="mention-popup-message">${escapeHtml((messageText || '').substring(0, 120))}</div>
+            <a class="mention-popup-link" href="javascript:void(0)" onclick="enterConversationFromPopup('${popupId}', '${taskId}', '${groupId}', ${subtaskInfo ? "'" + subtaskInfo + "'" : 'null'})">Enter conversation →</a>
+        </div>
+    `;
+    
+    document.body.appendChild(popup);
+    
+    // Hover freezes the timer
+    popup.addEventListener('mouseenter', () => freezeMentionPopup(popupId));
+    popup.addEventListener('mouseleave', () => unfreezeMentionPopup(popupId));
+    
+    // Auto-dismiss after 10 seconds
+    const timeout = setTimeout(() => {
+        dismissMentionPopup(popupId);
+    }, 10000);
+    
+    mentionPopups.push({ id: popupId, element: popup, timeout, frozen: false });
+    repositionMentionPopups();
+}
+
+function freezeMentionPopup(popupId) {
+    const p = mentionPopups.find(x => x.id === popupId);
+    if (p) {
+        p.frozen = true;
+        clearTimeout(p.timeout);
+    }
+}
+
+function unfreezeMentionPopup(popupId) {
+    const p = mentionPopups.find(x => x.id === popupId);
+    if (p) {
+        p.frozen = false;
+        p.timeout = setTimeout(() => {
+            dismissMentionPopup(popupId);
+        }, 10000);
+    }
+}
+
+function dismissMentionPopup(popupId) {
+    const idx = mentionPopups.findIndex(p => p.id === popupId);
+    if (idx === -1) return;
+    
+    const popupData = mentionPopups[idx];
+    clearTimeout(popupData.timeout);
+    
+    popupData.element.style.opacity = '0';
+    popupData.element.style.transform = 'translateX(100%)';
+    setTimeout(() => {
+        popupData.element.remove();
+    }, 300);
+    
+    mentionPopups.splice(idx, 1);
+    setTimeout(() => repositionMentionPopups(), 310);
+}
+
+function repositionMentionPopups() {
+    const isMobile = window.innerWidth < 768;
+    let bottomOffset = 20;
+    
+    for (let i = mentionPopups.length - 1; i >= 0; i--) {
+        const p = mentionPopups[i];
+        p.element.style.bottom = bottomOffset + 'px';
+        if (isMobile) {
+            p.element.style.right = 'auto';
+            p.element.style.left = '50%';
+            p.element.style.transform = 'translateX(-50%)';
+        } else {
+            p.element.style.right = '20px';
+            p.element.style.left = 'auto';
+            p.element.style.transform = 'none';
+        }
+        bottomOffset += (p.element.offsetHeight || 100) + 10;
+    }
+}
+
+function enterConversationFromPopup(popupId, taskId, groupId, subtaskId) {
+    dismissMentionPopup(popupId);
+    // Open the TDP panel for the referenced task
+    if (subtaskId) {
+        openSubtaskDetailsPanel(subtaskId, taskId, groupId, true);
+    } else {
+        openTaskDetailsPanel(taskId, groupId, true);
+    }
+}
+
+// ===== MENTION NOTIFICATION POLLING =====
+let lastMentionCheckTime = Date.now();
+let mentionPollInterval = null;
+
+function startMentionPolling() {
+    if (mentionPollInterval) return;
+    lastMentionCheckTime = Date.now();
+    mentionPollInterval = setInterval(checkForNewMentions, 15000); // Check every 15 seconds
+}
+
+function stopMentionPolling() {
+    if (mentionPollInterval) {
+        clearInterval(mentionPollInterval);
+        mentionPollInterval = null;
+    }
+}
+
+async function checkForNewMentions() {
+    if (!authToken || !activeWorkspaceId || !currentUser) return;
+    try {
+        const res = await authFetch(`/api/mentions/check?workspaceId=${activeWorkspaceId}&since=${lastMentionCheckTime}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.success && data.mentions && data.mentions.length > 0) {
+            data.mentions.forEach(mention => {
+                // Show popup notification
+                showMentionPopup(
+                    mention.senderName,
+                    mention.senderPicture,
+                    mention.taskTitle,
+                    mention.messageText,
+                    mention.taskId,
+                    mention.groupId,
+                    mention.subtaskId || null
+                );
+                // Add to bell notifications
+                const msgHtml = `<strong>${escapeHtml(mention.senderName)}</strong> mentioned you in "<strong>${escapeHtml(mention.taskTitle)}</strong>"`;
+                addNotification('mention', msgHtml, { name: mention.senderName, picture: mention.senderPicture }, mention.taskTitle);
+            });
+            lastMentionCheckTime = Date.now();
+        }
+    } catch (e) {
+        // Silent fail
+    }
+}
+
+// Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '55';
+const CURRENT_APP_VERSION = '56';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
