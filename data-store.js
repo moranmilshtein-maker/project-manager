@@ -207,5 +207,7 @@ module.exports = {
     writeUserData,
     deleteUserData,
     listAllData,
-    getStatus
+    getStatus,
+    get pool() { return pool; },
+    get usePostgres() { return usePostgres; }
 };

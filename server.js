@@ -2131,6 +2131,63 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
   res.json({ success: true, preferences: prefs });
 });
 
+// ===== ADMIN: TDP DATA RECOVERY =====
+// GET /api/admin/tdp-data/:workspaceId - Get raw TDP data for a workspace (super admin only)
+app.get('/api/admin/tdp-data/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const wsId = req.params.workspaceId;
+    const sharedKey = `workspace_shared_${wsId}`;
+    const data = await dataStore.readUserData(sharedKey, 'task_details');
+    if (!data) {
+      return res.json({ success: true, data: null, message: 'No TDP data found for this workspace' });
+    }
+    const messages = data.messages || {};
+    const totalMessages = Object.values(messages).reduce((sum, arr) => sum + arr.length, 0);
+    const totalImages = Object.values(messages).reduce((sum, arr) => sum + arr.filter(m => m.image && m.image.length > 10).length, 0);
+    res.json({ 
+      success: true, 
+      summary: { messageKeys: Object.keys(messages).length, totalMessages, totalImages },
+      data 
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// PUT /api/admin/tdp-data/:workspaceId - Restore TDP data for a workspace (super admin only)
+app.put('/api/admin/tdp-data/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const wsId = req.params.workspaceId;
+    const { data } = req.body;
+    if (!data) return res.status(400).json({ error: 'data is required' });
+    const sharedKey = `workspace_shared_${wsId}`;
+    await dataStore.writeUserData(sharedKey, 'task_details', data);
+    res.json({ success: true, message: `TDP data restored for workspace ${wsId}` });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/admin/tdp-data-all - List all TDP data keys (super admin only)  
+app.get('/api/admin/tdp-data-all', requireSuperAdmin, async (req, res) => {
+  try {
+    // Query the database for all task_details entries
+    if (dataStore.pool && dataStore.usePostgres) {
+      const result = await dataStore.pool.query(
+        "SELECT user_key, data_type, updated_at, pg_column_size(data) as data_size FROM user_data WHERE data_type = 'task_details' ORDER BY updated_at DESC"
+      );
+      res.json({ success: true, entries: result.rows });
+    } else {
+      // File-based fallback
+      const fs = require('fs');
+      const files = fs.readdirSync(path.join(__dirname, 'data')).filter(f => f.includes('task_details'));
+      res.json({ success: true, entries: files.map(f => ({ user_key: f, data_type: 'task_details' })) });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ===== @MENTION NOTIFICATIONS =====
 // In-memory store for mention notifications (per user)
 // Structure: { userId: [{ id, senderName, senderPicture, taskTitle, messageText, taskId, groupId, subtaskId, timestamp, workspaceId }] }
