@@ -1284,6 +1284,32 @@ app.put('/api/user-data/columns', async (req, res) => {
   }
 });
 
+// GET /api/user-data/person-filters - Get person filter state (per user per workspace)
+app.get('/api/user-data/person-filters', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const wsId = req.query.workspaceId || 'default';
+  const data = await dataStore.readUserData(key, `person_filters_${wsId}`);
+  res.json({ success: true, data: data || {} });
+});
+
+// PUT /api/user-data/person-filters - Save person filter state (per user per workspace)
+app.put('/api/user-data/person-filters', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { data, workspaceId } = req.body;
+  if (!data) return res.status(400).json({ error: 'data is required' });
+
+  const wsId = workspaceId || 'default';
+  const success = await dataStore.writeUserData(key, `person_filters_${wsId}`, data);
+  if (success) { res.json({ success: true }); }
+  else { res.status(500).json({ error: 'Failed to save data' }); }
+});
+
 // GET /api/user-data/task-details - Get task details panel data (SHARED per workspace)
 app.get('/api/user-data/task-details', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
@@ -2314,7 +2340,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '58';
+const APP_VERSION = '60';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

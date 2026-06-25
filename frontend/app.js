@@ -1221,6 +1221,272 @@ function renderBoard() {
 }
 
 // ============================================================
+// PERSON FILTER SYSTEM
+// Filters board tasks/subtasks by selected owner(s).
+// State: personFilters = { boardId: [selectedOwnerNames...] }
+// "__all__" means no filter (show everything) - this is the default
+// ============================================================
+let personFilters = {}; // { boardId: [ownerName1, ownerName2, ...] or ['__all__'] }
+let personFilterDropdownOpen = false;
+
+function getActivePersonFilter() {
+    if (!boardData.activeBoard) return null;
+    const filter = personFilters[boardData.activeBoard];
+    if (!filter || filter.length === 0 || (filter.length === 1 && filter[0] === '__all__')) return null;
+    return filter;
+}
+
+function isPersonFilterActive() {
+    return getActivePersonFilter() !== null;
+}
+
+function togglePersonFilter(event) {
+    event.stopPropagation();
+    if (personFilterDropdownOpen) {
+        closePersonFilterDropdown();
+    } else {
+        openPersonFilterDropdown();
+    }
+}
+
+function openPersonFilterDropdown() {
+    closePersonFilterDropdown(); // Clean up any existing
+    personFilterDropdownOpen = true;
+    
+    const btn = document.getElementById('personFilterBtn');
+    if (!btn) return;
+    
+    const rect = btn.getBoundingClientRect();
+    const dropdown = document.createElement('div');
+    dropdown.id = 'personFilterDropdown';
+    dropdown.className = 'person-filter-dropdown';
+    dropdown.style.top = (rect.bottom + 4) + 'px';
+    dropdown.style.left = rect.left + 'px';
+    
+    const currentFilter = personFilters[boardData.activeBoard] || ['__all__'];
+    const isAll = currentFilter.includes('__all__') || currentFilter.length === 0;
+    
+    // Get members with board access
+    const members = cachedWorkspaceMembers.filter(m => {
+        if (m.boardId && m.boardId !== boardData.activeBoard) return false;
+        return true;
+    });
+    
+    const isSingleMember = members.length <= 1;
+    
+    let html = `<div class="person-filter-header">
+        <span>Filter by Person</span>
+        <button class="person-filter-clear" onclick="clearPersonFilter()">Clear</button>
+    </div>`;
+    
+    // Search box
+    html += `<div class="person-filter-search">
+        <span class="material-icons-outlined person-filter-search-icon">search</span>
+        <input type="text" id="personFilterSearch" placeholder="Search by name or email..." oninput="filterPersonDropdownItems(this.value)">
+    </div>`;
+    
+    // @All option
+    html += `<div class="person-filter-list" id="personFilterList">`;
+    html += `<label class="person-filter-item ${isAll ? 'selected' : ''}" data-search-name="all" onmousedown="event.preventDefault()">
+        <input type="checkbox" ${isAll ? 'checked' : ''} onchange="togglePersonFilterAll(this.checked)">
+        <span class="material-icons-outlined person-filter-all-icon">groups</span>
+        <span class="person-filter-name">All</span>
+    </label>`;
+    
+    // Individual members
+    members.forEach(m => {
+        const name = m.userName || m.userEmail || '?';
+        const email = m.userEmail || '';
+        const initials = getInitials(name);
+        const isChecked = !isAll && currentFilter.includes(name);
+        const avatarHtml = m.picture 
+            ? `<img src="${m.picture}" class="person-filter-avatar" referrerpolicy="no-referrer">`
+            : `<div class="person-filter-avatar">${initials}</div>`;
+        
+        if (isSingleMember) {
+            // Single member - disabled, shaded, with tooltip
+            html += `<label class="person-filter-item disabled" data-search-name="${escapeHtml(name.toLowerCase() + ' ' + email.toLowerCase())}" title="Only one member in this board — @All is always active" onmousedown="event.preventDefault()">
+                <input type="checkbox" checked disabled>
+                ${avatarHtml}
+                <div class="person-filter-info">
+                    <span class="person-filter-name">${escapeHtml(name)}</span>
+                    ${email && m.userName ? `<span class="person-filter-email">${escapeHtml(email)}</span>` : ''}
+                </div>
+            </label>`;
+        } else {
+            html += `<label class="person-filter-item ${isChecked ? 'selected' : ''}" data-search-name="${escapeHtml(name.toLowerCase() + ' ' + email.toLowerCase())}" onmousedown="event.preventDefault()">
+                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="togglePersonFilterMember('${escapeHtml(name)}', this.checked)">
+                ${avatarHtml}
+                <div class="person-filter-info">
+                    <span class="person-filter-name">${escapeHtml(name)}</span>
+                    ${email && m.userName ? `<span class="person-filter-email">${escapeHtml(email)}</span>` : ''}
+                </div>
+            </label>`;
+        }
+    });
+    
+    html += `</div>`;
+    
+    dropdown.innerHTML = html;
+    document.body.appendChild(dropdown);
+    
+    // Focus search input
+    setTimeout(() => {
+        const searchInput = document.getElementById('personFilterSearch');
+        if (searchInput) searchInput.focus();
+    }, 50);
+    
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', closePersonFilterOnOutside);
+    }, 10);
+}
+
+function filterPersonDropdownItems(query) {
+    const list = document.getElementById('personFilterList');
+    if (!list) return;
+    const items = list.querySelectorAll('.person-filter-item');
+    const search = query.toLowerCase().trim();
+    items.forEach(item => {
+        if (!search) {
+            item.style.display = '';
+            return;
+        }
+        const searchName = item.getAttribute('data-search-name') || '';
+        item.style.display = searchName.includes(search) ? '' : 'none';
+    });
+}
+
+function closePersonFilterOnOutside(e) {
+    const dropdown = document.getElementById('personFilterDropdown');
+    const btn = document.getElementById('personFilterBtn');
+    if (dropdown && !dropdown.contains(e.target) && btn && !btn.contains(e.target)) {
+        closePersonFilterDropdown();
+    }
+}
+
+function closePersonFilterDropdown() {
+    personFilterDropdownOpen = false;
+    const dropdown = document.getElementById('personFilterDropdown');
+    if (dropdown) dropdown.remove();
+    document.removeEventListener('click', closePersonFilterOnOutside);
+}
+
+function togglePersonFilterAll(checked) {
+    if (checked) {
+        personFilters[boardData.activeBoard] = ['__all__'];
+    } else {
+        personFilters[boardData.activeBoard] = [];
+    }
+    updatePersonFilterUI();
+    renderBoard();
+    savePersonFiltersToServer();
+}
+
+function togglePersonFilterMember(name, checked) {
+    if (!boardData.activeBoard) return;
+    let filter = personFilters[boardData.activeBoard] || ['__all__'];
+    
+    // Remove __all__ if selecting individual members
+    if (checked) {
+        filter = filter.filter(f => f !== '__all__');
+        if (!filter.includes(name)) filter.push(name);
+    } else {
+        filter = filter.filter(f => f !== name);
+        // If none selected, revert to __all__
+        if (filter.length === 0) filter = ['__all__'];
+    }
+    
+    personFilters[boardData.activeBoard] = filter;
+    updatePersonFilterUI();
+    renderBoard();
+    savePersonFiltersToServer();
+}
+
+function clearPersonFilter() {
+    if (!boardData.activeBoard) return;
+    personFilters[boardData.activeBoard] = ['__all__'];
+    closePersonFilterDropdown();
+    updatePersonFilterUI();
+    renderBoard();
+    savePersonFiltersToServer();
+}
+
+function updatePersonFilterUI() {
+    const indicator = document.getElementById('personFilterIndicator');
+    const btn = document.getElementById('personFilterBtn');
+    if (indicator) {
+        indicator.style.display = isPersonFilterActive() ? 'inline-block' : 'none';
+    }
+    if (btn) {
+        if (isPersonFilterActive()) {
+            btn.classList.add('filter-active');
+        } else {
+            btn.classList.remove('filter-active');
+        }
+    }
+    // Re-render dropdown if open
+    if (personFilterDropdownOpen) {
+        closePersonFilterDropdown();
+        openPersonFilterDropdown();
+    }
+}
+
+// Filter tasks based on person filter
+function filterTasksByPerson(tasks) {
+    const filter = getActivePersonFilter();
+    if (!filter) return tasks; // No filter, show all
+    
+    return tasks.filter(task => {
+        // Check if task owner matches any selected person
+        if (task.owner && filter.includes(task.owner)) return true;
+        // Also check subtasks — if any subtask matches, include the parent task
+        if (task.subtasks && task.subtasks.length > 0) {
+            const hasMatchingSub = task.subtasks.some(sub => sub.owner && filter.includes(sub.owner));
+            if (hasMatchingSub) return true;
+        }
+        return false;
+    });
+}
+
+// Filter subtasks based on person filter  
+function filterSubtasksByPerson(subtasks) {
+    const filter = getActivePersonFilter();
+    if (!filter) return subtasks;
+    return subtasks.filter(sub => sub.owner && filter.includes(sub.owner));
+}
+
+// Persist person filters to server
+async function savePersonFiltersToServer() {
+    if (!authToken || !activeWorkspaceId) return;
+    try {
+        await authFetch('/api/user-data/person-filters', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workspaceId: activeWorkspaceId, data: personFilters })
+        });
+    } catch (e) {
+        console.error('[PersonFilter] Failed to save:', e);
+    }
+}
+
+// Load person filters from server
+async function loadPersonFiltersFromServer() {
+    if (!authToken || !activeWorkspaceId) return;
+    try {
+        const res = await authFetch('/api/user-data/person-filters?workspaceId=' + activeWorkspaceId);
+        if (!res.ok) return;
+        const result = await res.json();
+        if (result.success && result.data) {
+            personFilters = result.data;
+            updatePersonFilterUI();
+        }
+    } catch (e) {
+        console.error('[PersonFilter] Failed to load:', e);
+    }
+}
+
+// ============================================================
 // COLUMN ORDER SYSTEM (Sprint 1.2 Task 16)
 // Columns are rendered in the order defined by columnState.order
 // ============================================================
@@ -1347,26 +1613,29 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
 }
 
 function renderGroup(group) {
-    const taskCount = group.tasks.length;
+    // Apply person filter to tasks
+    const allTasks = group.tasks;
+    const filteredTasks = filterTasksByPerson(allTasks);
+    const taskCount = filteredTasks.length;
     const isCollapsed = group.collapsed;
 
-    const totalBudget = group.tasks.reduce((sum, t) => sum + (t.budget || 0), 0);
-    const totalFiles = group.tasks.reduce((sum, t) => sum + getTaskTotalFileCount(t), 0);
+    const totalBudget = filteredTasks.reduce((sum, t) => sum + (t.budget || 0), 0);
+    const totalFiles = filteredTasks.reduce((sum, t) => sum + getTaskTotalFileCount(t), 0);
 
     const statusCounts = {};
-    group.tasks.forEach(t => {
+    filteredTasks.forEach(t => {
         const s = getStatusInfo(t.status);
         statusCounts[s.color] = (statusCounts[s.color] || 0) + 1;
     });
 
     const priorityCounts = {};
-    group.tasks.forEach(t => {
+    filteredTasks.forEach(t => {
         const p = getPriorityInfo(t.priority);
         priorityCounts[p.color] = (priorityCounts[p.color] || 0) + 1;
     });
 
     let minDate = null, maxDate = null;
-    group.tasks.forEach(t => {
+    filteredTasks.forEach(t => {
         if (t.timelineStart) { const d = new Date(t.timelineStart); if (!isNaN(d) && (!minDate || d < minDate)) minDate = d; }
         if (t.timelineEnd) { const d = new Date(t.timelineEnd); if (!isNaN(d) && (!maxDate || d > maxDate)) maxDate = d; }
     });
@@ -1374,7 +1643,7 @@ function renderGroup(group) {
         ? formatTimeline(minDate.toISOString(), maxDate.toISOString()) : '';
 
     let minDue = null, maxDue = null;
-    group.tasks.forEach(t => {
+    filteredTasks.forEach(t => {
         if (t.dueDate) { const d = new Date(t.dueDate); if (!isNaN(d) && (!minDue || d < minDue)) minDue = d; if (!isNaN(d) && (!maxDue || d > maxDue)) maxDue = d; }
     });
     const summaryDueDate = minDue && maxDue
@@ -1409,7 +1678,10 @@ function renderGroup(group) {
                 </tr>`;
 
     group.tasks.forEach(task => {
-        html += renderTaskRow(task, group);
+        // Only render tasks that pass the person filter
+        if (filteredTasks.includes(task)) {
+            html += renderTaskRow(task, group);
+        }
     });
 
     // TASK 1 FIX: Add task row with unique identifier per group
@@ -1576,10 +1848,13 @@ function renderSubtaskSection(task, group) {
 
     let html = '';
 
+    // Apply person filter to subtasks
+    const subtasksToRender = isPersonFilterActive() ? filterSubtasksByPerson(task.subtasks) : task.subtasks;
+
     // Subtask rows — each subtask uses proper table cells aligned with main task columns
-    task.subtasks.forEach((sub, idx) => {
+    subtasksToRender.forEach((sub, idx) => {
         const subIdStr = String(sub.id);
-        const isLast = idx === task.subtasks.length - 1;
+        const isLast = idx === subtasksToRender.length - 1;
 
         html += `<tr class="subtask-row ${isLast ? 'subtask-row-last' : ''}${sub.status === 'done' ? ' subtask-done' : ''}" data-subtask-id="${subIdStr}" data-parent-task="${taskIdStr}" data-group-id="${groupIdStr}">
             <td class="group-color-cell"><div class="group-color-bar" style="background:${group.color}"></div><span class="row-drag-handle subtask-drag-handle" title="Drag to reorder"><span class="material-icons-outlined">drag_indicator</span></span></td>
@@ -2611,6 +2886,7 @@ function showAppScreen() {
     loadFromServer();
     loadColumnStateFromServer();
     loadTdpDataFromServer();
+    loadPersonFiltersFromServer();
     processPendingInvite();
     // Start mention polling
     startMentionPolling();
@@ -4192,6 +4468,7 @@ function switchBoard(boardId) {
     }
     renderBoardSidebar();
     renderBoard();
+    updatePersonFilterUI();
 }
 
 function showBoardContextMenu(event, boardId) {
@@ -6163,6 +6440,14 @@ async function switchWorkspace(workspaceId) {
         serverDataLoaded = true;
     }
     
+    // Reload person filters for the new workspace (per-user, per-workspace)
+    personFilters = {};
+    updatePersonFilterUI();
+    loadPersonFiltersFromServer();
+    
+    // Reload TDP data for the new workspace
+    loadTdpDataFromServer();
+    
     // Refresh workspace list UI
     await loadWorkspaces();
 }
@@ -7938,7 +8223,7 @@ async function sendMentionNotifications(mentions, msg, taskId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 workspaceId: activeWorkspaceId,
-                boardId: activeBoard,
+                boardId: boardData.activeBoard,
                 taskId: taskId,
                 groupId: groupId,
                 subtaskId: subtaskId,
@@ -8275,7 +8560,7 @@ function getMentionFilteredMembers() {
     // Get members with board access
     let members = cachedWorkspaceMembers.filter(m => {
         // Filter to members who have access to the current board
-        if (m.boardId && m.boardId !== activeBoard) return false;
+        if (m.boardId && m.boardId !== boardData.activeBoard) return false;
         // Exclude current user from mention list
         if (m.userId === (currentUser && currentUser.id)) return false;
         return true;
@@ -8573,7 +8858,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '58';
+const CURRENT_APP_VERSION = '60';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
