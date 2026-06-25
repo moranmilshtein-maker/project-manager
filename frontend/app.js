@@ -7309,6 +7309,7 @@ async function loadTdpDataFromServer() {
 // Save all task details data to server
 async function saveTdpDataToServer() {
     if (!authToken || !activeWorkspaceId) return;
+    if (!tdpDataLoaded) return; // Don't overwrite server data before it's loaded
     try {
         await fetch('/api/user-data/task-details', {
             method: 'PUT',
@@ -8129,8 +8130,8 @@ function closeTdpImageLightbox() {
 document.addEventListener('DOMContentLoaded', function() {
     setupTdpImagePaste();
     setupTdpDragDrop();
+    setupMentionDetection(); // Must be before setupTdpEnterKey so mention keydown fires first
     setupTdpEnterKey();
-    setupMentionDetection();
 });
 
 // Count files (images) in TDP messages for a given task/subtask
@@ -8160,7 +8161,8 @@ function setupTdpEnterKey() {
     const inputEl = document.getElementById('tdpMessageInput');
     if (!inputEl) return;
     inputEl.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // Don't send if mention dropdown is open (Enter selects mention instead)
+        if (e.key === 'Enter' && !e.shiftKey && !mentionDropdownVisible) {
             e.preventDefault();
             sendTdpMessage();
         }
@@ -8183,10 +8185,11 @@ function setupMentionDetection() {
     inputEl.addEventListener('blur', function() {
         // Delay closing to allow click on dropdown
         setTimeout(() => {
-            if (!document.querySelector('.mention-dropdown:hover')) {
-                closeMentionDropdown();
+            if (document.querySelector('.mention-dropdown:hover') || document.querySelector('.mention-item:active')) {
+                return;
             }
-        }, 200);
+            closeMentionDropdown();
+        }, 300);
     });
 }
 
@@ -8238,27 +8241,30 @@ function handleMentionKeydown(e) {
     
     if (e.key === 'ArrowDown') {
         e.preventDefault();
+        e.stopImmediatePropagation();
         mentionSelectedIndex++;
         const items = getMentionFilteredMembers();
         if (mentionSelectedIndex >= items.length) mentionSelectedIndex = 0;
         renderMentionDropdown();
     } else if (e.key === 'ArrowUp') {
         e.preventDefault();
+        e.stopImmediatePropagation();
         mentionSelectedIndex--;
         if (mentionSelectedIndex < 0) {
             const items = getMentionFilteredMembers();
             mentionSelectedIndex = items.length - 1;
         }
         renderMentionDropdown();
-    } else if (e.key === 'Enter' && mentionDropdownVisible) {
+    } else if (e.key === 'Enter') {
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         const items = getMentionFilteredMembers();
         if (items.length > 0 && mentionSelectedIndex < items.length) {
             selectMention(items[mentionSelectedIndex]);
         }
     } else if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopImmediatePropagation();
         closeMentionDropdown();
     }
 }
@@ -8324,7 +8330,7 @@ function renderMentionDropdown() {
         const isSelected = idx === mentionSelectedIndex ? ' mention-item-selected' : '';
         const allIcon = m.isAll ? '<span class="material-icons-outlined mention-all-icon">groups</span>' : avatarHtml;
         const emailHint = m.userEmail && !m.isAll ? `<span class="mention-email">${escapeHtml(m.userEmail)}</span>` : '';
-        return `<div class="mention-item${isSelected}" onmousedown="selectMentionByIndex(${idx})" onmouseenter="mentionSelectedIndex=${idx};renderMentionDropdown()">
+        return `<div class="mention-item${isSelected}" onmousedown="event.preventDefault(); selectMentionByIndex(${idx})" onmouseenter="mentionSelectedIndex=${idx};renderMentionDropdown()">
             ${allIcon}
             <div class="mention-item-info">
                 <span class="mention-name">${escapeHtml(name)}</span>
@@ -8565,7 +8571,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '56';
+const CURRENT_APP_VERSION = '57';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

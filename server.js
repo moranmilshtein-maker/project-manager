@@ -2226,7 +2226,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '56';
+const APP_VERSION = '57';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
