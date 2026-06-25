@@ -656,7 +656,11 @@ function floatingBarArchive() {
     floatingBarArchive30();
 }
 
-// Move selected tasks/subtasks to another task as subitems (via picker)
+// Move selected tasks/subtasks — shows tabbed menu with 4 options:
+// 1. Group (within current board)
+// 2. Board (different board in same workspace, pick board then group)
+// 3. Workspace (different workspace, pick ws → board → group)
+// 4. As Subitem (nest under another task)
 function floatingBarMove(event) {
     const items = getSelectedTaskObjects();
     const subItems = getSelectedSubtaskObjects();
@@ -665,52 +669,344 @@ function floatingBarMove(event) {
     closeMoveToMenu();
     
     const menu = document.createElement('div');
-    menu.className = 'move-to-menu';
+    menu.className = 'move-to-menu move-to-menu-tabbed';
     menu.id = 'moveToMenu';
     
-    let html = '<div class="move-to-header">Move as subitem to:</div>';
-    html += '<div class="move-to-search"><input type="text" placeholder="Search task..." id="moveToSearch"></div>';
-    html += '<div class="move-to-list" id="moveToList">';
+    let html = buildMoveMenuTabs();
     
-    // Collect IDs of selected tasks to exclude them from targets
-    const selectedIds = new Set(items.map(i => String(i.task.id)));
-    
-    boardData.groups.forEach(group => {
-        group.tasks.forEach(t => {
-            if (selectedIds.has(String(t.id))) return; // skip selected tasks as targets
-            html += `<div class="move-to-item" data-task-id="${t.id}" data-group-id="${group.id}" onclick="executeFloatingBarMove('${t.id}', '${group.id}')">
-                <span class="move-to-group-dot" style="background:${group.color}"></span>
-                <span class="move-to-task-name">${escapeHtml(t.name)}</span>
-                <span class="move-to-group-name">${escapeHtml(group.name)}</span>
-            </div>`;
-        });
-    });
-    
+    // TAB 1: Move to Group (current board)
+    html += '<div class="move-to-tab-content" id="moveTabGroup">';
+    html += buildMoveToGroupTab();
     html += '</div>';
+    
+    // TAB 2: Move to Board (pick board → group)
+    html += '<div class="move-to-tab-content" id="moveTabBoard" style="display:none">';
+    html += buildMoveToBoardTab();
+    html += '</div>';
+    
+    // TAB 3: Move to Workspace (pick workspace → board → group)
+    html += '<div class="move-to-tab-content" id="moveTabWorkspace" style="display:none">';
+    html += buildMoveToWorkspaceTab();
+    html += '</div>';
+    
+    // TAB 4: Move as Subitem
+    html += '<div class="move-to-tab-content" id="moveTabSubitem" style="display:none">';
+    html += buildMoveAsSubitemTab(items);
+    html += '</div>';
+    
     menu.innerHTML = html;
     document.body.appendChild(menu);
     
     // Position near the Move button
     const btn = event.currentTarget;
     const rect = btn.getBoundingClientRect();
-    let top = rect.top - 310;
+    let top = rect.top - 440;
     let left = rect.left;
     if (top < 10) top = rect.bottom + 4;
-    if (left + 280 > window.innerWidth) left = window.innerWidth - 288;
+    if (left + 340 > window.innerWidth) left = window.innerWidth - 348;
     menu.style.top = top + 'px';
     menu.style.left = left + 'px';
     
-    setTimeout(() => {
-        const searchInput = document.getElementById('moveToSearch');
-        if (searchInput) {
-            searchInput.focus();
-            searchInput.addEventListener('input', function() {
-                filterMoveToList(this.value);
-            });
-        }
-    }, 50);
-    
+    setupMoveMenuSearch();
     setTimeout(() => document.addEventListener('click', closeMoveToMenuOnClick), 10);
+}
+
+function buildMoveMenuTabs() {
+    return `<div class="move-to-tabs">
+        <button class="move-to-tab active" onclick="switchMoveTab('group')">Group</button>
+        <button class="move-to-tab" onclick="switchMoveTab('board')">Board</button>
+        <button class="move-to-tab" onclick="switchMoveTab('workspace')">Workspace</button>
+        <button class="move-to-tab move-to-tab-sub" onclick="switchMoveTab('subitem')">As Subitem</button>
+    </div>`;
+}
+
+function buildMoveToGroupTab() {
+    let html = '<div class="move-to-search"><input type="text" placeholder="Search group..." id="moveSearchGroup" oninput="filterMoveToListByAttr(\'moveListGroup\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListGroup">';
+    const groups = boardData.groups || [];
+    groups.forEach(group => {
+        html += `<div class="move-to-item" data-search-text="${escapeHtml(group.name).toLowerCase()}"
+            onclick="executeMoveTo('group', {groupId:'${group.id}'})">
+            <span class="move-to-group-dot" style="background:${group.color || '#c4c4c4'}"></span>
+            <span class="move-to-task-name">${escapeHtml(group.name)}</span>
+        </div>`;
+    });
+    html += '</div>';
+    return html;
+}
+
+function buildMoveToBoardTab() {
+    let html = '<div class="move-to-search"><input type="text" placeholder="Search board or group..." id="moveSearchBoard" oninput="filterMoveToListByAttr(\'moveListBoard\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListBoard">';
+    const allBoards = boardData.boards || [];
+    const allBoardGroups = boardData.boardGroups || {};
+    const currentBoardId = boardData.activeBoard || 'board1';
+    allBoards.forEach(board => {
+        const groups = allBoardGroups[board.id] || [];
+        if (groups.length === 0) return;
+        const isCurrent = board.id === currentBoardId;
+        html += `<div class="move-to-board-header" data-search-text="${escapeHtml(board.name).toLowerCase()}">
+            <span class="move-to-board-dot" style="background:${board.color || '#0073ea'}"></span>
+            <strong>${escapeHtml(board.name)}</strong>${isCurrent ? ' <span style="color:#9699a6;font-size:11px">(current)</span>' : ''}
+        </div>`;
+        groups.forEach(group => {
+            html += `<div class="move-to-item move-to-group-item" 
+                data-search-text="${escapeHtml(board.name).toLowerCase()} ${escapeHtml(group.name).toLowerCase()}"
+                onclick="executeMoveTo('board', {boardId:'${board.id}', groupId:'${group.id}'})">
+                <span class="move-to-group-dot" style="background:${group.color || '#c4c4c4'}"></span>
+                <span class="move-to-task-name">${escapeHtml(group.name)}</span>
+            </div>`;
+        });
+    });
+    html += '</div>';
+    return html;
+}
+
+function buildMoveToWorkspaceTab() {
+    let html = '<div class="move-to-search"><input type="text" placeholder="Search workspace..." id="moveSearchWorkspace" oninput="filterMoveToListByAttr(\'moveListWorkspace\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListWorkspace">';
+    const otherWs = userWorkspaces.filter(ws => ws.id !== activeWorkspaceId);
+    if (otherWs.length === 0) {
+        html += '<div class="move-to-empty">No other workspaces available</div>';
+    } else {
+        otherWs.forEach(ws => {
+            html += `<div class="move-to-item move-to-ws-item" data-search-text="${escapeHtml(ws.name).toLowerCase()}"
+                onclick="loadWorkspaceBoardsForMove('${ws.id}', '${escapeHtml(ws.name)}')">
+                <span class="move-to-board-dot" style="background:${ws.color || '#fdab3d'}"></span>
+                <span class="move-to-task-name">${escapeHtml(ws.name)}</span>
+                <span class="move-to-group-name">&#9656;</span>
+            </div>`;
+        });
+    }
+    html += '</div>';
+    return html;
+}
+
+function buildMoveAsSubitemTab(items) {
+    const selectedIds = new Set((items || getSelectedTaskObjects()).map(i => String(i.task.id)));
+    let html = '<div class="move-to-search"><input type="text" placeholder="Search task..." id="moveSearchSubitem" oninput="filterMoveToListByAttr(\'moveListSubitem\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListSubitem">';
+    boardData.groups.forEach(group => {
+        group.tasks.forEach(t => {
+            if (selectedIds.has(String(t.id))) return;
+            html += `<div class="move-to-item" data-search-text="${escapeHtml(t.name).toLowerCase()}"
+                onclick="executeFloatingBarMoveAsSubitem('${t.id}', '${group.id}')">
+                <span class="move-to-group-dot" style="background:${group.color}"></span>
+                <span class="move-to-task-name">${escapeHtml(t.name)}</span>
+                <span class="move-to-group-name">${escapeHtml(group.name)}</span>
+            </div>`;
+        });
+    });
+    html += '</div>';
+    return html;
+}
+
+function switchMoveTab(tab) {
+    const tabs = document.querySelectorAll('.move-to-tab');
+    const contents = document.querySelectorAll('.move-to-tab-content');
+    tabs.forEach(t => t.classList.remove('active'));
+    contents.forEach(c => c.style.display = 'none');
+    const tabMap = { group: 0, board: 1, workspace: 2, subitem: 3 };
+    const contentMap = { group: 'moveTabGroup', board: 'moveTabBoard', workspace: 'moveTabWorkspace', subitem: 'moveTabSubitem' };
+    if (tabs[tabMap[tab]]) tabs[tabMap[tab]].classList.add('active');
+    const content = document.getElementById(contentMap[tab]);
+    if (content) content.style.display = '';
+    const searchMap = { group: 'moveSearchGroup', board: 'moveSearchBoard', workspace: 'moveSearchWorkspace', subitem: 'moveSearchSubitem' };
+    setTimeout(() => document.getElementById(searchMap[tab])?.focus(), 50);
+}
+
+function setupMoveMenuSearch() {
+    setTimeout(() => document.getElementById('moveSearchGroup')?.focus(), 50);
+}
+
+function filterMoveToListByAttr(listId, query) {
+    const items = document.querySelectorAll(`#${listId} [data-search-text]`);
+    const q = query.toLowerCase();
+    items.forEach(item => {
+        const text = item.getAttribute('data-search-text') || '';
+        item.style.display = text.includes(q) ? '' : 'none';
+    });
+}
+
+// Load another workspace's boards for drill-down in "Move to Workspace" tab
+async function loadWorkspaceBoardsForMove(wsId, wsName) {
+    const list = document.getElementById('moveListWorkspace');
+    if (!list) return;
+    list.innerHTML = '<div class="move-to-loading">Loading boards...</div>';
+    try {
+        const res = await authFetch(`/api/user-data/boards?workspaceId=${wsId}`);
+        const result = await res.json();
+        const data = result.data;
+        if (!data || !data.boards || data.boards.length === 0) {
+            list.innerHTML = '<div class="move-to-empty">No boards in this workspace</div>';
+            return;
+        }
+        let html = `<div class="move-to-breadcrumb" onclick="rebuildWorkspaceList()">&#8592; Back to workspaces</div>`;
+        html += `<div class="move-to-board-header"><strong>${escapeHtml(wsName)}</strong></div>`;
+        const boards = data.boards || [];
+        const boardGroups = data.boardGroups || {};
+        boards.forEach(board => {
+            const groups = boardGroups[board.id] || [];
+            if (groups.length === 0) return;
+            html += `<div class="move-to-board-header" data-search-text="${escapeHtml(board.name).toLowerCase()}">
+                <span class="move-to-board-dot" style="background:${board.color || '#0073ea'}"></span>
+                <strong>${escapeHtml(board.name)}</strong>
+            </div>`;
+            groups.forEach(group => {
+                html += `<div class="move-to-item move-to-group-item" 
+                    data-search-text="${escapeHtml(board.name).toLowerCase()} ${escapeHtml(group.name).toLowerCase()}"
+                    onclick="executeMoveTo('workspace', {wsId:'${wsId}', boardId:'${board.id}', groupId:'${group.id}'})">
+                    <span class="move-to-group-dot" style="background:${group.color || '#c4c4c4'}"></span>
+                    <span class="move-to-task-name">${escapeHtml(group.name)}</span>
+                </div>`;
+            });
+        });
+        list.innerHTML = html;
+        const searchInput = document.getElementById('moveSearchWorkspace');
+        if (searchInput) searchInput.value = '';
+    } catch (e) {
+        list.innerHTML = '<div class="move-to-empty">Failed to load workspace data</div>';
+    }
+}
+
+function rebuildWorkspaceList() {
+    const list = document.getElementById('moveListWorkspace');
+    if (!list) return;
+    let html = '';
+    const otherWs = userWorkspaces.filter(ws => ws.id !== activeWorkspaceId);
+    if (otherWs.length === 0) {
+        html = '<div class="move-to-empty">No other workspaces available</div>';
+    } else {
+        otherWs.forEach(ws => {
+            html += `<div class="move-to-item move-to-ws-item" data-search-text="${escapeHtml(ws.name).toLowerCase()}"
+                onclick="loadWorkspaceBoardsForMove('${ws.id}', '${escapeHtml(ws.name)}')">
+                <span class="move-to-board-dot" style="background:${ws.color || '#fdab3d'}"></span>
+                <span class="move-to-task-name">${escapeHtml(ws.name)}</span>
+                <span class="move-to-group-name">&#9656;</span>
+            </div>`;
+        });
+    }
+    list.innerHTML = html;
+    const searchInput = document.getElementById('moveSearchWorkspace');
+    if (searchInput) searchInput.value = '';
+}
+
+// Unified execute move function for all 3 move types
+async function executeMoveTo(type, opts) {
+    closeMoveToMenu();
+    const items = getSelectedTaskObjects();
+    const subItems = getSelectedSubtaskObjects();
+    let movedCount = 0;
+
+    function buildTaskFromSub(subtask) {
+        return { id: subtask.id, name: subtask.name, owner: subtask.owner || '', status: subtask.status || '', dueDate: subtask.dueDate || '', priority: subtask.priority || '', notes: subtask.notes || '', budget: subtask.budget || 0, files: subtask.files || 0, timelineStart: subtask.timelineStart || '', timelineEnd: subtask.timelineEnd || '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false };
+    }
+
+    if (type === 'group') {
+        const targetGroup = boardData.groups.find(g => String(g.id) === String(opts.groupId));
+        if (!targetGroup) { showToast('Target group not found'); return; }
+        items.forEach(({ group, task }) => {
+            if (String(group.id) === String(opts.groupId)) return;
+            const idx = group.tasks.findIndex(t => String(t.id) === String(task.id));
+            if (idx === -1) return;
+            const [removed] = group.tasks.splice(idx, 1);
+            removed.lastUpdated = nowISO();
+            targetGroup.tasks.push(removed);
+            movedCount++;
+        });
+        subItems.forEach(({ group, task, subtask }) => {
+            if (!task || !task.subtasks) return;
+            const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
+            if (subIdx === -1) return;
+            task.subtasks.splice(subIdx, 1); task.lastUpdated = nowISO();
+            targetGroup.tasks.push(buildTaskFromSub(subtask));
+            movedCount++;
+        });
+        clearSelection(); renderBoard(); saveToStorage();
+        showToast(`Moved ${movedCount} item${movedCount > 1 ? 's' : ''} to ${targetGroup.name}`);
+
+    } else if (type === 'board') {
+        const targetGroups = boardData.boardGroups[opts.boardId];
+        if (!targetGroups) { showToast('Target board not found'); return; }
+        const targetGroup = targetGroups.find(g => String(g.id) === String(opts.groupId));
+        if (!targetGroup) { showToast('Target group not found'); return; }
+        items.forEach(({ group, task }) => {
+            const idx = group.tasks.findIndex(t => String(t.id) === String(task.id));
+            if (idx === -1) return;
+            const [removed] = group.tasks.splice(idx, 1);
+            removed.lastUpdated = nowISO();
+            targetGroup.tasks.push(removed);
+            movedCount++;
+        });
+        subItems.forEach(({ group, task, subtask }) => {
+            if (!task || !task.subtasks) return;
+            const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
+            if (subIdx === -1) return;
+            task.subtasks.splice(subIdx, 1); task.lastUpdated = nowISO();
+            targetGroup.tasks.push(buildTaskFromSub(subtask));
+            movedCount++;
+        });
+        clearSelection(); renderBoard(); saveToStorage();
+        const targetBoard = (boardData.boards || []).find(b => b.id === opts.boardId);
+        showToast(`Moved ${movedCount} item${movedCount > 1 ? 's' : ''} to ${targetBoard ? targetBoard.name : 'board'} \u2192 ${targetGroup.name}`);
+
+    } else if (type === 'workspace') {
+        try {
+            const res = await authFetch(`/api/user-data/boards?workspaceId=${opts.wsId}`);
+            const result = await res.json();
+            const targetData = result.data;
+            if (!targetData || !targetData.boardGroups) { showToast('Failed to load target workspace'); return; }
+            const targetGroups = targetData.boardGroups[opts.boardId];
+            if (!targetGroups) { showToast('Target board not found'); return; }
+            const targetGroup = targetGroups.find(g => String(g.id) === String(opts.groupId));
+            if (!targetGroup) { showToast('Target group not found'); return; }
+            const tasksToMove = [];
+            items.forEach(({ group, task }) => {
+                const idx = group.tasks.findIndex(t => String(t.id) === String(task.id));
+                if (idx === -1) return;
+                const [removed] = group.tasks.splice(idx, 1);
+                removed.lastUpdated = nowISO();
+                tasksToMove.push(removed);
+                movedCount++;
+            });
+            subItems.forEach(({ group, task, subtask }) => {
+                if (!task || !task.subtasks) return;
+                const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
+                if (subIdx === -1) return;
+                task.subtasks.splice(subIdx, 1); task.lastUpdated = nowISO();
+                tasksToMove.push(buildTaskFromSub(subtask));
+                movedCount++;
+            });
+            tasksToMove.forEach(t => targetGroup.tasks.push(t));
+            // Save target workspace
+            await authFetch(`/api/user-data/boards?workspaceId=${opts.wsId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ data: targetData })
+            });
+            // Save current workspace
+            clearSelection(); renderBoard(); saveToStorage();
+            const targetWs = userWorkspaces.find(w => w.id === opts.wsId);
+            const targetBoard = (targetData.boards || []).find(b => b.id === opts.boardId);
+            showToast(`Moved ${movedCount} item${movedCount > 1 ? 's' : ''} to ${targetWs ? targetWs.name : 'workspace'} \u2192 ${targetBoard ? targetBoard.name : 'board'} \u2192 ${targetGroup.name}`);
+        } catch (e) {
+            console.error('[Move] Cross-workspace move failed:', e);
+            showToast('Failed to move \u2014 please try again');
+        }
+    }
+}
+
+// Move as subitem (from floating bar)
+function executeFloatingBarMoveAsSubitem(targetTaskId, targetGroupId) {
+    closeMoveToMenu();
+    const items = getSelectedTaskObjects();
+    const subItems = getSelectedSubtaskObjects();
+    items.forEach(({ group, task }) => {
+        convertTaskToSubtask(String(task.id), String(group.id), targetTaskId, targetGroupId);
+    });
+    subItems.forEach(({ group, task, subtask }) => {
+        moveSubtaskToTask(String(subtask.id), String(task.id), String(group.id), targetTaskId, targetGroupId);
+    });
+    clearSelection(); renderBoard(); saveToStorage();
 }
 
 function executeFloatingBarMove(targetTaskId, targetGroupId) {
@@ -4937,51 +5233,219 @@ function showMoveToMenu(event, taskId, groupId) {
     if (!sourceTask) return;
     
     const menu = document.createElement('div');
-    menu.className = 'move-to-menu';
+    menu.className = 'move-to-menu move-to-menu-tabbed';
     menu.id = 'moveToMenu';
     
-    let html = '<div class="move-to-header">Move as subitem to:</div>';
-    html += '<div class="move-to-search"><input type="text" placeholder="Search task..." id="moveToSearch"></div>';
-    html += '<div class="move-to-list" id="moveToList">';
+    let html = buildMoveMenuTabs();
     
+    // TAB 1: Move to Group (current board)
+    html += '<div class="move-to-tab-content" id="moveTabGroup">';
+    html += '<div class="move-to-search"><input type="text" placeholder="Search group..." id="moveSearchGroup" oninput="filterMoveToListByAttr(\'moveListGroup\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListGroup">';
+    const groups = boardData.groups || [];
+    groups.forEach(group => {
+        html += `<div class="move-to-item" data-search-text="${escapeHtml(group.name).toLowerCase()}"
+            onclick="executeSingleTaskMoveTo('${taskId}', '${groupId}', 'group', {groupId:'${group.id}'})">
+            <span class="move-to-group-dot" style="background:${group.color || '#c4c4c4'}"></span>
+            <span class="move-to-task-name">${escapeHtml(group.name)}</span>
+        </div>`;
+    });
+    html += '</div></div>';
+    
+    // TAB 2: Move to Board (pick board → group)
+    html += '<div class="move-to-tab-content" id="moveTabBoard" style="display:none">';
+    html += '<div class="move-to-search"><input type="text" placeholder="Search board or group..." id="moveSearchBoard" oninput="filterMoveToListByAttr(\'moveListBoard\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListBoard">';
+    const allBoards = boardData.boards || [];
+    const allBoardGroups = boardData.boardGroups || {};
+    const currentBoardId = boardData.activeBoard || 'board1';
+    allBoards.forEach(board => {
+        const bGroups = allBoardGroups[board.id] || [];
+        if (bGroups.length === 0) return;
+        const isCurrent = board.id === currentBoardId;
+        html += `<div class="move-to-board-header" data-search-text="${escapeHtml(board.name).toLowerCase()}">
+            <span class="move-to-board-dot" style="background:${board.color || '#0073ea'}"></span>
+            <strong>${escapeHtml(board.name)}</strong>${isCurrent ? ' <span style="color:#9699a6;font-size:11px">(current)</span>' : ''}
+        </div>`;
+        bGroups.forEach(group => {
+            html += `<div class="move-to-item move-to-group-item" 
+                data-search-text="${escapeHtml(board.name).toLowerCase()} ${escapeHtml(group.name).toLowerCase()}"
+                onclick="executeSingleTaskMoveTo('${taskId}', '${groupId}', 'board', {boardId:'${board.id}', groupId:'${group.id}'})">
+                <span class="move-to-group-dot" style="background:${group.color || '#c4c4c4'}"></span>
+                <span class="move-to-task-name">${escapeHtml(group.name)}</span>
+            </div>`;
+        });
+    });
+    html += '</div></div>';
+    
+    // TAB 3: Move to Workspace
+    html += '<div class="move-to-tab-content" id="moveTabWorkspace" style="display:none">';
+    html += '<div class="move-to-search"><input type="text" placeholder="Search workspace..." id="moveSearchWorkspace" oninput="filterMoveToListByAttr(\'moveListWorkspace\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListWorkspace">';
+    const otherWs = userWorkspaces.filter(ws => ws.id !== activeWorkspaceId);
+    if (otherWs.length === 0) {
+        html += '<div class="move-to-empty">No other workspaces available</div>';
+    } else {
+        otherWs.forEach(ws => {
+            html += `<div class="move-to-item move-to-ws-item" data-search-text="${escapeHtml(ws.name).toLowerCase()}"
+                onclick="loadWorkspaceBoardsForMoveSingle('${ws.id}', '${escapeHtml(ws.name)}', '${taskId}', '${groupId}')">
+                <span class="move-to-board-dot" style="background:${ws.color || '#fdab3d'}"></span>
+                <span class="move-to-task-name">${escapeHtml(ws.name)}</span>
+                <span class="move-to-group-name">&#9656;</span>
+            </div>`;
+        });
+    }
+    html += '</div></div>';
+    
+    // TAB 4: Move as Subitem
+    html += '<div class="move-to-tab-content" id="moveTabSubitem" style="display:none">';
+    html += '<div class="move-to-search"><input type="text" placeholder="Search task..." id="moveSearchSubitem" oninput="filterMoveToListByAttr(\'moveListSubitem\', this.value)"></div>';
+    html += '<div class="move-to-list" id="moveListSubitem">';
     boardData.groups.forEach(group => {
         group.tasks.forEach(t => {
-            if (String(t.id) === String(taskId) && String(group.id) === String(groupId)) return; // skip self
-            html += `<div class="move-to-item" data-task-id="${t.id}" data-group-id="${group.id}" onclick="executeMoveToTask('${taskId}', '${groupId}', '${t.id}', '${group.id}')">
+            if (String(t.id) === String(taskId) && String(group.id) === String(groupId)) return;
+            html += `<div class="move-to-item" data-search-text="${escapeHtml(t.name).toLowerCase()}"
+                onclick="executeMoveToTask('${taskId}', '${groupId}', '${t.id}', '${group.id}')">
                 <span class="move-to-group-dot" style="background:${group.color}"></span>
                 <span class="move-to-task-name">${escapeHtml(t.name)}</span>
                 <span class="move-to-group-name">${escapeHtml(group.name)}</span>
             </div>`;
         });
     });
+    html += '</div></div>';
     
-    html += '</div>';
     menu.innerHTML = html;
     document.body.appendChild(menu);
     
-    // Position near the event
     const rect = event.target.getBoundingClientRect();
     let top = rect.bottom + 4;
     let left = rect.left;
-    if (top + 300 > window.innerHeight) top = rect.top - 300;
-    if (left + 280 > window.innerWidth) left = window.innerWidth - 288;
+    if (top + 440 > window.innerHeight) top = rect.top - 440;
+    if (left + 340 > window.innerWidth) left = window.innerWidth - 348;
     menu.style.top = top + 'px';
     menu.style.left = left + 'px';
     
-    // Focus search
-    setTimeout(() => {
-        const searchInput = document.getElementById('moveToSearch');
-        if (searchInput) {
-            searchInput.focus();
-            searchInput.addEventListener('input', function() {
-                filterMoveToList(this.value);
-            });
-        }
-    }, 50);
-    
-    // Close on outside click
+    setupMoveMenuSearch();
     setTimeout(() => document.addEventListener('click', closeMoveToMenuOnClick), 10);
 }
+
+// Execute single task move (context menu — not multi-select)
+async function executeSingleTaskMoveTo(taskId, sourceGroupId, type, opts) {
+    closeMoveToMenu();
+    const { group: sourceGroup, task } = findTask(taskId, sourceGroupId);
+    if (!task || !sourceGroup) { showToast('Task not found'); return; }
+    
+    if (type === 'group') {
+        const targetGroup = boardData.groups.find(g => String(g.id) === String(opts.groupId));
+        if (!targetGroup) { showToast('Target group not found'); return; }
+        if (String(sourceGroup.id) === String(opts.groupId)) return;
+        const idx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
+        if (idx === -1) return;
+        const [removed] = sourceGroup.tasks.splice(idx, 1);
+        removed.lastUpdated = nowISO();
+        targetGroup.tasks.push(removed);
+        renderBoard(); saveToStorage();
+        showToast(`Moved "${removed.name}" to ${targetGroup.name}`);
+        
+    } else if (type === 'board') {
+        const targetGroups = boardData.boardGroups[opts.boardId];
+        if (!targetGroups) { showToast('Target board not found'); return; }
+        const targetGroup = targetGroups.find(g => String(g.id) === String(opts.groupId));
+        if (!targetGroup) { showToast('Target group not found'); return; }
+        const idx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
+        if (idx === -1) return;
+        const [removed] = sourceGroup.tasks.splice(idx, 1);
+        removed.lastUpdated = nowISO();
+        targetGroup.tasks.push(removed);
+        renderBoard(); saveToStorage();
+        const targetBoard = (boardData.boards || []).find(b => b.id === opts.boardId);
+        showToast(`Moved "${removed.name}" to ${targetBoard ? targetBoard.name : 'board'} \u2192 ${targetGroup.name}`);
+        
+    } else if (type === 'workspace') {
+        try {
+            const res = await authFetch(`/api/user-data/boards?workspaceId=${opts.wsId}`);
+            const result = await res.json();
+            const targetData = result.data;
+            if (!targetData || !targetData.boardGroups) { showToast('Failed to load target workspace'); return; }
+            const targetGroups = targetData.boardGroups[opts.boardId];
+            if (!targetGroups) { showToast('Target board not found'); return; }
+            const targetGroup = targetGroups.find(g => String(g.id) === String(opts.groupId));
+            if (!targetGroup) { showToast('Target group not found'); return; }
+            const idx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
+            if (idx === -1) return;
+            const [removed] = sourceGroup.tasks.splice(idx, 1);
+            removed.lastUpdated = nowISO();
+            targetGroup.tasks.push(removed);
+            await authFetch(`/api/user-data/boards?workspaceId=${opts.wsId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ data: targetData })
+            });
+            renderBoard(); saveToStorage();
+            const targetWs = userWorkspaces.find(w => w.id === opts.wsId);
+            const targetBoard = (targetData.boards || []).find(b => b.id === opts.boardId);
+            showToast(`Moved "${removed.name}" to ${targetWs ? targetWs.name : 'workspace'} \u2192 ${targetBoard ? targetBoard.name : 'board'} \u2192 ${targetGroup.name}`);
+        } catch (e) {
+            console.error('[Move] Cross-workspace move failed:', e);
+            showToast('Failed to move \u2014 please try again');
+        }
+    }
+}
+
+// Load workspace boards for single-task move (context menu)
+async function loadWorkspaceBoardsForMoveSingle(wsId, wsName, taskId, groupId) {
+    const list = document.getElementById('moveListWorkspace');
+    if (!list) return;
+    list.innerHTML = '<div class="move-to-loading">Loading boards...</div>';
+    try {
+        const res = await authFetch(`/api/user-data/boards?workspaceId=${wsId}`);
+        const result = await res.json();
+        const data = result.data;
+        if (!data || !data.boards || data.boards.length === 0) {
+            list.innerHTML = '<div class="move-to-empty">No boards in this workspace</div>';
+            return;
+        }
+        let html = `<div class="move-to-breadcrumb" onclick="rebuildWorkspaceListSingle('${taskId}', '${groupId}')">&#8592; Back</div>`;
+        html += `<div class="move-to-board-header"><strong>${escapeHtml(wsName)}</strong></div>`;
+        const boards = data.boards || [];
+        const boardGroups = data.boardGroups || {};
+        boards.forEach(board => {
+            const bGroups = boardGroups[board.id] || [];
+            if (bGroups.length === 0) return;
+            html += `<div class="move-to-board-header" data-search-text="${escapeHtml(board.name).toLowerCase()}">
+                <span class="move-to-board-dot" style="background:${board.color || '#0073ea'}"></span>
+                <strong>${escapeHtml(board.name)}</strong>
+            </div>`;
+            bGroups.forEach(group => {
+                html += `<div class="move-to-item move-to-group-item" 
+                    data-search-text="${escapeHtml(board.name).toLowerCase()} ${escapeHtml(group.name).toLowerCase()}"
+                    onclick="executeSingleTaskMoveTo('${taskId}', '${groupId}', 'workspace', {wsId:'${wsId}', boardId:'${board.id}', groupId:'${group.id}'})">
+                    <span class="move-to-group-dot" style="background:${group.color || '#c4c4c4'}"></span>
+                    <span class="move-to-task-name">${escapeHtml(group.name)}</span>
+                </div>`;
+            });
+        });
+        list.innerHTML = html;
+    } catch (e) {
+        list.innerHTML = '<div class="move-to-empty">Failed to load workspace data</div>';
+    }
+}
+
+function rebuildWorkspaceListSingle(taskId, groupId) {
+    const list = document.getElementById('moveListWorkspace');
+    if (!list) return;
+    let html = '';
+    const otherWs = userWorkspaces.filter(ws => ws.id !== activeWorkspaceId);
+    otherWs.forEach(ws => {
+        html += `<div class="move-to-item move-to-ws-item" data-search-text="${escapeHtml(ws.name).toLowerCase()}"
+            onclick="loadWorkspaceBoardsForMoveSingle('${ws.id}', '${escapeHtml(ws.name)}', '${taskId}', '${groupId}')">
+            <span class="move-to-board-dot" style="background:${ws.color || '#fdab3d'}"></span>
+            <span class="move-to-task-name">${escapeHtml(ws.name)}</span>
+            <span class="move-to-group-name">&#9656;</span>
+        </div>`;
+    });
+    list.innerHTML = html;
+}
+
 
 function showMoveSubtaskToMenu(event, subtaskId, taskId, groupId) {
     event.stopPropagation();
@@ -5066,7 +5530,10 @@ function executeMoveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, target
 
 function closeMoveToMenuOnClick(e) {
     const menu = document.getElementById('moveToMenu');
-    if (menu && !menu.contains(e.target)) closeMoveToMenu();
+    if (!menu) return;
+    // If target was detached from DOM (e.g. innerHTML replaced during onclick), don't close
+    if (!document.contains(e.target)) return;
+    if (!menu.contains(e.target)) closeMoveToMenu();
 }
 
 function closeMoveToMenu() {
@@ -7601,7 +8068,7 @@ function getTaskTotalFileCount(task) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '48';
+const CURRENT_APP_VERSION = '49';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

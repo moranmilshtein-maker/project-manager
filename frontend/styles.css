@@ -3818,12 +3818,116 @@ tr.add-task-row.row-drag-over-top td {
     background: #fff;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    width: 280px;
-    max-height: 350px;
+    width: 300px;
+    max-height: 420px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     border: 1px solid #e6e9ef;
+}
+
+.move-to-menu-tabbed {
+    width: 320px;
+    max-height: 440px;
+}
+
+.move-to-tabs {
+    display: flex;
+    border-bottom: 1px solid #e6e9ef;
+    padding: 0;
+}
+
+.move-to-tab {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #676879;
+    background: none;
+    border: none;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    text-align: center;
+}
+
+.move-to-tab:hover {
+    color: #0073ea;
+    background: #f5f8ff;
+}
+
+.move-to-tab.active {
+    color: #0073ea;
+    border-bottom-color: #0073ea;
+}
+
+.move-to-tab-content {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 1;
+}
+
+.move-to-board-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px 4px;
+    font-size: 12px;
+    color: #323338;
+}
+
+.move-to-board-header strong {
+    font-weight: 600;
+}
+
+.move-to-board-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.move-to-group-item {
+    padding-left: 28px !important;
+}
+
+.move-to-tab-sub {
+    font-size: 11px !important;
+    padding: 8px 8px !important;
+}
+
+.move-to-breadcrumb {
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #0073ea;
+    cursor: pointer;
+    border-bottom: 1px solid #e6e9ef;
+    font-weight: 500;
+}
+
+.move-to-breadcrumb:hover {
+    background: #f0f3ff;
+}
+
+.move-to-loading {
+    padding: 16px 14px;
+    font-size: 12px;
+    color: #9699a6;
+    text-align: center;
+}
+
+.move-to-empty {
+    padding: 16px 14px;
+    font-size: 12px;
+    color: #9699a6;
+    text-align: center;
+    font-style: italic;
+}
+
+.move-to-ws-item .move-to-group-name {
+    font-size: 14px;
+    color: #676879;
 }
 
 .move-to-header {
