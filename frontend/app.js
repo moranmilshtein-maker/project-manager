@@ -162,6 +162,14 @@ function nowISO() {
     return new Date().toISOString();
 }
 
+// Mark a task/subtask as updated — sets timestamp AND who made the change
+function markUpdated(item) {
+    item.lastUpdated = new Date().toISOString();
+    if (currentUser) {
+        item.lastUpdatedBy = currentUser.fullName || currentUser.email || '';
+    }
+}
+
 // Format lastUpdated for display: shows relative time in English (Sprint 1.2 Task 8)
 // Rules:
 // - Less than 1 hour: show minutes only (e.g. "3 minutes")
@@ -562,15 +570,15 @@ function floatingBarDuplicate() {
     const subItems = getSelectedSubtaskObjects();
     if (items.length === 0 && subItems.length === 0) return;
     items.forEach(({ group, task }) => {
-        const clone = { ...task, id: newId(), name: task.name + ' (copy)', lastUpdated: nowISO(),
+        const clone = { ...task, id: newId(), name: task.name + ' (copy)', lastUpdated: nowISO(), lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
             subtasks: (task.subtasks || []).map(s => ({ ...s, id: newId() })),
             subtasksExpanded: false };
         group.tasks.push(clone);
     });
     subItems.forEach(({ task, subtask }) => {
-        const clone = { ...subtask, id: newId(), name: subtask.name + ' (copy)', lastUpdated: nowISO() };
+        const clone = { ...subtask, id: newId(), name: subtask.name + ' (copy)', lastUpdated: nowISO(), lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '' };
         task.subtasks.push(clone);
-        task.lastUpdated = nowISO();
+        markUpdated(task);
     });
     clearSelection();
     renderBoard();
@@ -592,7 +600,7 @@ function floatingBarDeleteSubtasks() {
     if (!confirm(`PERMANENTLY delete ${count} selected subitem(s)? This cannot be undone.`)) return;
     subItems.forEach(({ task, subtask }) => {
         task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
-        task.lastUpdated = nowISO();
+        markUpdated(task);
     });
     clearSelection();
     renderBoard();
@@ -921,7 +929,7 @@ async function executeMoveTo(type, opts) {
     const orphanSubItems = subItems.filter(s => !movedTaskIds.has(String(s.task.id)));
 
     function buildTaskFromSub(subtask) {
-        return { id: subtask.id, name: subtask.name, owner: subtask.owner || '', status: subtask.status || '', dueDate: subtask.dueDate || '', priority: subtask.priority || '', notes: subtask.notes || '', budget: subtask.budget || 0, files: subtask.files || 0, timelineStart: subtask.timelineStart || '', timelineEnd: subtask.timelineEnd || '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false };
+        return { id: subtask.id, name: subtask.name, owner: subtask.owner || '', status: subtask.status || '', dueDate: subtask.dueDate || '', priority: subtask.priority || '', notes: subtask.notes || '', budget: subtask.budget || 0, files: subtask.files || 0, timelineStart: subtask.timelineStart || '', timelineEnd: subtask.timelineEnd || '', lastUpdated: nowISO(), lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '', subtasks: [], subtasksExpanded: false };
     }
 
     if (type === 'group') {
@@ -932,7 +940,7 @@ async function executeMoveTo(type, opts) {
             const idx = group.tasks.findIndex(t => String(t.id) === String(task.id));
             if (idx === -1) return;
             const [removed] = group.tasks.splice(idx, 1);
-            removed.lastUpdated = nowISO();
+            markUpdated(removed);
             targetGroup.tasks.push(removed);
             movedCount++;
         });
@@ -940,7 +948,7 @@ async function executeMoveTo(type, opts) {
             if (!task || !task.subtasks) return;
             const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
             if (subIdx === -1) return;
-            task.subtasks.splice(subIdx, 1); task.lastUpdated = nowISO();
+            task.subtasks.splice(subIdx, 1); markUpdated(task);
             targetGroup.tasks.push(buildTaskFromSub(subtask));
             movedCount++;
         });
@@ -956,7 +964,7 @@ async function executeMoveTo(type, opts) {
             const idx = group.tasks.findIndex(t => String(t.id) === String(task.id));
             if (idx === -1) return;
             const [removed] = group.tasks.splice(idx, 1);
-            removed.lastUpdated = nowISO();
+            markUpdated(removed);
             targetGroup.tasks.push(removed);
             movedCount++;
         });
@@ -964,7 +972,7 @@ async function executeMoveTo(type, opts) {
             if (!task || !task.subtasks) return;
             const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
             if (subIdx === -1) return;
-            task.subtasks.splice(subIdx, 1); task.lastUpdated = nowISO();
+            task.subtasks.splice(subIdx, 1); markUpdated(task);
             targetGroup.tasks.push(buildTaskFromSub(subtask));
             movedCount++;
         });
@@ -987,7 +995,7 @@ async function executeMoveTo(type, opts) {
                 const idx = group.tasks.findIndex(t => String(t.id) === String(task.id));
                 if (idx === -1) return;
                 const [removed] = group.tasks.splice(idx, 1);
-                removed.lastUpdated = nowISO();
+                markUpdated(removed);
                 tasksToMove.push(removed);
                 movedCount++;
             });
@@ -995,7 +1003,7 @@ async function executeMoveTo(type, opts) {
                 if (!task || !task.subtasks) return;
                 const subIdx = task.subtasks.findIndex(s => String(s.id) === String(subtask.id));
                 if (subIdx === -1) return;
-                task.subtasks.splice(subIdx, 1); task.lastUpdated = nowISO();
+                task.subtasks.splice(subIdx, 1); markUpdated(task);
                 tasksToMove.push(buildTaskFromSub(subtask));
                 movedCount++;
             });
@@ -1067,7 +1075,7 @@ function floatingBarConvert() {
         
         // Remove from subtasks
         task.subtasks.splice(subIdx, 1);
-        task.lastUpdated = nowISO();
+        markUpdated(task);
         
         // Add as a regular task in the same group
         group.tasks.push({
@@ -1083,6 +1091,7 @@ function floatingBarConvert() {
             timelineStart: subtask.timelineStart || '',
             timelineEnd: subtask.timelineEnd || '',
             lastUpdated: nowISO(),
+            lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
             subtasks: [],
             subtasksExpanded: false
         });
@@ -1329,7 +1338,7 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
             </td>`;
         case 'updated': return `<td class="cell-updated">
                 <div class="updated-content">
-                    ${task.owner ? getUpdatedAvatarHTML(task.owner) : ''}
+                    ${(task.lastUpdatedBy || task.owner) ? getUpdatedAvatarHTML(task.lastUpdatedBy || task.owner) : ''}
                     <span>${formatLastUpdated(task.lastUpdated)}</span>
                 </div>
             </td>`;
@@ -1551,7 +1560,7 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
             </td>`;
         case 'updated': return `<td class="cell-updated">
                 <div class="updated-content">
-                    ${sub.owner ? getUpdatedAvatarHTML(sub.owner) : ''}
+                    ${(sub.lastUpdatedBy || sub.owner) ? getUpdatedAvatarHTML(sub.lastUpdatedBy || sub.owner) : ''}
                     <span>${formatLastUpdated(sub.lastUpdated)}</span>
                 </div>
             </td>`;
@@ -1655,12 +1664,13 @@ function addSubtaskInline(taskId, groupId) {
                     files: 0,
                     timelineStart: '',
                     timelineEnd: '',
-                    lastUpdated: nowISO()
+                    lastUpdated: nowISO(),
+                    lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : ''
                 });
                 task.subtasksExpanded = true;
                 // Trigger subtask added notification + popup
                 triggerTaskAddedNotification(name, task.name);
-                task.lastUpdated = nowISO();
+                markUpdated(task);
             }
         }
         renderBoard();
@@ -1696,8 +1706,8 @@ function editSubtaskName(subtaskId, taskId, groupId, element) {
         const val = input.value.trim();
         if (val && val !== currentName) {
             subtask.name = val;
-            subtask.lastUpdated = nowISO();
-            task.lastUpdated = nowISO();
+            markUpdated(subtask);
+            markUpdated(task);
             saveToStorage();
         }
         renderBoard();
@@ -1732,7 +1742,7 @@ function showSubtaskStatusDropdown(event, subtaskId, taskId, groupId) {
 function setSubtaskStatus(subtaskId, taskId, groupId, statusId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.status = statusId; subtask.lastUpdated = nowISO(); task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
+    if (subtask) { subtask.status = statusId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); }
 }
 
 // Edit subtask date
@@ -1746,8 +1756,8 @@ function editSubtaskDate(subtaskId, taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         subtask.dueDate = input.value;
-        subtask.lastUpdated = nowISO();
-        task.lastUpdated = nowISO();
+        markUpdated(subtask);
+        markUpdated(task);
         saveToStorage();
         renderBoard();
     };
@@ -1761,7 +1771,7 @@ function deleteSubtask(subtaskId, taskId, groupId) {
     const { task } = findTask(taskId, groupId);
     if (!task || !task.subtasks) return;
     task.subtasks = task.subtasks.filter(s => String(s.id) !== String(subtaskId));
-    task.lastUpdated = nowISO();
+    markUpdated(task);
     renderBoard();
 }
 
@@ -1781,7 +1791,7 @@ function showSubtaskPriorityDropdown(event, subtaskId, taskId, groupId) {
 function setSubtaskPriority(subtaskId, taskId, groupId, priorityId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.priority = priorityId; subtask.lastUpdated = nowISO(); task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
+    if (subtask) { subtask.priority = priorityId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); }
 }
 
 // Subtask notes edit
@@ -1796,8 +1806,8 @@ function editSubtaskNotes(subtaskId, taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         subtask.notes = input.value;
-        subtask.lastUpdated = nowISO();
-        task.lastUpdated = nowISO();
+        markUpdated(subtask);
+        markUpdated(task);
         saveToStorage();
         renderBoard();
     };
@@ -1819,8 +1829,8 @@ function editSubtaskBudget(subtaskId, taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         subtask.budget = input.value ? Number(input.value) : 0;
-        subtask.lastUpdated = nowISO();
-        task.lastUpdated = nowISO();
+        markUpdated(subtask);
+        markUpdated(task);
         saveToStorage();
         renderBoard();
     };
@@ -1920,8 +1930,8 @@ function saveSubtaskFromModal() {
     currentSubModalSubtask.notes = document.getElementById('subModalNotes').value;
     currentSubModalSubtask.timelineStart = document.getElementById('subModalTimelineStart').value;
     currentSubModalSubtask.timelineEnd = document.getElementById('subModalTimelineEnd').value;
-    currentSubModalSubtask.lastUpdated = nowISO();
-    if (currentSubModalTask) currentSubModalTask.lastUpdated = nowISO();
+    markUpdated(currentSubModalSubtask);
+    if (currentSubModalTask) markUpdated(currentSubModalTask);
     document.getElementById('subtaskModalOverlay').remove();
     saveToStorage();
     renderBoard();
@@ -2002,7 +2012,7 @@ function setTaskStatus(taskId, groupId, statusId) {
     if (task) {
         const oldStatus = task.status;
         task.status = statusId;
-        task.lastUpdated = nowISO();
+        markUpdated(task);
         saveToStorage();
         renderBoard();
         // Trigger status change notification
@@ -2031,7 +2041,7 @@ function showPriorityDropdown(event, taskId, groupId) {
 function setTaskPriority(taskId, groupId, priorityId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { group, task } = findTask(taskId, groupId);
-    if (task) { task.priority = priorityId; task.lastUpdated = nowISO(); saveToStorage(); renderBoard(); }
+    if (task) { task.priority = priorityId; markUpdated(task); saveToStorage(); renderBoard(); }
 }
 
 // ============================================================
@@ -2052,7 +2062,7 @@ function editTaskName(taskId, groupId, cell) {
         const val = input.value.trim();
         if (val && val !== currentName) {
             task.name = val;
-            task.lastUpdated = nowISO();
+            markUpdated(task);
         }
         renderBoard();
     };
@@ -2075,7 +2085,7 @@ function editDueDate(taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         task.dueDate = input.value;
-        task.lastUpdated = nowISO();
+        markUpdated(task);
         renderBoard();
     };
     input.addEventListener('change', save);
@@ -2137,7 +2147,7 @@ function editNotes(taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         task.notes = input.value;
-        task.lastUpdated = nowISO();
+        markUpdated(task);
         renderBoard();
     };
     input.addEventListener('blur', save);
@@ -2155,7 +2165,7 @@ function editBudget(taskId, groupId, cell) {
         if (saved) return;
         saved = true;
         task.budget = parseFloat(input.value) || 0;
-        task.lastUpdated = nowISO();
+        markUpdated(task);
         renderBoard();
     };
     input.addEventListener('blur', save);
@@ -2246,6 +2256,7 @@ function addTaskInline(groupId) {
                     timelineStart: '',
                     timelineEnd: '',
                     lastUpdated: nowISO(),
+                    lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
                     subtasks: [],
                     subtasksExpanded: false
                 });
@@ -2518,7 +2529,7 @@ function saveTaskFromModal() {
     currentModalTask.notes = document.getElementById('modalNotes').value;
     currentModalTask.timelineStart = document.getElementById('modalTimelineStart').value;
     currentModalTask.timelineEnd = document.getElementById('modalTimelineEnd').value;
-    currentModalTask.lastUpdated = nowISO();
+    markUpdated(currentModalTask);
     closeModal();
     renderBoard();
 }
@@ -3062,7 +3073,7 @@ function setupNewTaskButton() {
                 firstGroup.tasks.push({
                     id: newId(), name: 'New Task', owner: '', status: '', dueDate: '',
                     priority: '', notes: '', budget: 0, files: 0,
-                    timelineStart: '', timelineEnd: '', lastUpdated: nowISO(),
+                    timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
                     subtasks: [], subtasksExpanded: false
                 });
                 renderBoard();
@@ -4305,7 +4316,7 @@ function floatingBarArchive30() {
     });
     subItems.forEach(({ task, subtask }) => {
         task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
-        task.lastUpdated = nowISO();
+        markUpdated(task);
         archived.push({
             ...subtask,
             _isSubtask: true,
@@ -4336,7 +4347,7 @@ function floatingBarPermanentDelete() {
     });
     subItems.forEach(({ task, subtask }) => {
         task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
-        task.lastUpdated = nowISO();
+        markUpdated(task);
     });
     clearSelection();
     renderBoard();
@@ -5090,7 +5101,7 @@ function moveTaskToEmptyGroup(taskId, sourceGroupId, targetGroupId) {
 
     sourceGroup.tasks.splice(taskIndex, 1);
     targetGroup.tasks.push(task);
-    task.lastUpdated = nowISO();
+    markUpdated(task);
 }
 
 // Move task between groups or within the same group
@@ -5125,7 +5136,7 @@ function moveTaskBetweenGroups(taskId, sourceGroupId, targetTaskId, targetGroupI
     else if (insertAfter) insertIndex += 1;
 
     targetGroup.tasks.splice(insertIndex, 0, task);
-    task.lastUpdated = nowISO();
+    markUpdated(task);
 }
 
 // Move subtask within the same parent task (reorder)
@@ -5146,7 +5157,7 @@ function moveSubtaskWithinParent(subtaskId, taskId, groupId, targetSubtaskId, in
     else if (insertAfter) toIdx += 1;
 
     task.subtasks.splice(toIdx, 0, subtask);
-    task.lastUpdated = nowISO();
+    markUpdated(task);
 }
 
 // Move subtask to end of parent's subtask list
@@ -5160,7 +5171,7 @@ function moveSubtaskToEnd(subtaskId, taskId, groupId) {
 
     task.subtasks.splice(fromIdx, 1);
     task.subtasks.push(subtask);
-    task.lastUpdated = nowISO();
+    markUpdated(task);
 }
 
 // Convert a task to a subtask of another task (drag task onto another task's middle zone)
@@ -5201,7 +5212,7 @@ function convertTaskToSubtask(taskId, sourceGroupId, targetTaskId, targetGroupId
         lastUpdated: nowISO()
     });
     targetTask.subtasksExpanded = true;
-    targetTask.lastUpdated = nowISO();
+    markUpdated(targetTask);
     
     showToast(`"${task.name}" moved as subitem of "${targetTask.name}"`);
 }
@@ -5226,14 +5237,14 @@ function moveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, targetTaskId,
     
     // Remove from source
     sourceTask.subtasks.splice(subIdx, 1);
-    sourceTask.lastUpdated = nowISO();
+    markUpdated(sourceTask);
     
     // Add to target
     if (!targetTask.subtasks) targetTask.subtasks = [];
-    subtask.lastUpdated = nowISO();
+    markUpdated(subtask);
     targetTask.subtasks.push(subtask);
     targetTask.subtasksExpanded = true;
-    targetTask.lastUpdated = nowISO();
+    markUpdated(targetTask);
     
     showToast(`Subitem moved to "${targetTask.name}"`);
 }
@@ -5358,7 +5369,7 @@ async function executeSingleTaskMoveTo(taskId, sourceGroupId, type, opts) {
         const idx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
         if (idx === -1) return;
         const [removed] = sourceGroup.tasks.splice(idx, 1);
-        removed.lastUpdated = nowISO();
+        markUpdated(removed);
         targetGroup.tasks.push(removed);
         renderBoard(); saveToStorage();
         showToast(`Moved "${removed.name}" to ${targetGroup.name}`);
@@ -5371,7 +5382,7 @@ async function executeSingleTaskMoveTo(taskId, sourceGroupId, type, opts) {
         const idx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
         if (idx === -1) return;
         const [removed] = sourceGroup.tasks.splice(idx, 1);
-        removed.lastUpdated = nowISO();
+        markUpdated(removed);
         targetGroup.tasks.push(removed);
         renderBoard(); saveToStorage();
         const targetBoard = (boardData.boards || []).find(b => b.id === opts.boardId);
@@ -5390,7 +5401,7 @@ async function executeSingleTaskMoveTo(taskId, sourceGroupId, type, opts) {
             const idx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
             if (idx === -1) return;
             const [removed] = sourceGroup.tasks.splice(idx, 1);
-            removed.lastUpdated = nowISO();
+            markUpdated(removed);
             targetGroup.tasks.push(removed);
             await authFetch(`/api/user-data/boards?workspaceId=${opts.wsId}`, {
                 method: 'PUT',
@@ -5991,14 +6002,14 @@ function assignOwner(userId) {
         const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
         if (subtask) {
             subtask.owner = ownerValue;
-            subtask.lastUpdated = nowISO();
-            task.lastUpdated = nowISO();
+            markUpdated(subtask);
+            markUpdated(task);
         }
     } else {
         const { task } = findTask(taskId, groupId);
         if (task) {
             task.owner = ownerValue;
-            task.lastUpdated = nowISO();
+            markUpdated(task);
         }
     }
     
@@ -7629,7 +7640,7 @@ function saveTdpChanges() {
         tdpCurrentTask.notes = descEl.textContent.trim();
     }
     
-    tdpCurrentTask.lastUpdated = nowISO();
+    markUpdated(tdpCurrentTask);
     renderBoard();
     saveToStorage();
 }
@@ -7742,7 +7753,7 @@ function openTdpOwnerPicker(event) {
 function selectTdpOwner(ownerName) {
     if (!tdpCurrentTask) return;
     tdpCurrentTask.owner = ownerName;
-    tdpCurrentTask.lastUpdated = nowISO();
+    markUpdated(tdpCurrentTask);
     document.querySelectorAll('.tdp-owner-picker').forEach(el => el.remove());
     renderTaskDetailsPanel();
     renderBoard();
@@ -7782,7 +7793,7 @@ function openTdpStatusPicker(event) {
 function selectTdpStatus(statusId) {
     if (!tdpCurrentTask) return;
     tdpCurrentTask.status = statusId;
-    tdpCurrentTask.lastUpdated = nowISO();
+    markUpdated(tdpCurrentTask);
     document.querySelectorAll('.tdp-status-picker').forEach(el => el.remove());
     renderTaskDetailsPanel();
     renderBoard();
@@ -7793,7 +7804,7 @@ function selectTdpStatus(statusId) {
 function updateTdpDueDate(value) {
     if (!tdpCurrentTask) return;
     tdpCurrentTask.dueDate = value;
-    tdpCurrentTask.lastUpdated = nowISO();
+    markUpdated(tdpCurrentTask);
     renderBoard();
     saveToStorage();
 }
@@ -7814,7 +7825,7 @@ function addTdpSubitem() {
         timelineEnd: '',
         lastUpdated: nowISO()
     });
-    tdpCurrentTask.lastUpdated = nowISO();
+    markUpdated(tdpCurrentTask);
     renderTdpSubitems();
     renderBoard();
     saveToStorage();
@@ -7825,8 +7836,8 @@ function toggleTdpSubitemDone(idx) {
     const st = tdpCurrentTask.subtasks[idx];
     if (!st) return;
     st.status = st.status === 'done' ? '' : 'done';
-    st.lastUpdated = nowISO();
-    tdpCurrentTask.lastUpdated = nowISO();
+    markUpdated(st);
+    markUpdated(tdpCurrentTask);
     renderTdpSubitems();
     renderBoard();
     saveToStorage();
@@ -7835,7 +7846,7 @@ function toggleTdpSubitemDone(idx) {
 function deleteTdpSubitem(idx) {
     if (!tdpCurrentTask || !tdpCurrentTask.subtasks) return;
     tdpCurrentTask.subtasks.splice(idx, 1);
-    tdpCurrentTask.lastUpdated = nowISO();
+    markUpdated(tdpCurrentTask);
     renderTdpSubitems();
     renderBoard();
     saveToStorage();
@@ -8084,7 +8095,7 @@ function getTaskTotalFileCount(task) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '52';
+const CURRENT_APP_VERSION = '53';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
