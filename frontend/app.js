@@ -68,11 +68,13 @@ function getUpdatedAvatarHTML(ownerName) {
     const member = cachedWorkspaceMembers.find(m => 
         m.userName === ownerName || getInitials(m.userName || m.userEmail) === ownerName
     );
-    const initials = getInitials(ownerName);
+    // Use member's full name for initials if matched, otherwise use ownerName directly
+    const displayName = member ? (member.userName || member.userEmail || ownerName) : ownerName;
+    const initials = getInitials(displayName);
     if (member && member.picture) {
-        return `<img src="${member.picture}" class="updated-avatar-img" title="${escapeHtml(ownerName)}" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'updated-avatar\\' title=\\'${escapeHtml(ownerName)}\\'>${initials}</div>'">`; 
+        return `<div class="updated-avatar" title="${escapeHtml(displayName)}"><img src="${member.picture}" class="updated-avatar-img" referrerpolicy="no-referrer" onerror="this.outerHTML='${initials}'"></div>`; 
     }
-    return `<div class="updated-avatar" title="${escapeHtml(ownerName)}">${initials}</div>`;
+    return `<div class="updated-avatar" title="${escapeHtml(displayName)}">${initials}</div>`;
 }
 
 // Auth token management - only token stored in localStorage, no passwords
@@ -8072,7 +8074,7 @@ function getTaskTotalFileCount(task) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '50';
+const CURRENT_APP_VERSION = '51';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
