@@ -2174,7 +2174,7 @@ app.get('/api/admin/tdp-data-all', requireSuperAdmin, async (req, res) => {
     // Query the database for all task_details entries
     if (dataStore.pool && dataStore.usePostgres) {
       const result = await dataStore.pool.query(
-        "SELECT user_key, data_type, updated_at, pg_column_size(data) as data_size FROM user_data WHERE data_type = 'task_details' ORDER BY updated_at DESC"
+        "SELECT user_key, data_type, updated_at, pg_column_size(data) as data_size FROM user_data WHERE data_type LIKE '%task_details%' ORDER BY updated_at DESC"
       );
       res.json({ success: true, entries: result.rows });
     } else {
