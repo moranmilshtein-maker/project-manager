@@ -206,7 +206,7 @@ function getMembership(userId, workspaceId) {
   return memberships.get(membershipKey(userId, workspaceId)) || null;
 }
 
-function addMembership(userId, userName, userEmail, workspaceId, role) {
+function addMembership(userId, userName, userEmail, workspaceId, role, boardId = null) {
   const key = membershipKey(userId, workspaceId);
   const membership = {
     userId,
@@ -214,6 +214,7 @@ function addMembership(userId, userName, userEmail, workspaceId, role) {
     userEmail,
     workspaceId,
     role,
+    boardId: boardId || null, // null = access to all boards, specific ID = only that board
     joinedAt: new Date().toISOString()
   };
   memberships.set(key, membership);

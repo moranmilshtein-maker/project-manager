@@ -696,7 +696,7 @@ app.post('/api/auth/invite', async (req, res) => {
       // User exists — add directly to workspace if not already a member
       const existingMembership = workspaceStore.getMembership(existingUser.id, workspaceId);
       if (!existingMembership) {
-        workspaceStore.addMembership(existingUser.id, existingUser.fullName, existingUser.email, workspaceId, safeRole);
+        workspaceStore.addMembership(existingUser.id, existingUser.fullName, existingUser.email, workspaceId, safeRole, boardId || null);
         invited.push(email);
       } else {
         skipped.push(email);
@@ -1078,6 +1078,25 @@ app.get('/api/user-data/boards', async (req, res) => {
       }
     }
     
+    // Board-level permission: if user only has access to a specific board, filter
+    if (data) {
+      const membership = workspaceStore.getMembership(user.id, wsId);
+      if (membership && membership.boardId && data.boards) {
+        // User only has access to a specific board
+        const allowedBoardId = membership.boardId;
+        data = JSON.parse(JSON.stringify(data)); // deep clone to not mutate shared
+        data.boards = data.boards.filter(b => b.id === allowedBoardId);
+        if (data.boardGroups) {
+          const filteredGroups = {};
+          if (data.boardGroups[allowedBoardId]) {
+            filteredGroups[allowedBoardId] = data.boardGroups[allowedBoardId];
+          }
+          data.boardGroups = filteredGroups;
+        }
+        data.activeBoard = allowedBoardId;
+      }
+    }
+    
     res.json({ success: true, data: data });
   } else {
     // Personal board data (no workspace) — per user
@@ -1139,57 +1158,101 @@ app.put('/api/user-data/boards', async (req, res) => {
   }
 });
 
-// GET /api/user-data/archived - Get user's archived tasks
+// GET /api/user-data/archived - Get archived tasks (SHARED per workspace)
 app.get('/api/user-data/archived', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
-  const data = await dataStore.readUserData(key, 'archived');
-  res.json({ success: true, data: data || [] });
+  const user = users.get(key);
+  const wsId = req.query.workspaceId;
+  
+  if (wsId) {
+    if (!isWorkspaceMember(user.id, wsId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${wsId}`;
+    const data = await dataStore.readUserData(sharedKey, 'archived');
+    res.json({ success: true, data: data || [] });
+  } else {
+    const data = await dataStore.readUserData(key, 'archived');
+    res.json({ success: true, data: data || [] });
+  }
 });
 
-// PUT /api/user-data/archived - Save user's archived tasks
+// PUT /api/user-data/archived - Save archived tasks (SHARED per workspace)
 app.put('/api/user-data/archived', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
+  const user = users.get(key);
   const { data } = req.body;
   if (!Array.isArray(data) && data !== null) return res.status(400).json({ error: 'data must be an array' });
 
-  const success = await dataStore.writeUserData(key, 'archived', data || []);
-  if (success) {
-    res.json({ success: true });
+  const wsId = req.query.workspaceId || req.body.workspaceId;
+  
+  if (wsId) {
+    if (!isWorkspaceMember(user.id, wsId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${wsId}`;
+    const success = await dataStore.writeUserData(sharedKey, 'archived', data || []);
+    if (success) { res.json({ success: true }); }
+    else { res.status(500).json({ error: 'Failed to save data' }); }
   } else {
-    res.status(500).json({ error: 'Failed to save data' });
+    const success = await dataStore.writeUserData(key, 'archived', data || []);
+    if (success) { res.json({ success: true }); }
+    else { res.status(500).json({ error: 'Failed to save data' }); }
   }
 });
 
-// GET /api/user-data/columns - Get user's column state
+// GET /api/user-data/columns - Get column state (SHARED per workspace)
 app.get('/api/user-data/columns', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
-  const data = await dataStore.readUserData(key, 'columns');
-  res.json({ success: true, data: data });
+  const user = users.get(key);
+  const wsId = req.query.workspaceId;
+  
+  if (wsId) {
+    if (!isWorkspaceMember(user.id, wsId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${wsId}`;
+    const data = await dataStore.readUserData(sharedKey, 'columns');
+    res.json({ success: true, data: data });
+  } else {
+    const data = await dataStore.readUserData(key, 'columns');
+    res.json({ success: true, data: data });
+  }
 });
 
-// PUT /api/user-data/columns - Save user's column state
+// PUT /api/user-data/columns - Save column state (SHARED per workspace)
 app.put('/api/user-data/columns', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
+  const user = users.get(key);
   const { data } = req.body;
   if (!data) return res.status(400).json({ error: 'data is required' });
 
-  const success = await dataStore.writeUserData(key, 'columns', data);
-  if (success) {
-    res.json({ success: true });
+  const wsId = req.query.workspaceId || req.body.workspaceId;
+  
+  if (wsId) {
+    if (!isWorkspaceMember(user.id, wsId)) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+    const sharedKey = `workspace_shared_${wsId}`;
+    const success = await dataStore.writeUserData(sharedKey, 'columns', data);
+    if (success) { res.json({ success: true }); }
+    else { res.status(500).json({ error: 'Failed to save data' }); }
   } else {
-    res.status(500).json({ error: 'Failed to save data' });
+    const success = await dataStore.writeUserData(key, 'columns', data);
+    if (success) { res.json({ success: true }); }
+    else { res.status(500).json({ error: 'Failed to save data' }); }
   }
 });
 
@@ -1445,15 +1508,18 @@ app.post('/api/workspaces/join/:token', requireAuth, async (req, res) => {
     return res.status(409).json({ error: 'Already a member of this workspace', role: existing.role });
   }
 
+  // Get boardId from admin invite if available
+  const adminInvite = invites.get(req.params.token);
+  const inviteBoardId = adminInvite ? adminInvite.boardId : null;
+
   workspaceStore.addMembership(
     req.user.id, req.user.fullName, req.user.email,
-    invite.workspaceId, invite.role
+    invite.workspaceId, invite.role, inviteBoardId
   );
   workspaceStore.useWorkspaceInvite(req.params.token);
   await workspaceStore.persistWorkspaces();
 
   // Also mark admin invite as used (if this token exists in both systems)
-  const adminInvite = invites.get(req.params.token);
   if (adminInvite) adminInvite.used = true;
 
   const workspace = workspaceStore.getWorkspace(invite.workspaceId);
@@ -2038,7 +2104,7 @@ app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => 
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '46';
+const APP_VERSION = '47';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

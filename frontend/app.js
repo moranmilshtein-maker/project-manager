@@ -2831,7 +2831,8 @@ function saveArchivedToServer(archived) {
     archivedSaveTimeout = setTimeout(async () => {
         if (!authToken) return;
         try {
-            await authFetch('/api/user-data/archived', {
+            const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+            await authFetch('/api/user-data/archived' + wsParam, {
                 method: 'PUT',
                 body: JSON.stringify({ data: archived })
             });
@@ -2846,7 +2847,8 @@ function saveColumnStateToServer() {
     columnSaveTimeout = setTimeout(async () => {
         if (!authToken) return;
         try {
-            await authFetch('/api/user-data/columns', {
+            const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+            await authFetch('/api/user-data/columns' + wsParam, {
                 method: 'PUT',
                 body: JSON.stringify({ data: columnState })
             });
@@ -3085,7 +3087,8 @@ function migrateWolbySetupGroup() {
 async function loadArchivedFromServer() {
     if (!authToken) return [];
     try {
-        const res = await authFetch('/api/user-data/archived');
+        const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+        const res = await authFetch('/api/user-data/archived' + wsParam);
         const result = await res.json();
         if (result.success && result.data) {
             // Update localStorage cache
@@ -3104,7 +3107,8 @@ async function loadArchivedFromServer() {
 async function loadColumnStateFromServer() {
     if (!authToken) return;
     try {
-        const res = await authFetch('/api/user-data/columns');
+        const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+        const res = await authFetch('/api/user-data/columns' + wsParam);
         const result = await res.json();
         if (result.success && result.data) {
             columnState = result.data;
@@ -7597,7 +7601,7 @@ function getTaskTotalFileCount(task) {
 }
 
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '46';
+const CURRENT_APP_VERSION = '47';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
