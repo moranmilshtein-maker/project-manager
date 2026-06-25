@@ -2168,6 +2168,37 @@ app.put('/api/admin/tdp-data/:workspaceId', requireSuperAdmin, async (req, res) 
   }
 });
 
+// POST /api/admin/tdp-restore-from-personal/:workspaceId - Restore from personal backup (super admin only)
+app.post('/api/admin/tdp-restore-from-personal/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const wsId = req.params.workspaceId;
+    const { userKey } = req.body; // e.g. "moran.milshtein@gmail.com:local"
+    if (!userKey) return res.status(400).json({ error: 'userKey is required' });
+    
+    // Read from personal storage
+    const personalData = await dataStore.readUserData(userKey, `task_details_${wsId}`);
+    if (!personalData) {
+      return res.status(404).json({ success: false, error: 'No personal backup found' });
+    }
+    
+    // Write to shared workspace storage
+    const sharedKey = `workspace_shared_${wsId}`;
+    await dataStore.writeUserData(sharedKey, 'task_details', personalData);
+    
+    const messages = personalData.messages || {};
+    const totalMessages = Object.values(messages).reduce((sum, arr) => sum + arr.length, 0);
+    const totalImages = Object.values(messages).reduce((sum, arr) => sum + arr.filter(m => m.image && m.image.length > 10).length, 0);
+    
+    res.json({ 
+      success: true, 
+      message: `Restored from personal backup: ${totalMessages} messages, ${totalImages} images`,
+      summary: { messageKeys: Object.keys(messages).length, totalMessages, totalImages }
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // GET /api/admin/tdp-data-all - List all TDP data keys (super admin only)  
 app.get('/api/admin/tdp-data-all', requireSuperAdmin, async (req, res) => {
   try {
