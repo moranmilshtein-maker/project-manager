@@ -1162,20 +1162,42 @@ app.put('/api/user-data/boards', async (req, res) => {
     const sharedKey = `workspace_shared_${wsId}`;
     
     // SAFETY: Never overwrite real data with empty/default data
-    const hasRealContent = data.boardGroups && Object.keys(data.boardGroups).length > 0 &&
-      Object.values(data.boardGroups).some(groups => groups && groups.length > 0 && 
-        groups.some(g => g.tasks && g.tasks.length > 0));
-    
-    if (!hasRealContent) {
-      const existing = await dataStore.readUserData(sharedKey, 'boards');
-      if (existing && existing.boardGroups) {
-        const existingHasContent = Object.values(existing.boardGroups).some(groups => 
-          groups && groups.length > 0 && groups.some(g => g.tasks && g.tasks.length > 0));
-        if (existingHasContent) {
-          console.log(`[Safety] Blocked empty overwrite of shared workspace ${wsId} boards`);
-          return res.json({ success: true, blocked: true });
+    // Count incoming tasks
+    let incomingTaskCount = 0;
+    if (data.boardGroups) {
+      for (const groups of Object.values(data.boardGroups)) {
+        if (Array.isArray(groups)) {
+          for (const g of groups) {
+            incomingTaskCount += (g.tasks || []).length;
+          }
         }
       }
+    }
+    const hasRealContent = incomingTaskCount > 0;
+    
+    // Check existing data for comparison
+    const existing = await dataStore.readUserData(sharedKey, 'boards');
+    let existingTaskCount = 0;
+    if (existing && existing.boardGroups) {
+      for (const groups of Object.values(existing.boardGroups)) {
+        if (Array.isArray(groups)) {
+          for (const g of groups) {
+            existingTaskCount += (g.tasks || []).length;
+          }
+        }
+      }
+    }
+    
+    // Block 1: Empty data trying to overwrite non-empty data
+    if (!hasRealContent && existingTaskCount > 0) {
+      console.log(`[Safety] Blocked empty overwrite of workspace ${wsId} (existing: ${existingTaskCount} tasks)`);
+      return res.json({ success: true, blocked: true });
+    }
+    
+    // Block 2: Drastic data reduction (losing more than 50% of tasks, and existing has 5+ tasks)
+    if (existingTaskCount >= 5 && incomingTaskCount < existingTaskCount * 0.5) {
+      console.log(`[Safety] Blocked drastic data reduction for workspace ${wsId}: ${existingTaskCount} → ${incomingTaskCount} tasks (${Math.round(incomingTaskCount/existingTaskCount*100)}%)`);
+      return res.json({ success: true, blocked: true, reason: 'drastic_reduction' });
     }
     
     // CLEANUP: Remove stale boardGroups keys on save
@@ -1488,11 +1510,124 @@ app.post('/api/snapshots/create', requireSuperAdmin, async (req, res) => {
   }
 });
 
-// POST /api/snapshots/:id/restore - Restore from a snapshot
+// POST /api/snapshots/:id/restore - Restore from a snapshot (FULL restore)
 app.post('/api/snapshots/:id/restore', requireSuperAdmin, async (req, res) => {
   try {
     const result = await snapshotStore.restoreFromSnapshot(parseInt(req.params.id));
     res.json(result);
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/snapshots/:id/restore-key - Restore a SPECIFIC user_key from a snapshot
+app.post('/api/snapshots/:id/restore-key', requireSuperAdmin, async (req, res) => {
+  try {
+    const snapshotId = parseInt(req.params.id);
+    const { userKey, dataType } = req.body;
+    if (!userKey) return res.status(400).json({ success: false, error: 'userKey is required' });
+
+    // Get the snapshot data
+    const { pool: snapshotPool } = require('./snapshot-store');
+    const snapResult = await dataStore.pool.query(
+      'SELECT snapshot_data, status FROM data_snapshots WHERE id = $1',
+      [snapshotId]
+    );
+
+    if (snapResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Snapshot not found' });
+    }
+    if (snapResult.rows[0].status !== 'valid') {
+      return res.status(400).json({ success: false, error: 'Snapshot is not valid' });
+    }
+
+    const snapshotData = snapResult.rows[0].snapshot_data;
+    const userData = snapshotData[userKey];
+    if (!userData) {
+      return res.status(404).json({ success: false, error: `Key "${userKey}" not found in snapshot` });
+    }
+
+    // If dataType specified, restore only that type; otherwise restore all types for this key
+    let restoredCount = 0;
+    if (dataType) {
+      const record = userData[dataType];
+      if (!record) {
+        return res.status(404).json({ success: false, error: `dataType "${dataType}" not found for key "${userKey}"` });
+      }
+      await dataStore.writeUserData(userKey, dataType, record.data);
+      restoredCount = 1;
+      console.log(`[Snapshot Restore] Restored ${userKey} / ${dataType} from snapshot #${snapshotId}`);
+    } else {
+      for (const [dt, record] of Object.entries(userData)) {
+        await dataStore.writeUserData(userKey, dt, record.data);
+        restoredCount++;
+        console.log(`[Snapshot Restore] Restored ${userKey} / ${dt} from snapshot #${snapshotId}`);
+      }
+    }
+
+    res.json({ success: true, restoredCount, userKey, dataTypes: dataType ? [dataType] : Object.keys(userData) });
+  } catch (e) {
+    console.error('[Snapshot Restore] Error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/snapshots/:id/preview-key - Preview a specific key's data from a snapshot
+app.get('/api/snapshots/:id/preview-key', requireSuperAdmin, async (req, res) => {
+  try {
+    const snapshotId = parseInt(req.params.id);
+    const { userKey, dataType } = req.query;
+    if (!userKey) return res.status(400).json({ success: false, error: 'userKey query param required' });
+
+    const snapResult = await dataStore.pool.query(
+      'SELECT snapshot_data, status FROM data_snapshots WHERE id = $1',
+      [snapshotId]
+    );
+
+    if (snapResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Snapshot not found' });
+    }
+
+    const snapshotData = snapResult.rows[0].snapshot_data;
+    const userData = snapshotData[userKey];
+    if (!userData) {
+      return res.status(404).json({ success: false, error: `Key "${userKey}" not found in snapshot` });
+    }
+
+    if (dataType) {
+      const record = userData[dataType];
+      if (!record) {
+        return res.status(404).json({ success: false, error: `dataType "${dataType}" not found` });
+      }
+      // Return summary + data
+      const data = record.data;
+      let summary = { dataType, size: JSON.stringify(data).length, updatedAt: record.updated_at };
+      if (dataType === 'boards' && data.boardGroups) {
+        let taskCount = 0;
+        for (const groups of Object.values(data.boardGroups)) {
+          if (Array.isArray(groups)) {
+            for (const g of groups) {
+              taskCount += (g.tasks || []).length;
+            }
+          }
+        }
+        summary.boardCount = (data.boards || []).length;
+        summary.taskCount = taskCount;
+        summary.boardNames = (data.boards || []).map(b => b.name);
+        summary.groupNames = {};
+        for (const [boardId, groups] of Object.entries(data.boardGroups)) {
+          summary.groupNames[boardId] = (groups || []).map(g => `${g.name} (${(g.tasks || []).length} tasks)`);
+        }
+      }
+      res.json({ success: true, summary, data });
+    } else {
+      // Return all data types for this key with summaries
+      const result = {};
+      for (const [dt, record] of Object.entries(userData)) {
+        result[dt] = { size: JSON.stringify(record.data).length, updatedAt: record.updated_at };
+      }
+      res.json({ success: true, userKey, dataTypes: result });
+    }
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -2360,7 +2495,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '63';
+const APP_VERSION = '64';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
