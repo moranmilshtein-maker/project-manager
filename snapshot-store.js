@@ -186,7 +186,7 @@ async function createSnapshot(trigger = 'auto') {
         // Step 6: Mark as valid
         await pool.query("UPDATE data_snapshots SET status = 'valid' WHERE id = $1", [newSnapshotId]);
 
-        // Step 7: Delete old valid snapshots (keep only the latest 3 valid ones)
+        // Step 7: Delete old valid snapshots (keep only the latest 12 valid ones = 12 hours of history)
         await pool.query(`
             DELETE FROM data_snapshots 
             WHERE status = 'valid' 
@@ -194,7 +194,7 @@ async function createSnapshot(trigger = 'auto') {
                 SELECT id FROM data_snapshots 
                 WHERE status = 'valid' 
                 ORDER BY created_at DESC 
-                LIMIT 3
+                LIMIT 12
             )
         `);
 
@@ -254,7 +254,7 @@ async function listSnapshots() {
             FROM data_snapshots 
             WHERE status = 'valid'
             ORDER BY created_at DESC 
-            LIMIT 10
+            LIMIT 12
         `);
         return result.rows;
     } catch (e) {

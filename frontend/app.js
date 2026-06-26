@@ -9414,7 +9414,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '64';
+const CURRENT_APP_VERSION = '65';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
