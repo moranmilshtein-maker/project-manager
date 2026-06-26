@@ -1161,25 +1161,15 @@ app.put('/api/user-data/boards', async (req, res) => {
     }
     const sharedKey = `workspace_shared_${wsId}`;
     
-    // SAFETY: Never overwrite real data with completely empty data (corruption protection)
-    // Count incoming tasks
-    let incomingTaskCount = 0;
-    if (data.boardGroups) {
-      for (const groups of Object.values(data.boardGroups)) {
-        if (Array.isArray(groups)) {
-          for (const g of groups) {
-            incomingTaskCount += (g.tasks || []).length;
-          }
-        }
-      }
-    }
-    const hasRealContent = incomingTaskCount > 0;
+    // SAFETY: Only block saves that look like uninitialized/corrupted default state
+    // A legitimate "deleted all tasks" will still have boards[] and boardGroups with group entries
+    // Corruption looks like: no boardGroups at all, or boardGroups is empty object, or no boards array
+    const looksLikeCorruption = !data.boardGroups || Object.keys(data.boardGroups).length === 0 || !data.boards || data.boards.length === 0;
     
-    // Block: Empty data trying to overwrite non-empty data (likely a bug/corruption)
-    if (!hasRealContent) {
+    if (looksLikeCorruption) {
       const existing = await dataStore.readUserData(sharedKey, 'boards');
-      let existingTaskCount = 0;
-      if (existing && existing.boardGroups) {
+      if (existing && existing.boardGroups && Object.keys(existing.boardGroups).length > 0) {
+        let existingTaskCount = 0;
         for (const groups of Object.values(existing.boardGroups)) {
           if (Array.isArray(groups)) {
             for (const g of groups) {
@@ -1187,10 +1177,10 @@ app.put('/api/user-data/boards', async (req, res) => {
             }
           }
         }
-      }
-      if (existingTaskCount > 0) {
-        console.log(`[Safety] Blocked empty overwrite of workspace ${wsId} (existing: ${existingTaskCount} tasks)`);
-        return res.json({ success: true, blocked: true });
+        if (existingTaskCount > 0) {
+          console.log(`[Safety] Blocked corrupted-looking save for workspace ${wsId} (no boards/boardGroups but existing has ${existingTaskCount} tasks)`);
+          return res.json({ success: true, blocked: true });
+        }
       }
     }
     
@@ -2489,7 +2479,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '68';
+const APP_VERSION = '69';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
