@@ -615,6 +615,7 @@ function floatingBarDeleteSubtasks() {
     });
     clearSelection();
     renderBoard();
+    saveToStorage();
     showToast(`${count} subitem(s) permanently deleted`);
 }
 
@@ -2367,6 +2368,7 @@ function deleteSubtask(subtaskId, taskId, groupId) {
     task.subtasks = task.subtasks.filter(s => String(s.id) !== String(subtaskId));
     markUpdated(task);
     renderBoard();
+    saveToStorage();
 }
 
 // Subtask priority dropdown
@@ -3083,6 +3085,7 @@ function deleteGroup(groupId) {
     if (!confirm(msg)) return;
     boardData.groups = boardData.groups.filter(g => String(g.id) !== String(groupId));
     renderBoard();
+    saveToStorage();
 }
 
 // ===== Task Modal =====
@@ -5168,6 +5171,7 @@ function floatingBarArchive30() {
 
     clearSelection();
     renderBoard();
+    saveToStorage();
     showToast(`${totalCount} item(s) archived (30-day restore)`);
 }
 
@@ -5186,6 +5190,7 @@ function floatingBarPermanentDelete() {
     });
     clearSelection();
     renderBoard();
+    saveToStorage();
     showToast(`${totalCount} item(s) permanently deleted`);
 }
 
@@ -9414,7 +9419,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '65';
+const CURRENT_APP_VERSION = '66';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
