@@ -264,7 +264,7 @@
                 </div>
                 <div class="toolbar">
                     <button class="toolbar-btn primary-btn" id="newTaskBtn">New task<span class="material-icons-outlined" style="font-size:16px">expand_more</span></button>
-                    <button class="toolbar-btn"><span class="material-icons-outlined">search</span>Search</button>
+                    <button class="toolbar-btn" id="searchBtn" onclick="openSearchDropdown(event)"><span class="material-icons-outlined">search</span>Search</button>
                     <button class="toolbar-btn" id="personFilterBtn" onclick="togglePersonFilter(event)"><span class="material-icons-outlined">person</span>Person<span class="person-filter-indicator" id="personFilterIndicator" style="display:none"></span></button>
                     <button class="toolbar-btn"><span class="material-icons-outlined">filter_list</span>Filter<span class="material-icons-outlined" style="font-size:16px">expand_more</span></button>
                     <button class="toolbar-btn"><span class="material-icons-outlined">swap_vert</span>Sort</button>
@@ -1062,6 +1062,22 @@
                 <button class="version-btn-later" onclick="dismissVersionUpdate()">Later</button>
                 <button class="version-btn-refresh" onclick="applyVersionUpdate()">Refresh</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Global Search Full-Screen Panel -->
+    <div id="searchFullPanel" class="search-full-panel" style="display:none">
+        <div class="search-full-header">
+            <div class="search-full-input-wrap">
+                <span class="material-icons-outlined">search</span>
+                <input type="text" id="searchFullInput" placeholder="Search tasks, notes, messages..." oninput="debounceFullSearch(this.value)">
+                <button class="search-full-close" onclick="closeSearchFullPanel()">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+        </div>
+        <div class="search-full-results" id="searchFullResults">
+            <div class="search-full-empty">Type to search across all boards...</div>
         </div>
     </div>
 

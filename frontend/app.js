@@ -1498,6 +1498,314 @@ async function loadPersonFiltersFromServer() {
 }
 
 // ============================================================
+// GLOBAL SEARCH SYSTEM
+// ============================================================
+let searchDebounceTimer = null;
+let searchInlineOpen = false;
+let searchAllResults = [];
+let searchFullLoaded = 0;
+const SEARCH_PAGE_SIZE = 10;
+
+function openSearchDropdown(event) {
+    event.stopPropagation();
+    if (searchInlineOpen) { closeSearchDropdown(); return; }
+    
+    let dropdown = document.getElementById('searchInlineDropdown');
+    if (dropdown) dropdown.remove();
+    
+    dropdown = document.createElement('div');
+    dropdown.id = 'searchInlineDropdown';
+    dropdown.className = 'search-inline-dropdown';
+    
+    const btn = document.getElementById('searchBtn');
+    const rect = btn.getBoundingClientRect();
+    
+    dropdown.innerHTML = `
+        <div class="search-inline-input-wrap">
+            <span class="material-icons-outlined">search</span>
+            <input type="text" id="searchInlineInput" placeholder="Search tasks, notes, messages..." oninput="debounceInlineSearch(this.value)">
+        </div>
+        <div class="search-inline-results" id="searchInlineResults">
+            <div class="search-no-results">Start typing to search...</div>
+        </div>
+    `;
+    
+    document.body.appendChild(dropdown);
+    dropdown.style.top = (rect.bottom + 6) + 'px';
+    dropdown.style.left = rect.left + 'px';
+    
+    // Adjust if overflows right
+    requestAnimationFrame(() => {
+        const dRect = dropdown.getBoundingClientRect();
+        if (dRect.right > window.innerWidth - 10) {
+            dropdown.style.left = (window.innerWidth - dRect.width - 10) + 'px';
+        }
+    });
+    
+    searchInlineOpen = true;
+    setTimeout(() => {
+        document.getElementById('searchInlineInput').focus();
+        document.addEventListener('click', closeSearchOnOutside);
+    }, 20);
+}
+
+function closeSearchOnOutside(e) {
+    const dropdown = document.getElementById('searchInlineDropdown');
+    const btn = document.getElementById('searchBtn');
+    if (dropdown && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+        closeSearchDropdown();
+    }
+}
+
+function closeSearchDropdown() {
+    const dropdown = document.getElementById('searchInlineDropdown');
+    if (dropdown) dropdown.remove();
+    searchInlineOpen = false;
+    document.removeEventListener('click', closeSearchOnOutside);
+}
+
+function debounceInlineSearch(query) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+        performSearch(query, true);
+    }, 250);
+}
+
+function debounceFullSearch(query) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+        performSearch(query, false);
+    }, 250);
+}
+
+function performSearch(query, isInline) {
+    const search = query.trim().toLowerCase();
+    if (!search || search.length < 2) {
+        if (isInline) {
+            document.getElementById('searchInlineResults').innerHTML = '<div class="search-no-results">Start typing to search (min 2 characters)...</div>';
+        } else {
+            document.getElementById('searchFullResults').innerHTML = '<div class="search-full-empty">Type to search across all boards...</div>';
+        }
+        searchAllResults = [];
+        return;
+    }
+    
+    searchAllResults = collectSearchResults(search);
+    
+    if (isInline) {
+        renderInlineSearchResults(search);
+    } else {
+        searchFullLoaded = 0;
+        renderFullSearchResults(search, true);
+    }
+}
+
+function collectSearchResults(search) {
+    const results = [];
+    if (!boardData || !boardData.boards) return results;
+    
+    boardData.boards.filter(b => !b.archived && canSeeBoard(b)).forEach(board => {
+        const groups = boardData.boardGroups[board.id] || [];
+        groups.forEach(group => {
+            if (!group.tasks) return;
+            group.tasks.forEach(task => {
+                // Search in task name
+                if (task.name && task.name.toLowerCase().includes(search)) {
+                    results.push({ type: 'task', task, group, board, matchField: 'name', matchText: task.name });
+                }
+                // Search in task notes
+                else if (task.notes && task.notes.toLowerCase().includes(search)) {
+                    results.push({ type: 'task', task, group, board, matchField: 'notes', matchText: task.notes });
+                }
+                
+                // Search in subtasks
+                if (task.subtasks) {
+                    task.subtasks.forEach(sub => {
+                        if (sub.name && sub.name.toLowerCase().includes(search)) {
+                            results.push({ type: 'subtask', task, subtask: sub, group, board, matchField: 'name', matchText: sub.name });
+                        } else if (sub.notes && sub.notes.toLowerCase().includes(search)) {
+                            results.push({ type: 'subtask', task, subtask: sub, group, board, matchField: 'notes', matchText: sub.notes });
+                        }
+                    });
+                }
+                
+                // Search in TDP messages
+                const taskMessages = tdpMessages[String(task.id)] || [];
+                taskMessages.forEach(msg => {
+                    if (msg.text && msg.text.toLowerCase().includes(search)) {
+                        results.push({ type: 'message', task, group, board, matchField: 'message', matchText: msg.text, message: msg });
+                    }
+                });
+            });
+        });
+    });
+    
+    return results;
+}
+
+function highlightMatch(text, search) {
+    if (!text) return '';
+    const safe = escapeHtml(text);
+    const regex = new RegExp(`(${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return safe.replace(regex, '<mark>$1</mark>');
+}
+
+function getResultIcon(type) {
+    switch (type) {
+        case 'task': return '<div class="search-result-icon"><span class="material-icons-outlined">task_alt</span></div>';
+        case 'subtask': return '<div class="search-result-icon subtask-icon"><span class="material-icons-outlined">subdirectory_arrow_right</span></div>';
+        case 'message': return '<div class="search-result-icon message-icon"><span class="material-icons-outlined">chat_bubble_outline</span></div>';
+        default: return '<div class="search-result-icon"><span class="material-icons-outlined">article</span></div>';
+    }
+}
+
+function renderSearchResultItem(result, search) {
+    const icon = getResultIcon(result.type);
+    const boardName = result.board ? result.board.name : '';
+    const groupName = result.group ? result.group.name : '';
+    
+    let title = '';
+    let snippet = '';
+    
+    if (result.type === 'task') {
+        title = highlightMatch(result.task.name, search);
+        if (result.matchField === 'notes') {
+            snippet = `<div class="search-result-snippet">${highlightMatch(result.matchText.substring(0, 120), search)}</div>`;
+        }
+    } else if (result.type === 'subtask') {
+        title = highlightMatch(result.subtask.name, search);
+        if (result.matchField === 'notes') {
+            snippet = `<div class="search-result-snippet">${highlightMatch(result.matchText.substring(0, 120), search)}</div>`;
+        }
+    } else if (result.type === 'message') {
+        title = escapeHtml(result.task.name);
+        snippet = `<div class="search-result-snippet">${highlightMatch(result.matchText.substring(0, 120), search)}</div>`;
+    }
+    
+    const meta = `${escapeHtml(boardName)} › ${escapeHtml(groupName)}`;
+    const taskId = result.task ? result.task.id : '';
+    const groupId = result.group ? result.group.id : '';
+    const boardId = result.board ? result.board.id : '';
+    
+    return `<div class="search-result-item" onclick="searchNavigateTo('${boardId}', '${groupId}', '${taskId}')">
+        ${icon}
+        <div class="search-result-content">
+            <div class="search-result-title">${title}</div>
+            <div class="search-result-meta">${meta}</div>
+            ${snippet}
+        </div>
+    </div>`;
+}
+
+function renderInlineSearchResults(search) {
+    const container = document.getElementById('searchInlineResults');
+    if (!container) return;
+    
+    if (searchAllResults.length === 0) {
+        container.innerHTML = '<div class="search-no-results">No results found</div>';
+        return;
+    }
+    
+    const first10 = searchAllResults.slice(0, SEARCH_PAGE_SIZE);
+    let html = first10.map(r => renderSearchResultItem(r, search)).join('');
+    
+    if (searchAllResults.length > SEARCH_PAGE_SIZE) {
+        html += `<div class="search-see-more" onclick="openSearchFullFromInline()">See all ${searchAllResults.length} results</div>`;
+    }
+    
+    container.innerHTML = html;
+}
+
+function openSearchFullFromInline() {
+    const input = document.getElementById('searchInlineInput');
+    const query = input ? input.value : '';
+    closeSearchDropdown();
+    openSearchFullPanel(query);
+}
+
+function openSearchFullPanel(query) {
+    const panel = document.getElementById('searchFullPanel');
+    if (!panel) return;
+    panel.style.display = 'flex';
+    const input = document.getElementById('searchFullInput');
+    if (input) {
+        input.value = query || '';
+        setTimeout(() => input.focus(), 50);
+    }
+    if (query) {
+        performSearch(query, false);
+    }
+    
+    // Infinite scroll
+    const resultsContainer = document.getElementById('searchFullResults');
+    resultsContainer.addEventListener('scroll', searchFullScrollHandler);
+}
+
+function closeSearchFullPanel() {
+    const panel = document.getElementById('searchFullPanel');
+    if (panel) panel.style.display = 'none';
+    const resultsContainer = document.getElementById('searchFullResults');
+    if (resultsContainer) resultsContainer.removeEventListener('scroll', searchFullScrollHandler);
+}
+
+function renderFullSearchResults(search, reset) {
+    const container = document.getElementById('searchFullResults');
+    if (!container) return;
+    
+    if (searchAllResults.length === 0) {
+        container.innerHTML = '<div class="search-full-empty">No results found</div>';
+        return;
+    }
+    
+    if (reset) {
+        searchFullLoaded = 0;
+        container.innerHTML = '';
+    }
+    
+    const nextBatch = searchAllResults.slice(searchFullLoaded, searchFullLoaded + SEARCH_PAGE_SIZE);
+    let html = nextBatch.map(r => renderSearchResultItem(r, search)).join('');
+    searchFullLoaded += nextBatch.length;
+    
+    // Remove loading indicator if exists
+    const loadingEl = container.querySelector('.search-loading-more');
+    if (loadingEl) loadingEl.remove();
+    
+    container.insertAdjacentHTML('beforeend', html);
+    
+    if (searchFullLoaded < searchAllResults.length) {
+        container.insertAdjacentHTML('beforeend', '<div class="search-loading-more">Scroll for more results...</div>');
+    }
+}
+
+function searchFullScrollHandler() {
+    const container = document.getElementById('searchFullResults');
+    if (!container) return;
+    if (searchFullLoaded >= searchAllResults.length) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    if (scrollTop + clientHeight >= scrollHeight - 50) {
+        const input = document.getElementById('searchFullInput');
+        const search = input ? input.value.trim().toLowerCase() : '';
+        renderFullSearchResults(search, false);
+    }
+}
+
+function searchNavigateTo(boardId, groupId, taskId) {
+    closeSearchDropdown();
+    closeSearchFullPanel();
+    
+    // Switch to the target board if needed
+    if (boardId && boardId !== boardData.activeBoard) {
+        switchBoard(boardId);
+    }
+    
+    // Open TDP for the task
+    setTimeout(() => {
+        openTaskDetailsPanel(String(taskId), String(groupId));
+    }, 200);
+}
+
+// ============================================================
 // COLUMN ORDER SYSTEM (Sprint 1.2 Task 16)
 // Columns are rendered in the order defined by columnState.order
 // ============================================================
@@ -4130,6 +4438,13 @@ async function adminChangeRole(selectEl) {
 // Close admin dashboard on Escape
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        // Close search panels first
+        if (document.getElementById('searchFullPanel')?.style.display !== 'none') {
+            closeSearchFullPanel(); return;
+        }
+        if (searchInlineOpen) {
+            closeSearchDropdown(); return;
+        }
         const dash = document.getElementById('adminDashboard');
         if (dash && dash.style.display !== 'none') {
             closeAdminDashboard();
@@ -9099,7 +9414,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '62';
+const CURRENT_APP_VERSION = '63';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
