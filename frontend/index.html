@@ -458,6 +458,9 @@
                 <button class="admin-tab" onclick="switchAdminTab('snapshots')" id="adminTabSnapshots">
                     <span class="material-icons-outlined">backup</span> Snapshots
                 </button>
+                <button class="admin-tab" onclick="switchAdminTab('health')" id="adminTabHealth">
+                    <span class="material-icons-outlined">verified</span> Data Health
+                </button>
             </div>
 
             <!-- Users Tab -->
@@ -669,6 +672,33 @@
                     <div id="snapshotDetailContent" class="snapshot-detail-content"></div>
                 </div>
             </div><!-- end adminSnapshotsTab -->
+
+            <!-- Data Health Tab (Super Admin only) -->
+            <div id="adminHealthTab" class="admin-tab-content" style="display:none">
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">verified</span> Workspace Data Verification</h3>
+                    <p style="color:#666;font-size:13px;margin-bottom:12px;">Select a workspace to check data integrity, view WAL backups, and restore if needed.</p>
+                    <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;">
+                        <select id="healthWorkspaceSelect" class="admin-input" style="flex:1;max-width:300px;">
+                            <option value="">Select workspace...</option>
+                        </select>
+                        <button class="admin-btn" onclick="verifyWorkspaceData()" style="white-space:nowrap;">
+                            <span class="material-icons-outlined" style="font-size:16px;vertical-align:middle;">search</span> Verify
+                        </button>
+                    </div>
+                    <div id="healthResult"></div>
+                </div>
+
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">history</span> Safety Log <span style="font-size:13px;color:#666;font-weight:400;">(last 50 events)</span></h3>
+                    <div id="walLogContent" style="max-height:300px;overflow-y:auto;">
+                        <p class="admin-loading">Click "Load Log" to view recent safety events</p>
+                    </div>
+                    <button class="admin-btn" onclick="loadWalLog()" style="margin-top:10px;">
+                        <span class="material-icons-outlined" style="font-size:16px;vertical-align:middle;">refresh</span> Load Log
+                    </button>
+                </div>
+            </div><!-- end adminHealthTab -->
         </div>
     </div>
 

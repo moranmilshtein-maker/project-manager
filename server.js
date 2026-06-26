@@ -1162,8 +1162,6 @@ app.put('/api/user-data/boards', async (req, res) => {
     const sharedKey = `workspace_shared_${wsId}`;
     
     // SAFETY: Only block saves that look like uninitialized/corrupted default state
-    // A legitimate "deleted all tasks" will still have boards[] and boardGroups with group entries
-    // Corruption looks like: no boardGroups at all, or boardGroups is empty object, or no boards array
     const looksLikeCorruption = !data.boardGroups || Object.keys(data.boardGroups).length === 0 || !data.boards || data.boards.length === 0;
     
     if (looksLikeCorruption) {
@@ -1179,9 +1177,27 @@ app.put('/api/user-data/boards', async (req, res) => {
         }
         if (existingTaskCount > 0) {
           console.log(`[Safety] Blocked corrupted-looking save for workspace ${wsId} (no boards/boardGroups but existing has ${existingTaskCount} tasks)`);
+          // Log to WAL for monitoring
+          walLog(wsId, user.email || key, 'blocked', existingTaskCount, 0);
           return res.json({ success: true, blocked: true });
         }
       }
+    }
+    
+    // WAL: Save previous state before overwriting (write-ahead log for disaster recovery)
+    try {
+      const previousData = await dataStore.readUserData(sharedKey, 'boards');
+      if (previousData && previousData.boardGroups) {
+        await dataStore.writeUserData(sharedKey, 'boards_wal', {
+          previousData,
+          overwrittenBy: user.email || key,
+          overwrittenAt: new Date().toISOString(),
+          reason: 'normal_save'
+        });
+      }
+    } catch (walErr) {
+      console.warn('[WAL] Failed to write WAL entry:', walErr.message);
+      // Don't block the save if WAL fails
     }
     
     // CLEANUP: Remove stale boardGroups keys on save
@@ -1449,6 +1465,158 @@ app.get('/api/user-data/status', (req, res) => {
 app.get('/api/user-data/debug-list', requireSuperAdmin, async (req, res) => {
   const list = await dataStore.listAllData();
   res.json({ success: true, records: list });
+});
+
+// ===== WRITE-AHEAD LOG (WAL) - Disaster Recovery =====
+
+// In-memory WAL log for monitoring (last 50 events)
+const walEvents = [];
+const WAL_MAX_EVENTS = 50;
+
+function walLog(workspaceId, triggeredBy, action, existingTasks, incomingTasks) {
+  walEvents.push({
+    timestamp: new Date().toISOString(),
+    workspaceId,
+    triggeredBy,
+    action, // 'blocked' | 'saved'
+    existingTasks,
+    incomingTasks
+  });
+  if (walEvents.length > WAL_MAX_EVENTS) walEvents.shift();
+}
+
+// GET /api/admin/wal-log - View recent WAL events (Super Admin)
+app.get('/api/admin/wal-log', requireSuperAdmin, (req, res) => {
+  res.json({ success: true, events: walEvents.slice().reverse() });
+});
+
+// GET /api/admin/wal-restore/:workspaceId - Get last known good state from WAL (Super Admin)
+app.get('/api/admin/wal-restore/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const wsId = req.params.workspaceId;
+    const sharedKey = `workspace_shared_${wsId}`;
+    const walData = await dataStore.readUserData(sharedKey, 'boards_wal');
+    if (!walData || !walData.previousData) {
+      return res.json({ success: false, error: 'No WAL entry found for this workspace' });
+    }
+    // Count tasks in WAL data
+    let taskCount = 0;
+    if (walData.previousData.boardGroups) {
+      for (const groups of Object.values(walData.previousData.boardGroups)) {
+        if (Array.isArray(groups)) {
+          for (const g of groups) {
+            taskCount += (g.tasks || []).length;
+          }
+        }
+      }
+    }
+    res.json({
+      success: true,
+      overwrittenBy: walData.overwrittenBy,
+      overwrittenAt: walData.overwrittenAt,
+      taskCount,
+      boardCount: (walData.previousData.boards || []).length,
+      boardNames: (walData.previousData.boards || []).map(b => b.name),
+      dataSize: JSON.stringify(walData.previousData).length
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/admin/wal-restore/:workspaceId - Restore from WAL (Super Admin)
+app.post('/api/admin/wal-restore/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const wsId = req.params.workspaceId;
+    const sharedKey = `workspace_shared_${wsId}`;
+    const walData = await dataStore.readUserData(sharedKey, 'boards_wal');
+    if (!walData || !walData.previousData) {
+      return res.status(404).json({ success: false, error: 'No WAL entry found' });
+    }
+    // Restore
+    const success = await dataStore.writeUserData(sharedKey, 'boards', walData.previousData);
+    if (success) {
+      console.log(`[WAL] Restored workspace ${wsId} from WAL (overwritten at ${walData.overwrittenAt} by ${walData.overwrittenBy})`);
+      res.json({ success: true, restoredFrom: walData.overwrittenAt });
+    } else {
+      res.status(500).json({ success: false, error: 'Failed to write restored data' });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/admin/verify-workspace/:workspaceId - Verify workspace data integrity (Super Admin)
+app.get('/api/admin/verify-workspace/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const wsId = req.params.workspaceId;
+    const sharedKey = `workspace_shared_${wsId}`;
+    const data = await dataStore.readUserData(sharedKey, 'boards');
+    
+    if (!data) {
+      return res.json({ success: true, status: 'empty', message: 'No data found for this workspace' });
+    }
+    
+    const issues = [];
+    let totalTasks = 0;
+    let totalSubtasks = 0;
+    
+    // Check structure
+    if (!data.boards || !Array.isArray(data.boards)) issues.push('Missing or invalid boards array');
+    if (!data.boardGroups || typeof data.boardGroups !== 'object') issues.push('Missing or invalid boardGroups object');
+    if (!data.activeBoard) issues.push('Missing activeBoard');
+    
+    // Check board/boardGroup consistency
+    if (data.boards && data.boardGroups) {
+      const boardIds = new Set(data.boards.map(b => b.id));
+      const groupKeys = Object.keys(data.boardGroups);
+      
+      // Boards without groups
+      data.boards.forEach(b => {
+        if (!data.boardGroups[b.id]) issues.push(`Board "${b.name}" (${b.id}) has no boardGroups entry`);
+      });
+      // Orphan group keys
+      groupKeys.forEach(k => {
+        if (!boardIds.has(k)) issues.push(`Orphan boardGroup key: ${k}`);
+      });
+      
+      // Count tasks
+      for (const [boardId, groups] of Object.entries(data.boardGroups)) {
+        if (!Array.isArray(groups)) {
+          issues.push(`boardGroups[${boardId}] is not an array`);
+          continue;
+        }
+        for (const g of groups) {
+          if (!g.id) issues.push(`Group missing id in board ${boardId}`);
+          if (!g.name) issues.push(`Group missing name in board ${boardId}`);
+          const tasks = g.tasks || [];
+          totalTasks += tasks.length;
+          tasks.forEach(t => {
+            if (t.subtasks) totalSubtasks += t.subtasks.length;
+          });
+        }
+      }
+    }
+    
+    // Check WAL status
+    const walData = await dataStore.readUserData(sharedKey, 'boards_wal');
+    const hasWal = !!(walData && walData.previousData);
+    
+    res.json({
+      success: true,
+      status: issues.length === 0 ? 'healthy' : 'issues_found',
+      workspace: wsId,
+      boards: (data.boards || []).map(b => ({ id: b.id, name: b.name, archived: b.archived })),
+      totalTasks,
+      totalSubtasks,
+      groupCount: Object.values(data.boardGroups || {}).reduce((sum, g) => sum + (Array.isArray(g) ? g.length : 0), 0),
+      issues,
+      hasWalBackup: hasWal,
+      walInfo: hasWal ? { overwrittenAt: walData.overwrittenAt, overwrittenBy: walData.overwrittenBy } : null
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // ===== SNAPSHOT API (Super Admin Only) =====
@@ -2479,7 +2647,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '69';
+const APP_VERSION = '70';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

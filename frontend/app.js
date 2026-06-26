@@ -4143,6 +4143,11 @@ function toggleAdminDashboard() {
         if (snapshotsTabBtn) {
             snapshotsTabBtn.style.display = (currentUser && currentUser.role === 'super_admin') ? '' : 'none';
         }
+        // Hide Data Health tab for non-super_admin
+        const healthTabBtn = document.getElementById('adminTabHealth');
+        if (healthTabBtn) {
+            healthTabBtn.style.display = (currentUser && currentUser.role === 'super_admin') ? '' : 'none';
+        }
     } else {
         dash.style.display = 'none';
     }
@@ -4406,9 +4411,13 @@ function switchAdminTab(tab) {
     document.getElementById('adminUsersTab').style.display = tab === 'users' ? '' : 'none';
     document.getElementById('adminEmailTab').style.display = tab === 'email' ? '' : 'none';
     document.getElementById('adminSnapshotsTab').style.display = tab === 'snapshots' ? '' : 'none';
+    const healthTab = document.getElementById('adminHealthTab');
+    if (healthTab) healthTab.style.display = tab === 'health' ? '' : 'none';
     document.getElementById('adminTabUsers').classList.toggle('active', tab === 'users');
     document.getElementById('adminTabEmail').classList.toggle('active', tab === 'email');
     document.getElementById('adminTabSnapshots').classList.toggle('active', tab === 'snapshots');
+    const healthBtn = document.getElementById('adminTabHealth');
+    if (healthBtn) healthBtn.classList.toggle('active', tab === 'health');
     if (tab === 'email') {
         loadPendingInvites();
         loadEmailPreferences();
@@ -4416,6 +4425,9 @@ function switchAdminTab(tab) {
     }
     if (tab === 'snapshots') {
         loadSnapshotData();
+    }
+    if (tab === 'health') {
+        populateHealthWorkspaceSelect();
     }
 }
 
@@ -6593,6 +6605,120 @@ async function restoreSnapshot(snapshotId) {
         }
     } catch (e) {
         alert('Error restoring snapshot: ' + e.message);
+    }
+}
+
+// ===== DATA HEALTH - Workspace Verification =====
+
+function populateHealthWorkspaceSelect() {
+    const select = document.getElementById('healthWorkspaceSelect');
+    if (!select) return;
+    select.innerHTML = '<option value="">Select workspace...</option>';
+    (userWorkspaces || []).forEach(ws => {
+        select.innerHTML += `<option value="${ws.id}">${escapeHtml(ws.name)}</option>`;
+    });
+}
+
+async function verifyWorkspaceData() {
+    const wsId = document.getElementById('healthWorkspaceSelect').value;
+    const resultDiv = document.getElementById('healthResult');
+    if (!wsId) { resultDiv.innerHTML = '<p style="color:#e2445c">Please select a workspace</p>'; return; }
+    
+    resultDiv.innerHTML = '<p class="admin-loading">Verifying...</p>';
+    try {
+        const res = await authFetch(`/api/admin/verify-workspace/${wsId}`);
+        const data = await res.json();
+        if (!data.success) { resultDiv.innerHTML = `<p style="color:#e2445c">${data.error}</p>`; return; }
+        
+        const statusColor = data.status === 'healthy' ? '#00c875' : data.status === 'empty' ? '#999' : '#e2445c';
+        const statusIcon = data.status === 'healthy' ? 'check_circle' : data.status === 'empty' ? 'info' : 'warning';
+        
+        let html = `
+            <div style="border:1px solid #e6e9ef;border-radius:8px;padding:16px;margin-top:12px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                    <span class="material-icons-outlined" style="color:${statusColor}">${statusIcon}</span>
+                    <strong style="color:${statusColor}">${data.status === 'healthy' ? 'Healthy' : data.status === 'empty' ? 'Empty' : 'Issues Found'}</strong>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px;">
+                    <div><span style="color:#666;font-size:12px;">Boards</span><br><strong>${data.boards ? data.boards.length : 0}</strong></div>
+                    <div><span style="color:#666;font-size:12px;">Groups</span><br><strong>${data.groupCount || 0}</strong></div>
+                    <div><span style="color:#666;font-size:12px;">Tasks</span><br><strong>${data.totalTasks || 0}</strong></div>
+                    <div><span style="color:#666;font-size:12px;">Subtasks</span><br><strong>${data.totalSubtasks || 0}</strong></div>
+                </div>`;
+        
+        if (data.boards && data.boards.length > 0) {
+            html += `<div style="margin-bottom:12px;"><span style="color:#666;font-size:12px;">Board names:</span> ${data.boards.map(b => `<span style="background:#f0f0f0;padding:2px 8px;border-radius:4px;font-size:12px;">${escapeHtml(b.name)}${b.archived ? ' (archived)' : ''}</span>`).join(' ')}</div>`;
+        }
+        
+        if (data.issues && data.issues.length > 0) {
+            html += `<div style="background:#fff3f3;border:1px solid #e2445c;border-radius:6px;padding:10px;margin-bottom:12px;">
+                <strong style="color:#e2445c;">Issues:</strong><ul style="margin:4px 0 0 16px;padding:0;">
+                ${data.issues.map(i => `<li style="font-size:12px;color:#333;">${escapeHtml(i)}</li>`).join('')}
+                </ul></div>`;
+        }
+        
+        if (data.hasWalBackup) {
+            html += `<div style="background:#f0f7ff;border:1px solid #0073ea;border-radius:6px;padding:10px;margin-bottom:12px;">
+                <strong style="color:#0073ea;">WAL Backup Available</strong><br>
+                <span style="font-size:12px;color:#666;">Last overwritten: ${new Date(data.walInfo.overwrittenAt).toLocaleString('he-IL')} by ${escapeHtml(data.walInfo.overwrittenBy)}</span><br>
+                <button class="admin-btn" onclick="restoreFromWal('${wsId}')" style="margin-top:8px;font-size:12px;">
+                    <span class="material-icons-outlined" style="font-size:14px;vertical-align:middle;">restore</span> Restore from WAL
+                </button>
+            </div>`;
+        } else {
+            html += `<p style="font-size:12px;color:#999;">No WAL backup available (will be created on next save)</p>`;
+        }
+        
+        html += '</div>';
+        resultDiv.innerHTML = html;
+    } catch (e) {
+        resultDiv.innerHTML = `<p style="color:#e2445c">Error: ${e.message}</p>`;
+    }
+}
+
+async function restoreFromWal(wsId) {
+    if (!confirm('Restore this workspace to its previous state from the Write-Ahead Log? This will undo the last save.')) return;
+    try {
+        const res = await authFetch(`/api/admin/wal-restore/${wsId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            alert(`Restored successfully from WAL backup (${data.restoredFrom}). Refresh the page to see changes.`);
+            verifyWorkspaceData();
+        } else {
+            alert('Restore failed: ' + (data.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+async function loadWalLog() {
+    const container = document.getElementById('walLogContent');
+    if (!container) return;
+    container.innerHTML = '<p class="admin-loading">Loading...</p>';
+    try {
+        const res = await authFetch('/api/admin/wal-log');
+        const data = await res.json();
+        if (!data.success || !data.events || data.events.length === 0) {
+            container.innerHTML = '<p style="color:#999;font-size:13px;">No safety events recorded since last server restart.</p>';
+            return;
+        }
+        let html = '<table class="admin-table" style="font-size:12px;"><thead><tr><th class="admin-th">Time</th><th class="admin-th">Action</th><th class="admin-th">Workspace</th><th class="admin-th">By</th><th class="admin-th">Tasks</th></tr></thead><tbody>';
+        data.events.forEach(e => {
+            const time = new Date(e.timestamp).toLocaleString('he-IL');
+            const actionColor = e.action === 'blocked' ? '#e2445c' : '#00c875';
+            html += `<tr>
+                <td class="admin-td">${time}</td>
+                <td class="admin-td"><span style="color:${actionColor};font-weight:600;">${e.action}</span></td>
+                <td class="admin-td" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${e.workspaceId.substring(0, 8)}...</td>
+                <td class="admin-td">${escapeHtml(e.triggeredBy || '-')}</td>
+                <td class="admin-td">${e.existingTasks} → ${e.incomingTasks}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<p style="color:#e2445c">Error: ${e.message}</p>`;
     }
 }
 
@@ -9357,7 +9483,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '69';
+const CURRENT_APP_VERSION = '70';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
