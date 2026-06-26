@@ -4189,6 +4189,201 @@ tr.subtask-row:hover .subtask-action-btn {
     color: #d5d8df;
 }
 
+/* Add Board button in sidebar */
+.add-board-btn-sidebar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px 10px;
+    border: 1px dashed rgba(150,153,166,0.4);
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #9699a6;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.add-board-btn-sidebar:hover {
+    background: rgba(255,255,255,0.1);
+    color: #d5d8df;
+    border-color: rgba(150,153,166,0.7);
+}
+
+/* Board color picker in modal */
+.board-color-picker {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 4px 0;
+}
+
+.board-color-option {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid transparent;
+    transition: border-color 0.15s, transform 0.15s;
+}
+
+.board-color-option:hover {
+    transform: scale(1.15);
+}
+
+.board-color-option.selected {
+    border-color: #fff;
+    box-shadow: 0 0 0 2px #0073ea;
+}
+
+/* Board privacy selector in modal */
+.board-privacy-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.board-privacy-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 2px solid #e6e9ef;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.board-privacy-option:hover {
+    background: #f7f8fa;
+}
+
+.board-privacy-option.selected {
+    border-color: #0073ea;
+    background: #f0f6ff;
+}
+
+.board-privacy-option .material-icons-outlined {
+    font-size: 22px;
+    color: #666;
+}
+
+.board-privacy-option.selected .material-icons-outlined {
+    color: #0073ea;
+}
+
+.board-privacy-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+}
+
+.board-privacy-desc {
+    font-size: 11px;
+    color: #888;
+    margin-top: 1px;
+}
+
+/* Private board indicator in sidebar */
+.board-private-icon {
+    font-size: 13px !important;
+    color: #a25ddc;
+    margin-left: 4px;
+    opacity: 0.7;
+}
+
+/* Private board members picker in Add Board modal */
+.private-board-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid #e6e9ef;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.private-board-search input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 13px;
+    background: transparent;
+    color: #333;
+}
+
+.private-board-search input::placeholder {
+    color: #bbb;
+}
+
+.private-board-members-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #e6e9ef;
+    border-radius: 6px;
+}
+
+.private-board-member-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.private-board-member-item:hover {
+    background: #f7f8fa;
+}
+
+.private-board-member-item.selected {
+    background: #f0f6ff;
+}
+
+.private-board-member-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.private-board-member-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+    background: #0073ea;
+    object-fit: cover;
+}
+
+.private-board-member-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.private-board-member-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.private-board-member-email {
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* Active workspace header - blue highlighted section */
 .active-workspace-header {
     display: flex;

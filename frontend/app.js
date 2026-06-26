@@ -322,7 +322,7 @@ let boardData = {
 function initBoardGroups() {
     if (!boardData.boardGroups) boardData.boardGroups = {};
     // Migration: if boardData.groups has data but boardGroups doesn't have the active board, migrate
-    const activeId = boardData.activeBoard || 'board1';
+    let activeId = boardData.activeBoard || 'board1';
     if (!boardData.boardGroups[activeId] && boardData.groups && boardData.groups.length > 0) {
         boardData.boardGroups[activeId] = boardData.groups;
     }
@@ -333,6 +333,17 @@ function initBoardGroups() {
                 boardData.boardGroups[b.id] = [];
             }
         });
+    }
+    // Privacy check: if active board is not visible to current user, switch to first visible
+    if (boardData.boards) {
+        const activeBoard = boardData.boards.find(b => b.id === activeId);
+        if (activeBoard && !canSeeBoard(activeBoard)) {
+            const firstVisible = boardData.boards.find(b => !b.archived && canSeeBoard(b));
+            if (firstVisible) {
+                activeId = firstVisible.id;
+                boardData.activeBoard = activeId;
+            }
+        }
     }
     // Set active groups reference
     boardData.groups = boardData.boardGroups[activeId] || [];
@@ -3878,6 +3889,11 @@ function toggleAdminDashboard() {
     if (dash.style.display === 'none' || !dash.style.display) {
         dash.style.display = 'flex';
         loadAdminUsers(1);
+        // Hide Snapshots tab for non-super_admin
+        const snapshotsTabBtn = document.getElementById('adminTabSnapshots');
+        if (snapshotsTabBtn) {
+            snapshotsTabBtn.style.display = (currentUser && currentUser.role === 'super_admin') ? '' : 'none';
+        }
     } else {
         dash.style.display = 'none';
     }
@@ -3889,7 +3905,7 @@ function closeAdminDashboard() {
 
 function showAdminLink() {
     const link = document.getElementById('adminDashboardLink');
-    if (link && currentUser && currentUser.role === 'super_admin') {
+    if (link && currentUser && ['super_admin', 'admin'].includes(currentUser.role)) {
         link.style.display = 'block';
     } else if (link) {
         link.style.display = 'none';
@@ -4434,11 +4450,12 @@ function renderBoardSidebar() {
     const list = document.querySelector('.sidebar-project-list');
     if (!list) return;
     let html = '';
-    boardData.boards.filter(b => !b.archived).forEach(board => {
+    boardData.boards.filter(b => !b.archived && canSeeBoard(b)).forEach(board => {
         const isActive = board.id === boardData.activeBoard;
+        const privateIcon = board.privacy === 'private' ? '<span class="material-icons-outlined board-private-icon" title="Private board">lock</span>' : '';
         html += `<a href="#" class="sidebar-item project-item ${isActive ? 'active' : ''}" data-board="${board.id}" onclick="event.preventDefault(); switchBoard('${board.id}')" oncontextmenu="event.preventDefault(); showBoardContextMenu(event, '${board.id}')">
             <span class="material-icons-outlined">table_chart</span>
-            <span class="sidebar-label" dir="rtl">${escapeHtml(board.name)}</span>
+            <span class="sidebar-label" dir="rtl">${escapeHtml(board.name)}</span>${privateIcon}
             <span class="board-menu-trigger material-icons-outlined" onclick="event.preventDefault(); event.stopPropagation(); showBoardContextMenu(event, '${board.id}')">more_horiz</span>
         </a>`;
     });
@@ -4449,6 +4466,9 @@ function renderBoardSidebar() {
         item.addEventListener('mouseenter', () => { const t = item.querySelector('.board-menu-trigger'); if (t) t.style.opacity = '1'; });
         item.addEventListener('mouseleave', () => { const t = item.querySelector('.board-menu-trigger'); if (t) t.style.opacity = '0'; });
     });
+    
+    // Update Add Board button visibility
+    updateAddBoardBtnVisibility();
 }
 
 function switchBoard(boardId) {
@@ -4480,9 +4500,20 @@ function showBoardContextMenu(event, boardId) {
     const menu = document.createElement('div');
     menu.id = 'boardContextMenu';
     menu.className = 'board-context-menu';
+    
+    // Privacy toggle: Super Admin always, Admin/Member only on their own boards
+    const canTogglePrivacy = currentUser && (
+        currentUser.role === 'super_admin' || 
+        (['admin', 'member'].includes(currentUser.role) && board.createdBy === (currentUser.id || currentUser.email))
+    );
+    const privacyItem = canTogglePrivacy 
+        ? `<div class="board-ctx-item" onclick="boardCtxAction('privacy', '${boardId}')"><span class="material-icons-outlined">${board.privacy === 'private' ? 'public' : 'lock'}</span>${board.privacy === 'private' ? 'Make Public' : 'Make Private'}</div>`
+        : '';
+    
     menu.innerHTML = `
         <div class="board-ctx-item" onclick="boardCtxAction('newtab', '${boardId}')"><span class="material-icons-outlined">open_in_new</span>Open in new tab</div>
         <div class="board-ctx-item" onclick="boardCtxAction('rename', '${boardId}')"><span class="material-icons-outlined">edit</span>Rename</div>
+        ${privacyItem}
         <div class="board-ctx-item" onclick="boardCtxAction('duplicate', '${boardId}')"><span class="material-icons-outlined">content_copy</span>Duplicate</div>
         <div class="board-ctx-item" onclick="boardCtxAction('template', '${boardId}')"><span class="material-icons-outlined">save</span>Save as template</div>
         <div class="board-ctx-divider"></div>
@@ -4516,6 +4547,18 @@ function boardCtxAction(action, boardId) {
         case 'rename':
             const newName = prompt('Board name:', board.name);
             if (newName && newName.trim()) { board.name = newName.trim(); updateBoardTitle(); renderBoardSidebar(); saveToStorage(); }
+            break;
+        case 'privacy':
+            if (board.privacy === 'private') {
+                board.privacy = 'public';
+                showToast(`Board "${board.name}" is now Public`);
+            } else {
+                board.privacy = 'private';
+                board.createdBy = board.createdBy || (currentUser ? (currentUser.id || currentUser.email) : '');
+                showToast(`Board "${board.name}" is now Private (only you & Super Admin can see it)`);
+            }
+            renderBoardSidebar();
+            saveToStorage();
             break;
         case 'duplicate':
             const dupId = 'board' + newId();
@@ -4566,6 +4609,204 @@ function boardCtxAction(action, boardId) {
             showToast('Board deleted permanently');
             break;
     }
+}
+
+// ============================================================
+// ADD BOARD MODAL + PRIVATE/PUBLIC BOARDS
+// ============================================================
+function showAddBoardModal() {
+    if (!canEdit()) {
+        showToast('Viewers cannot create boards');
+        return;
+    }
+    const modal = document.getElementById('addBoardModal');
+    if (!modal) return;
+    document.getElementById('newBoardName').value = '';
+    // Reset color selection
+    document.querySelectorAll('.board-color-option').forEach(el => el.classList.remove('selected'));
+    const firstColor = document.querySelector('.board-color-option[data-color="#0073ea"]');
+    if (firstColor) firstColor.classList.add('selected');
+    // Reset privacy to public
+    document.querySelectorAll('.board-privacy-option').forEach(el => el.classList.remove('selected'));
+    const publicOpt = document.querySelector('.board-privacy-option[data-privacy="public"]');
+    if (publicOpt) publicOpt.classList.add('selected');
+    // Hide private members section
+    const membersSection = document.getElementById('privateBoardMembersSection');
+    if (membersSection) membersSection.style.display = 'none';
+    // Clear search
+    const searchInput = document.getElementById('privateBoardMemberSearch');
+    if (searchInput) searchInput.value = '';
+    modal.style.display = 'flex';
+    setTimeout(() => document.getElementById('newBoardName').focus(), 100);
+}
+
+function closeAddBoardModal() {
+    const modal = document.getElementById('addBoardModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function selectBoardColor(el) {
+    document.querySelectorAll('.board-color-option').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+}
+
+function selectBoardPrivacy(el) {
+    document.querySelectorAll('.board-privacy-option').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    const privacy = el.getAttribute('data-privacy');
+    const membersSection = document.getElementById('privateBoardMembersSection');
+    if (membersSection) {
+        if (privacy === 'private') {
+            membersSection.style.display = 'block';
+            populatePrivateBoardMembers();
+        } else {
+            membersSection.style.display = 'none';
+        }
+    }
+}
+
+// Populate the private board member picker with workspace members
+function populatePrivateBoardMembers() {
+    const list = document.getElementById('privateBoardMembersList');
+    if (!list) return;
+    const members = cachedWorkspaceMembers || [];
+    const currentUserId = currentUser ? (currentUser.id || currentUser.email) : '';
+    
+    let html = '';
+    members.forEach(m => {
+        // Don't show current user (they're always included as creator)
+        const memberId = m.userId || m.userEmail;
+        if (memberId === currentUserId || m.userEmail === currentUser?.email) return;
+        
+        const name = m.userName || m.userEmail || '?';
+        const email = m.userEmail || '';
+        const initials = getInitials(name);
+        const avatarHtml = m.picture 
+            ? `<img src="${m.picture}" class="private-board-member-avatar" referrerpolicy="no-referrer">`
+            : `<div class="private-board-member-avatar">${initials}</div>`;
+        
+        html += `<label class="private-board-member-item" data-search="${escapeHtml((name + ' ' + email).toLowerCase())}" data-member-id="${escapeHtml(memberId)}">
+            <input type="checkbox" onchange="togglePrivateBoardMember(this)">
+            ${avatarHtml}
+            <div class="private-board-member-info">
+                <div class="private-board-member-name">${escapeHtml(name)}</div>
+                ${email && m.userName ? `<div class="private-board-member-email">${escapeHtml(email)}</div>` : ''}
+            </div>
+        </label>`;
+    });
+    
+    if (!html) {
+        html = '<div style="padding:12px;color:#999;font-size:12px;text-align:center;">No other members in this workspace</div>';
+    }
+    list.innerHTML = html;
+}
+
+// Filter private board members by search
+function filterPrivateBoardMembers(query) {
+    const list = document.getElementById('privateBoardMembersList');
+    if (!list) return;
+    const search = query.toLowerCase().trim();
+    list.querySelectorAll('.private-board-member-item').forEach(item => {
+        if (!search) {
+            item.style.display = '';
+            return;
+        }
+        const searchText = item.getAttribute('data-search') || '';
+        item.style.display = searchText.includes(search) ? '' : 'none';
+    });
+}
+
+// Toggle checkbox visual state
+function togglePrivateBoardMember(checkbox) {
+    const item = checkbox.closest('.private-board-member-item');
+    if (item) {
+        item.classList.toggle('selected', checkbox.checked);
+    }
+}
+
+// Get selected private board members
+function getSelectedPrivateBoardMembers() {
+    const list = document.getElementById('privateBoardMembersList');
+    if (!list) return [];
+    const selected = [];
+    list.querySelectorAll('.private-board-member-item input[type="checkbox"]:checked').forEach(cb => {
+        const item = cb.closest('.private-board-member-item');
+        if (item) {
+            selected.push(item.getAttribute('data-member-id'));
+        }
+    });
+    return selected;
+}
+
+function createNewBoard() {
+    const name = document.getElementById('newBoardName').value.trim();
+    if (!name) {
+        showToast('Please enter a board name');
+        return;
+    }
+    const colorEl = document.querySelector('.board-color-option.selected');
+    const color = colorEl ? colorEl.getAttribute('data-color') : '#0073ea';
+    const privacyEl = document.querySelector('.board-privacy-option.selected');
+    const privacy = privacyEl ? privacyEl.getAttribute('data-privacy') : 'public';
+    
+    // Get invited members for private boards
+    let sharedWith = [];
+    if (privacy === 'private') {
+        sharedWith = getSelectedPrivateBoardMembers();
+    }
+    
+    const boardId = 'board' + newId();
+    const newBoard = {
+        id: boardId,
+        name: name,
+        color: color,
+        archived: false,
+        createdAt: nowISO(),
+        privacy: privacy, // 'public' or 'private'
+        createdBy: currentUser ? (currentUser.id || currentUser.email) : '',
+        sharedWith: sharedWith // array of member IDs who can see this private board
+    };
+    
+    if (!boardData.boards) boardData.boards = [];
+    boardData.boards.push(newBoard);
+    
+    // Initialize empty board groups with default groups
+    if (!boardData.boardGroups) boardData.boardGroups = {};
+    boardData.boardGroups[boardId] = [
+        { id: newId(), name: 'To-Do', color: '#579bfc', tasks: [] },
+        { id: newId(), name: 'In Progress', color: '#fdab3d', tasks: [] },
+        { id: newId(), name: 'Completed', color: '#00c875', tasks: [] }
+    ];
+    
+    closeAddBoardModal();
+    switchBoard(boardId);
+    saveToStorage();
+    showToast(`Board "${name}" created`);
+}
+
+// Check if current user can see a board (privacy filtering)
+function canSeeBoard(board) {
+    if (!board) return false;
+    // Public boards visible to everyone
+    if (!board.privacy || board.privacy === 'public') return true;
+    // Private boards: visible to creator + super_admin + sharedWith members
+    if (!currentUser) return false;
+    if (currentUser.role === 'super_admin') return true;
+    // Check if current user is the creator
+    const userId = currentUser.id || currentUser.email;
+    if (board.createdBy === userId) return true;
+    // Check if current user is in sharedWith list
+    if (board.sharedWith && board.sharedWith.length > 0) {
+        if (board.sharedWith.includes(userId) || board.sharedWith.includes(currentUser.email)) return true;
+    }
+    return false;
+}
+
+// Update the Add Board button visibility (hide for viewers)
+function updateAddBoardBtnVisibility() {
+    const btn = document.getElementById('addBoardBtn');
+    if (!btn) return;
+    btn.style.display = canEdit() ? 'flex' : 'none';
 }
 
 // ============================================================
@@ -8858,7 +9099,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '60';
+const CURRENT_APP_VERSION = '62';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

@@ -350,6 +350,21 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+// Middleware: require admin OR super_admin role
+function requireAdmin(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+  const user = users.get(key);
+  if (!user || !['admin', 'super_admin'].includes(user.role)) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  req.callerKey = key;
+  req.callerEmail = user.email;
+  req.caller = user;
+  next();
+}
+
 // ===== Auth API =====
 
 // Register (email+password only, always 'local' provider)
@@ -564,7 +579,7 @@ app.post('/api/auth/oauth-login', authLimiter, (req, res) => {
 // ===== Admin Dashboard API =====
 
 // Get all users with filtering, sorting, pagination (Super Admin only)
-app.get('/api/admin/users', requireSuperAdmin, (req, res) => {
+app.get('/api/admin/users', requireAdmin, (req, res) => {
   let userList = [];
   users.forEach(u => {
     userList.push(safeUser(u));
@@ -614,7 +629,7 @@ app.get('/api/admin/users', requireSuperAdmin, (req, res) => {
 });
 
 // Update user role (Super Admin only)
-app.post('/api/admin/update-role', requireSuperAdmin, (req, res) => {
+app.post('/api/admin/update-role', requireAdmin, (req, res) => {
   const { email: targetEmail, role, provider: targetProvider } = req.body;
   const email = (targetEmail || '').toLowerCase().trim();
 
@@ -646,6 +661,11 @@ app.post('/api/admin/update-role', requireSuperAdmin, (req, res) => {
   // Super admin (local provider) can NEVER be changed
   if (target.email === SUPER_ADMIN_EMAIL && target.provider === 'local') {
     return res.status(403).json({ error: 'Cannot change Super Admin role' });
+  }
+
+  // Admin users can only change members/viewers, not other admins (only super_admin can)
+  if (req.caller.role === 'admin' && target.role === 'admin') {
+    return res.status(403).json({ error: 'Only Super Admin can change another Admin\'s role' });
   }
 
   target.role = role;
@@ -1945,7 +1965,7 @@ app.get('/api/users/check', requireAuth, (req, res) => {
 });
 
 // Check if user exists (Super Admin - for invite wizard)
-app.get('/api/admin/check-user', requireSuperAdmin, (req, res) => {
+app.get('/api/admin/check-user', requireAdmin, (req, res) => {
   const email = (req.query.email || '').toLowerCase().trim();
   if (!email) return res.json({ exists: false });
   for (const [key, user] of users.entries()) {
@@ -1957,7 +1977,7 @@ app.get('/api/admin/check-user', requireSuperAdmin, (req, res) => {
 });
 
 // Send invite email (Super Admin only)
-app.post('/api/invites/send', requireSuperAdmin, async (req, res) => {
+app.post('/api/invites/send', requireAdmin, async (req, res) => {
   const { email, orgName, boardId, workspaceId, role } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
@@ -2057,7 +2077,7 @@ app.post('/api/invites/use/:token', async (req, res) => {
 });
 
 // Get all pending invites (Super Admin)
-app.get('/api/invites', requireSuperAdmin, async (req, res) => {
+app.get('/api/invites', requireAdmin, async (req, res) => {
   const list = [];
   let changed = false;
   invites.forEach((invite, token) => {
@@ -2081,7 +2101,7 @@ app.get('/api/invites', requireSuperAdmin, async (req, res) => {
 });
 
 // Send notification email (Super Admin)
-app.post('/api/email/send-notification', requireSuperAdmin, async (req, res) => {
+app.post('/api/email/send-notification', requireAdmin, async (req, res) => {
   const { recipients, subject, bodyText, orgName, ctaText, ctaLink } = req.body;
   if (!recipients || !recipients.length || !subject || !bodyText) {
     return res.status(400).json({ error: 'recipients, subject, and bodyText are required' });
@@ -2125,7 +2145,7 @@ app.put('/api/email/preferences', (req, res) => {
 });
 
 // Get all users' email preferences (Super Admin - for admin dashboard)
-app.get('/api/admin/email-preferences', requireSuperAdmin, (req, res) => {
+app.get('/api/admin/email-preferences', requireAdmin, (req, res) => {
   const result = [];
   users.forEach((user, key) => {
     const prefs = emailPreferences.get(key) || { invites: true, notifications: true, updates: true };
@@ -2140,7 +2160,7 @@ app.get('/api/admin/email-preferences', requireSuperAdmin, (req, res) => {
 });
 
 // Update a user's email preferences (Super Admin)
-app.put('/api/admin/email-preferences/:email', requireSuperAdmin, (req, res) => {
+app.put('/api/admin/email-preferences/:email', requireAdmin, (req, res) => {
   const email = req.params.email.toLowerCase().trim();
   const user = findUserByEmail(email);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -2340,7 +2360,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '60';
+const APP_VERSION = '62';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

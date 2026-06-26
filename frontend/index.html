@@ -215,6 +215,10 @@
                     <div class="sidebar-project-list">
                         <!-- Boards rendered dynamically by renderBoardSidebar() -->
                     </div>
+                    <button class="add-board-btn-sidebar" id="addBoardBtn" onclick="showAddBoardModal()" style="display:none">
+                        <span class="material-icons-outlined" style="font-size:16px">add</span>
+                        <span>Add Board</span>
+                    </button>
                 </div>
                 <!-- User info at bottom -->
                 <div id="adminDashboardLink" class="sidebar-section sidebar-admin-section" style="display:none;padding:0 8px;">
@@ -688,6 +692,65 @@
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeCreateWorkspaceModal()">Cancel</button>
                 <button class="btn-primary" onclick="createWorkspace()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Board Modal -->
+    <div id="addBoardModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeAddBoardModal()">
+        <div class="modal-card workspace-modal" style="max-width:420px;">
+            <div class="modal-header">
+                <h3><span class="material-icons-outlined">dashboard_customize</span> Add Board</h3>
+                <button class="modal-close-btn" onclick="closeAddBoardModal()">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <label class="modal-label">Board Name</label>
+                <input type="text" id="newBoardName" class="modal-input" placeholder="e.g. Marketing, Sprint 3...">
+                <label class="modal-label">Color</label>
+                <div class="board-color-picker" id="boardColorPicker">
+                    <div class="board-color-option selected" data-color="#0073ea" style="background:#0073ea" onclick="selectBoardColor(this)"></div>
+                    <div class="board-color-option" data-color="#00c875" style="background:#00c875" onclick="selectBoardColor(this)"></div>
+                    <div class="board-color-option" data-color="#fdab3d" style="background:#fdab3d" onclick="selectBoardColor(this)"></div>
+                    <div class="board-color-option" data-color="#e2445c" style="background:#e2445c" onclick="selectBoardColor(this)"></div>
+                    <div class="board-color-option" data-color="#a25ddc" style="background:#a25ddc" onclick="selectBoardColor(this)"></div>
+                    <div class="board-color-option" data-color="#579bfc" style="background:#579bfc" onclick="selectBoardColor(this)"></div>
+                    <div class="board-color-option" data-color="#ff642e" style="background:#ff642e" onclick="selectBoardColor(this)"></div>
+                    <div class="board-color-option" data-color="#bb3354" style="background:#bb3354" onclick="selectBoardColor(this)"></div>
+                </div>
+                <label class="modal-label" style="margin-top:12px;">Visibility</label>
+                <div class="board-privacy-selector" id="boardPrivacySelector">
+                    <label class="board-privacy-option selected" data-privacy="public" onclick="selectBoardPrivacy(this)">
+                        <span class="material-icons-outlined">public</span>
+                        <div>
+                            <div class="board-privacy-title">Public</div>
+                            <div class="board-privacy-desc">Visible to all workspace members</div>
+                        </div>
+                    </label>
+                    <label class="board-privacy-option" data-privacy="private" onclick="selectBoardPrivacy(this)">
+                        <span class="material-icons-outlined">lock</span>
+                        <div>
+                            <div class="board-privacy-title">Private</div>
+                            <div class="board-privacy-desc">Only you (and Super Admin) can see it</div>
+                        </div>
+                    </label>
+                </div>
+                <!-- Private board members picker (shown when Private is selected) -->
+                <div id="privateBoardMembersSection" style="display:none;margin-top:12px;">
+                    <label class="modal-label">Invite Members to this Board</label>
+                    <div class="private-board-search">
+                        <span class="material-icons-outlined" style="font-size:18px;color:#999;">search</span>
+                        <input type="text" id="privateBoardMemberSearch" placeholder="Search by name or email..." oninput="filterPrivateBoardMembers(this.value)">
+                    </div>
+                    <div class="private-board-members-list" id="privateBoardMembersList">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeAddBoardModal()">Cancel</button>
+                <button class="btn-primary" onclick="createNewBoard()">Create Board</button>
             </div>
         </div>
     </div>
