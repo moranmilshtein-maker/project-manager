@@ -1161,7 +1161,7 @@ app.put('/api/user-data/boards', async (req, res) => {
     }
     const sharedKey = `workspace_shared_${wsId}`;
     
-    // SAFETY: Never overwrite real data with empty/default data
+    // SAFETY: Never overwrite real data with completely empty data (corruption protection)
     // Count incoming tasks
     let incomingTaskCount = 0;
     if (data.boardGroups) {
@@ -1175,29 +1175,23 @@ app.put('/api/user-data/boards', async (req, res) => {
     }
     const hasRealContent = incomingTaskCount > 0;
     
-    // Check existing data for comparison
-    const existing = await dataStore.readUserData(sharedKey, 'boards');
-    let existingTaskCount = 0;
-    if (existing && existing.boardGroups) {
-      for (const groups of Object.values(existing.boardGroups)) {
-        if (Array.isArray(groups)) {
-          for (const g of groups) {
-            existingTaskCount += (g.tasks || []).length;
+    // Block: Empty data trying to overwrite non-empty data (likely a bug/corruption)
+    if (!hasRealContent) {
+      const existing = await dataStore.readUserData(sharedKey, 'boards');
+      let existingTaskCount = 0;
+      if (existing && existing.boardGroups) {
+        for (const groups of Object.values(existing.boardGroups)) {
+          if (Array.isArray(groups)) {
+            for (const g of groups) {
+              existingTaskCount += (g.tasks || []).length;
+            }
           }
         }
       }
-    }
-    
-    // Block 1: Empty data trying to overwrite non-empty data
-    if (!hasRealContent && existingTaskCount > 0) {
-      console.log(`[Safety] Blocked empty overwrite of workspace ${wsId} (existing: ${existingTaskCount} tasks)`);
-      return res.json({ success: true, blocked: true });
-    }
-    
-    // Block 2: Drastic data reduction (losing more than 50% of tasks, and existing has 5+ tasks)
-    if (existingTaskCount >= 5 && incomingTaskCount < existingTaskCount * 0.5) {
-      console.log(`[Safety] Blocked drastic data reduction for workspace ${wsId}: ${existingTaskCount} → ${incomingTaskCount} tasks (${Math.round(incomingTaskCount/existingTaskCount*100)}%)`);
-      return res.json({ success: true, blocked: true, reason: 'drastic_reduction' });
+      if (existingTaskCount > 0) {
+        console.log(`[Safety] Blocked empty overwrite of workspace ${wsId} (existing: ${existingTaskCount} tasks)`);
+        return res.json({ success: true, blocked: true });
+      }
     }
     
     // CLEANUP: Remove stale boardGroups keys on save
@@ -2495,7 +2489,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '66';
+const APP_VERSION = '67';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
