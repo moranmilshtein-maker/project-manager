@@ -257,64 +257,11 @@ function escapeHtml(str) {
 // Each board has its own 'groups' array stored inside boardData.boardGroups[boardId]
 // boardData.groups is a REFERENCE to the active board's groups (set by switchBoard)
 let boardData = {
-    name: '\u05E0\u05D9\u05E1\u05D9\u05D5\u05DF',
+    name: '',
     archivedGroups: [],
-    boards: [
-        { id: 'board1', name: '\u05E0\u05D9\u05E1\u05D9\u05D5\u05DF', color: '#0073ea', archived: false, createdAt: null }
-    ],
-    activeBoard: 'board1',
-    boardGroups: {
-        'board1': [
-            {
-                id: 'g1',
-                name: 'To-Do',
-                color: '#784bd1',
-                collapsed: false,
-                tasks: []
-            },
-            {
-                id: 'g_wolby_setup',
-                name: '\u05D5\u05D5\u05DC\u05D1\u05D9 - \u05D4\u05E7\u05DE\u05D4',
-                color: '#784bd1',
-                collapsed: false,
-                tasks: [
-                    { id: 101, name: '\u05E9\u05D9\u05D5\u05DA \u05D2\u05D5\u05D2\u05DC \u05D0\u05E0\u05DC\u05D9\u05D8\u05D9\u05E7\u05E1', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 102, name: '\u05D4\u05E7\u05DE\u05EA \u05D2\u05D5\u05D2\u05DC \u05D8\u05D0\u05D2 \u05DE\u05E0\u05D2\u05F3\u05E8', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 103, name: '\u05E9\u05D9\u05D5\u05DA \u05D2\u05D5\u05D2\u05DC \u05D0\u05D3\u05E1', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 104, name: '\u05D4\u05E7\u05DE\u05EA \u05D2\u05D5\u05D2\u05DC \u05DE\u05E8\u05E6\u05F3\u05E0\u05D8', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 105, name: '\u05D4\u05E7\u05DE\u05EA \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7 \u05D1\u05D9\u05D6\u05E0\u05E1', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 106, name: '\u05D0\u05D9\u05DE\u05D5\u05EA \u05D3\u05D5\u05DE\u05D9\u05D9\u05DF \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 107, name: '\u05D7\u05D9\u05D1\u05D5\u05E8 \u05D2\u05D5\u05D2\u05DC \u05E1\u05E8\u05E6\u05F3 \u05E7\u05D5\u05E0\u05E1\u05D5\u05DC', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 108, name: '\u05D4\u05D8\u05DE\u05E2\u05EA \u05E7\u05DC\u05D0\u05E8\u05D9\u05D8\u05D9', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 109, name: '\u05D7\u05D9\u05D1\u05D5\u05E8 \u05D1\u05D5\u05E1 \u05E7\u05D5 \u05E4\u05D9\u05D9\u05DC\u05D5\u05D8', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 110, name: '\u05D4\u05E7\u05DE\u05EA \u05E2\u05E8\u05D5\u05E5 \u05D9\u05D5\u05D8\u05D9\u05D5\u05D1', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 111, name: '\u05D4\u05E7\u05DE\u05EA \u05E2\u05E8\u05D5\u05E5 \u05D8\u05D9\u05E7\u05D8\u05D5\u05E7', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 112, name: '\u05E9\u05D9\u05D5\u05DA \u05D0\u05D9\u05E0\u05E1\u05D8\u05D2\u05E8\u05DD', owner: '', status: 'done', dueDate: '2025-06-16', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 113, name: '\u05E9\u05D9\u05D5\u05DA \u05E2\u05DE\u05D5\u05D3 \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7 \u05E2\u05E1\u05E7\u05D9', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 114, name: '\u05D4\u05E7\u05DE\u05EA \u05D2\u05D5\u05D2\u05DC \u05E2\u05E1\u05E7\u05D9\u05DD', owner: '', status: 'working', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 115, name: '\u05D4\u05E7\u05DE\u05EA \u05D0\u05E4\u05DC \u05DE\u05E4\u05D5\u05EA', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 116, name: '\u05D4\u05E7\u05DE\u05EA \u05DB\u05DC\u05D9 \u05D5\u05D5\u05D1\u05DE\u05D0\u05E1\u05D8\u05E8 \u05E9\u05DC \u05D1\u05D9\u05E0\u05D2', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 117, name: '\u05D4\u05E7\u05DE\u05EA \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7 \u05DE\u05E8\u05E6\u05F3\u05E0\u05D8', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 118, name: '\u05E9\u05D9\u05DE\u05D5\u05E9 \u05D1\u05DB\u05DC\u05D9 \u05DC\u05EA\u05E7\u05E0\u05D4 13', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 119, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D3\u05E3 \u05DE\u05D3\u05D9\u05E0\u05D9\u05D5\u05EA \u05E4\u05E8\u05D8\u05D9\u05D5\u05EA', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 120, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D3\u05E3 \u05EA\u05E7\u05E0\u05D5\u05DF', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 121, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D3\u05E3 \u05DE\u05D3\u05D9\u05E0\u05D9\u05D5\u05EA \u05D4\u05D7\u05D6\u05E8\u05D9\u05DD', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 122, name: '\u05D1\u05E7\u05E9\u05D4 \u05DC\u05D4\u05E6\u05D4\u05E8\u05EA \u05E0\u05D2\u05D9\u05E9\u05D5\u05EA', owner: '', status: 'done', dueDate: '2025-06-14', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 123, name: '\u05D4\u05EA\u05E7\u05E0\u05EA \u05E4\u05D9\u05D3 \u05D3\u05D9\u05E0\u05D0\u05DE\u05D9 \u05DC\u05D2\u05D5\u05D2\u05DC \u05D5\u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 124, name: '\u05D4\u05E7\u05DE\u05EA \u05D7\u05E9\u05D1\u05D5\u05DF \u05DE\u05D5\u05D3\u05E2\u05D5\u05EA \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 125, name: '\u05D0\u05D9\u05E8\u05D5\u05E2 \u05D4\u05DE\u05E8\u05D4 \u05D8\u05DC\u05E4\u05D5\u05DF | \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: 'done', dueDate: '2025-06-15', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false },
-                    { id: 126, name: '\u05D0\u05D9\u05E8\u05D5\u05E2 \u05D4\u05DE\u05E8\u05D4 \u05D5\u05D5\u05D0\u05D8\u05E1\u05D0\u05E4 | \u05E7\u05D0\u05E1\u05D8\u05D5\u05DD \u05E2\u05DD \u05D8\u05D0\u05D2 \u05DE\u05E0\u05D2\u05F3\u05E8 | \u05E4\u05D9\u05D9\u05E1\u05D1\u05D5\u05E7', owner: '', status: '', dueDate: '', priority: '', notes: '', budget: 0, files: 0, timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), subtasks: [], subtasksExpanded: false }
-                ]
-            },
-            {
-                id: 'g2',
-                name: 'Completed',
-                color: '#00c875',
-                collapsed: false,
-                tasks: []
-            }
-        ]
-    },
+    boards: [],
+    activeBoard: null,
+    boardGroups: {},
     groups: [] // Will be set by initBoardGroups()
 };
 
@@ -3833,8 +3780,6 @@ function loadFromStorage() {
                 }
             }
             initBoardGroups();
-            // Run migration after loading from storage
-            migrateWolbySetupGroup();
         }
     } catch (e) {}
 }
@@ -3856,8 +3801,6 @@ async function loadFromServer() {
                     boardData.boardGroups[activeId] = boardData.groups;
                 }
             }
-            // One-time migration: restore 'וולבי - הקמה' group if missing
-            migrateWolbySetupGroup();
             // Update localStorage cache
             try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch (e) {}
             initBoardGroups();
@@ -3871,9 +3814,7 @@ async function loadFromServer() {
                 const migrated = await migrateFromLegacyData();
                 if (migrated) return true;
             }
-            // Server has no data yet - migrate localStorage data to server (first time)
-            // One-time migration: restore 'וולבי - הקמה' group if missing
-            migrateWolbySetupGroup();
+            // Server has no data yet - first-time user or empty workspace
             serverDataLoaded = true; // First-time user, safe to save
             if (boardData && boardData.boardGroups && Object.keys(boardData.boardGroups).length > 0) {
                 saveToServer();
@@ -3917,7 +3858,6 @@ async function migrateFromLegacyData() {
                     boardData.boardGroups[activeId] = boardData.groups;
                 }
             }
-            migrateWolbySetupGroup();
             try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch (e) {}
             initBoardGroups();
             renderBoard();
@@ -3934,14 +3874,6 @@ async function migrateFromLegacyData() {
         console.error('[Workspace] Migration failed:', e);
     }
     return false;
-}
-
-// One-time migration: ensure 'וולבי - הקמה' group exists with all 26 tasks
-function migrateWolbySetupGroup() {
-    // DISABLED: This one-time migration is complete. The data exists on the server.
-    // Keeping this function here to re-add would undo user deletions when
-    // localStorage flag is missing (different browser/device/cleared cache).
-    return;
 }
 
 // Load archived tasks from server
@@ -9483,7 +9415,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '70';
+const CURRENT_APP_VERSION = '71';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
