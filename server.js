@@ -1421,6 +1421,7 @@ app.put('/api/user-data/boards', async (req, res) => {
     }
     
     // SERVER-SIDE MERGE: If client sends _baseVersion, merge instead of overwrite
+    let didMerge = false;
     if (data._baseVersion && existingData && existingData._savedAt) {
       if (existingData._savedAt > data._baseVersion) {
         // Server has been updated since client last loaded — MERGE
@@ -1428,6 +1429,7 @@ app.put('/api/user-data/boards', async (req, res) => {
         mergedData._savedAt = data._savedAt; // Update timestamp
         delete mergedData._baseVersion;
         data = mergedData;
+        didMerge = true;
         console.log(`[Merge] Merged save for workspace ${wsId} by ${user.email}`);
       }
     }
@@ -1447,7 +1449,12 @@ app.put('/api/user-data/boards', async (req, res) => {
     
     const success = await dataStore.writeUserData(sharedKey, 'boards', data);
     if (success) {
-      res.json({ success: true, mergedData: data });
+      // Only send mergedData back if an actual merge occurred (not every save)
+      if (didMerge) {
+        res.json({ success: true, mergedData: data, savedAt: data._savedAt });
+      } else {
+        res.json({ success: true, savedAt: data._savedAt });
+      }
     } else {
       res.status(500).json({ error: 'Failed to save data' });
     }
@@ -2982,7 +2989,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '77';
+const APP_VERSION = '78';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

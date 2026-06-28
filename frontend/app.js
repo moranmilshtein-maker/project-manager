@@ -2206,6 +2206,7 @@ function toggleSubtasks(taskId, groupId) {
     if (!task) return;
     if (!task.subtasks) task.subtasks = [];
     task.subtasksExpanded = !task.subtasksExpanded;
+    saveToStorage();
     renderBoard();
 }
 
@@ -3754,8 +3755,22 @@ function saveToServer() {
                 // Server merged our data with newer server data — update local state
                 // BUT don't re-render if user is actively editing (add task/subtask input open)
                 const oldActive = boardData.activeBoard;
+                const oldGroups = boardData.groups; // Preserve current expanded states
                 boardData = result.mergedData;
                 boardData.activeBoard = oldActive; // Keep client's active board
+                // Preserve subtasksExpanded state from current groups
+                if (oldGroups && boardData.groups) {
+                    for (const newGroup of boardData.groups) {
+                        const oldGroup = oldGroups.find(g => String(g.id) === String(newGroup.id));
+                        if (oldGroup) {
+                            newGroup.collapsed = oldGroup.collapsed;
+                            for (const newTask of (newGroup.tasks || [])) {
+                                const oldTask = (oldGroup.tasks || []).find(t => String(t.id) === String(newTask.id));
+                                if (oldTask) newTask.subtasksExpanded = oldTask.subtasksExpanded;
+                            }
+                        }
+                    }
+                }
                 initBoardGroups();
                 if (activeAddTaskInputs.size === 0 && activeSubtaskInputs.size === 0 && !document.querySelector('.inline-edit-input')) {
                     renderBoard();
@@ -3763,6 +3778,11 @@ function saveToServer() {
                 }
                 try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch(e) {}
                 console.log('[Save] Server merged data — local state updated');
+            } else if (result.success) {
+                // Normal save succeeded — update _savedAt from server's timestamp
+                if (result.savedAt) {
+                    boardData._savedAt = result.savedAt;
+                }
             }
         } catch (e) { console.error('[Save] Failed:', e.message); }
     }, 1000);
@@ -9734,7 +9754,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '77';
+const CURRENT_APP_VERSION = '78';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
@@ -9891,6 +9911,7 @@ function removeCollabIndicator(taskId, subtaskId, field) {
     const cell = document.querySelector(cellSelector);
     if (!cell) return;
     cell.classList.remove('collab-editing');
+    cell.style.position = '';
     const indicator = cell.querySelector('.collab-indicator');
     if (indicator) indicator.remove();
 }
