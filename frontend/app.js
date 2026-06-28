@@ -3814,11 +3814,9 @@ async function loadFromServer() {
                 const migrated = await migrateFromLegacyData();
                 if (migrated) return true;
             }
-            // Server has no data yet - first-time user or empty workspace
-            serverDataLoaded = true; // First-time user, safe to save
-            if (boardData && boardData.boardGroups && Object.keys(boardData.boardGroups).length > 0) {
-                saveToServer();
-            }
+            // Server has no data — workspace is empty (do NOT save stale localStorage to server)
+            boardData = { boards: null, boardGroups: {}, groups: [], activeBoard: null };
+            serverDataLoaded = true;
             initBoardGroups();
             renderBoard();
             renderBoardSidebar();
@@ -6419,6 +6417,16 @@ async function loadSnapshotList() {
                     </tr>
                 `;
             }).join('');
+            // Populate restore snapshot select
+            const snSelect = document.getElementById('restoreSnapshotSelect');
+            if (snSelect) {
+                snSelect.innerHTML = '<option value="">Select snapshot...</option>';
+                data.snapshots.forEach(s => {
+                    const date = new Date(s.created_at);
+                    snSelect.innerHTML += `<option value="${s.id}">#${s.id} — ${date.toLocaleString('he-IL')}</option>`;
+                });
+            }
+            populateRestoreSelects();
         } else {
             tbody.innerHTML = '<tr><td colspan="6" class="admin-loading">No snapshots found</td></tr>';
         }
@@ -6538,6 +6546,115 @@ async function restoreSnapshot(snapshotId) {
     } catch (e) {
         alert('Error restoring snapshot: ' + e.message);
     }
+}
+
+// ===== WORKSPACE-SPECIFIC SNAPSHOT RESTORE =====
+
+function populateRestoreSelects() {
+    // Populate workspace select
+    const wsSelect = document.getElementById('restoreWorkspaceSelect');
+    if (wsSelect) {
+        wsSelect.innerHTML = '<option value="">Select workspace...</option>';
+        (userWorkspaces || []).forEach(ws => {
+            wsSelect.innerHTML += `<option value="${ws.id}">${escapeHtml(ws.name)}</option>`;
+        });
+    }
+    // Populate snapshot select (from table rows if available)
+    const snSelect = document.getElementById('restoreSnapshotSelect');
+    if (snSelect && snSelect.options.length <= 1) {
+        // Will be populated after loadSnapshotList runs
+        const rows = document.querySelectorAll('#snapshotTableBody tr');
+        if (rows.length > 0) {
+            snSelect.innerHTML = '<option value="">Select snapshot...</option>';
+            rows.forEach(row => {
+                const id = row.querySelector('td:first-child')?.textContent;
+                const time = row.querySelector('td:nth-child(2)')?.textContent;
+                if (id) snSelect.innerHTML += `<option value="${id}">#${id} — ${time || ''}</option>`;
+            });
+        }
+    }
+}
+
+async function previewWorkspaceRestore() {
+    const snapshotId = document.getElementById('restoreSnapshotSelect').value;
+    const wsId = document.getElementById('restoreWorkspaceSelect').value;
+    const resultDiv = document.getElementById('restorePreviewResult');
+    const confirmBtn = document.getElementById('confirmRestoreBtn');
+    confirmBtn.style.display = 'none';
+    
+    if (!snapshotId || !wsId) {
+        resultDiv.innerHTML = '<p style="color:#e2445c">Please select both a snapshot and a workspace</p>';
+        return;
+    }
+    
+    resultDiv.innerHTML = '<p class="admin-loading">Loading preview...</p>';
+    
+    try {
+        const res = await authFetch(`/api/snapshots/${snapshotId}/preview-workspace/${wsId}`);
+        const data = await res.json();
+        
+        if (!data.success) {
+            resultDiv.innerHTML = `<p style="color:#e2445c">Error: ${data.error}</p>`;
+            return;
+        }
+        
+        if (!data.found) {
+            resultDiv.innerHTML = `<p style="color:#fdab3d">⚠️ Workspace not found in snapshot #${snapshotId}. Try an earlier snapshot.</p>`;
+            return;
+        }
+        
+        const s = data.summary;
+        const boardNames = s.boards ? s.boards.map(b => b.name).join(', ') : 'N/A';
+        resultDiv.innerHTML = `
+            <div style="background:#f8f9fa;border-radius:8px;padding:12px;border:1px solid #e0e0e0;">
+                <p><strong>Snapshot #${snapshotId}</strong> — ${new Date(data.createdAt).toLocaleString()}</p>
+                <p>Boards: <strong>${boardNames}</strong></p>
+                <p>Tasks: <strong>${s.totalTasks || 0}</strong> | Subtasks: <strong>${s.totalSubtasks || 0}</strong></p>
+                <p>Data types: ${s.dataTypes.join(', ')}</p>
+            </div>
+        `;
+        confirmBtn.style.display = 'inline-flex';
+        confirmBtn.dataset.snapshotId = snapshotId;
+        confirmBtn.dataset.workspaceId = wsId;
+    } catch (e) {
+        resultDiv.innerHTML = `<p style="color:#e2445c">Error: ${e.message}</p>`;
+    }
+}
+
+async function confirmWorkspaceRestore() {
+    const btn = document.getElementById('confirmRestoreBtn');
+    const snapshotId = btn.dataset.snapshotId;
+    const wsId = btn.dataset.workspaceId;
+    const resultDiv = document.getElementById('restorePreviewResult');
+    
+    const wsName = document.querySelector(`#restoreWorkspaceSelect option[value="${wsId}"]`)?.textContent || wsId;
+    if (!confirm(`Restore workspace "${wsName}" from snapshot #${snapshotId}?\n\nThis will replace ONLY this workspace's data. Other workspaces are not affected.`)) {
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-icons-outlined" style="font-size:16px;vertical-align:middle;animation:spin 1s linear infinite;">sync</span> Restoring...';
+    
+    try {
+        const res = await authFetch(`/api/snapshots/${snapshotId}/restore-workspace/${wsId}`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `<div style="background:#e6ffed;border-radius:8px;padding:12px;border:1px solid #00c875;color:#00854d;">
+                <p><strong>✅ Restore successful!</strong></p>
+                <p>Restored types: ${data.restoredTypes.join(', ')}</p>
+                <p style="margin-top:8px;">Refresh the page or switch workspace to see updated data.</p>
+            </div>`;
+            btn.style.display = 'none';
+        } else {
+            resultDiv.innerHTML = `<p style="color:#e2445c">Restore failed: ${data.error}</p>`;
+        }
+    } catch (e) {
+        resultDiv.innerHTML = `<p style="color:#e2445c">Error: ${e.message}</p>`;
+    }
+    
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-icons-outlined" style="font-size:16px;vertical-align:middle;">restore</span> Confirm Restore';
 }
 
 // ===== DATA HEALTH - Workspace Verification =====
@@ -9415,7 +9532,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '71';
+const CURRENT_APP_VERSION = '72';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

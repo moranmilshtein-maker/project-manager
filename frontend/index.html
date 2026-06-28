@@ -671,6 +671,27 @@
                     <h3><span class="material-icons-outlined">info</span> Snapshot Details</h3>
                     <div id="snapshotDetailContent" class="snapshot-detail-content"></div>
                 </div>
+
+                <!-- Workspace-Specific Restore -->
+                <div class="admin-email-section">
+                    <h3><span class="material-icons-outlined">settings_backup_restore</span> Restore Workspace from Snapshot</h3>
+                    <p style="color:#666;font-size:13px;margin-bottom:12px;">Restore a specific workspace from a snapshot without affecting other workspaces.</p>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                        <select id="restoreSnapshotSelect" class="admin-input" style="flex:1;min-width:180px;max-width:250px;">
+                            <option value="">Select snapshot...</option>
+                        </select>
+                        <select id="restoreWorkspaceSelect" class="admin-input" style="flex:1;min-width:180px;max-width:250px;">
+                            <option value="">Select workspace...</option>
+                        </select>
+                        <button class="admin-btn" onclick="previewWorkspaceRestore()" style="white-space:nowrap;">
+                            <span class="material-icons-outlined" style="font-size:16px;vertical-align:middle;">preview</span> Preview
+                        </button>
+                    </div>
+                    <div id="restorePreviewResult" style="margin-bottom:12px;"></div>
+                    <button class="admin-btn-primary" id="confirmRestoreBtn" onclick="confirmWorkspaceRestore()" style="display:none;">
+                        <span class="material-icons-outlined" style="font-size:16px;vertical-align:middle;">restore</span> Confirm Restore
+                    </button>
+                </div>
             </div><!-- end adminSnapshotsTab -->
 
             <!-- Data Health Tab (Super Admin only) -->

@@ -1161,6 +1161,22 @@ app.put('/api/user-data/boards', async (req, res) => {
     }
     const sharedKey = `workspace_shared_${wsId}`;
     
+    // Count incoming tasks
+    let incomingTaskCount = 0;
+    let incomingSubtaskCount = 0;
+    if (data.boardGroups) {
+      for (const groups of Object.values(data.boardGroups)) {
+        if (Array.isArray(groups)) {
+          for (const g of groups) {
+            incomingTaskCount += (g.tasks || []).length;
+            for (const t of (g.tasks || [])) {
+              incomingSubtaskCount += (t.subtasks || []).length;
+            }
+          }
+        }
+      }
+    }
+    
     // SAFETY: Only block saves that look like uninitialized/corrupted default state
     const looksLikeCorruption = !data.boardGroups || Object.keys(data.boardGroups).length === 0 || !data.boards || data.boards.length === 0;
     
@@ -1177,12 +1193,45 @@ app.put('/api/user-data/boards', async (req, res) => {
         }
         if (existingTaskCount > 0) {
           console.log(`[Safety] Blocked corrupted-looking save for workspace ${wsId} (no boards/boardGroups but existing has ${existingTaskCount} tasks)`);
-          // Log to WAL for monitoring
           walLog(wsId, user.email || key, 'blocked', existingTaskCount, 0);
           return res.json({ success: true, blocked: true });
         }
       }
     }
+    
+    // DOWNGRADE PROTECTION: Block saves where incoming data is drastically less than existing
+    // This prevents stale localStorage from overwriting good server data
+    if (!looksLikeCorruption) {
+      const existing = await dataStore.readUserData(sharedKey, 'boards');
+      if (existing && existing.boardGroups && existing._savedAt) {
+        let existingTaskCount = 0;
+        let existingSubtaskCount = 0;
+        for (const groups of Object.values(existing.boardGroups)) {
+          if (Array.isArray(groups)) {
+            for (const g of groups) {
+              existingTaskCount += (g.tasks || []).length;
+              for (const t of (g.tasks || [])) {
+                existingSubtaskCount += (t.subtasks || []).length;
+              }
+            }
+          }
+        }
+        const existingTotal = existingTaskCount + existingSubtaskCount;
+        const incomingTotal = incomingTaskCount + incomingSubtaskCount;
+        // Block if existing has significant data and incoming has drastically less (>80% reduction)
+        // AND incoming doesn't have a _savedAt equal or newer than existing
+        if (existingTotal > 5 && incomingTotal < existingTotal * 0.2) {
+          if (!data._savedAt || data._savedAt < existing._savedAt) {
+            console.log(`[Safety] Blocked downgrade save for workspace ${wsId}: existing ${existingTotal} items → incoming ${incomingTotal} items (${user.email})`);
+            walLog(wsId, user.email || key, 'blocked_downgrade', existingTotal, incomingTotal);
+            return res.json({ success: true, blocked: true, reason: 'downgrade_protection' });
+          }
+        }
+      }
+    }
+    
+    // Stamp the save with a timestamp for ordering
+    data._savedAt = new Date().toISOString();
     
     // WAL: Save previous state before overwriting (write-ahead log for disaster recovery)
     try {
@@ -1469,25 +1518,37 @@ app.get('/api/user-data/debug-list', requireSuperAdmin, async (req, res) => {
 
 // ===== WRITE-AHEAD LOG (WAL) - Disaster Recovery =====
 
-// In-memory WAL log for monitoring (last 50 events)
-const walEvents = [];
-const WAL_MAX_EVENTS = 50;
+// Persisted WAL log — stored in PostgreSQL so it survives deploys
+const WAL_LOG_KEY = 'system_wal_log';
+const WAL_MAX_EVENTS = 100;
 
-function walLog(workspaceId, triggeredBy, action, existingTasks, incomingTasks) {
-  walEvents.push({
-    timestamp: new Date().toISOString(),
-    workspaceId,
-    triggeredBy,
-    action, // 'blocked' | 'saved'
-    existingTasks,
-    incomingTasks
-  });
-  if (walEvents.length > WAL_MAX_EVENTS) walEvents.shift();
+async function walLog(workspaceId, triggeredBy, action, existingTasks, incomingTasks) {
+  try {
+    const existing = await dataStore.readUserData(WAL_LOG_KEY, 'events') || [];
+    existing.push({
+      timestamp: new Date().toISOString(),
+      workspaceId,
+      triggeredBy,
+      action, // 'blocked' | 'saved'
+      existingTasks,
+      incomingTasks
+    });
+    // Keep only last WAL_MAX_EVENTS
+    while (existing.length > WAL_MAX_EVENTS) existing.shift();
+    await dataStore.writeUserData(WAL_LOG_KEY, 'events', existing);
+  } catch (e) {
+    console.warn('[WAL Log] Failed to persist WAL event:', e.message);
+  }
 }
 
 // GET /api/admin/wal-log - View recent WAL events (Super Admin)
-app.get('/api/admin/wal-log', requireSuperAdmin, (req, res) => {
-  res.json({ success: true, events: walEvents.slice().reverse() });
+app.get('/api/admin/wal-log', requireSuperAdmin, async (req, res) => {
+  try {
+    const events = await dataStore.readUserData(WAL_LOG_KEY, 'events') || [];
+    res.json({ success: true, events: events.slice().reverse() });
+  } catch (e) {
+    res.json({ success: true, events: [] });
+  }
 });
 
 // GET /api/admin/wal-restore/:workspaceId - Get last known good state from WAL (Super Admin)
@@ -1720,6 +1781,95 @@ app.post('/api/snapshots/:id/restore-key', requireSuperAdmin, async (req, res) =
     res.json({ success: true, restoredCount, userKey, dataTypes: dataType ? [dataType] : Object.keys(userData) });
   } catch (e) {
     console.error('[Snapshot Restore] Error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/snapshots/:id/restore-workspace/:workspaceId - Restore ONLY a specific workspace from a snapshot
+app.post('/api/snapshots/:id/restore-workspace/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const snapshotId = parseInt(req.params.id);
+    const wsId = req.params.workspaceId;
+    const sharedKey = `workspace_shared_${wsId}`;
+
+    // Get the snapshot data
+    const snapResult = await dataStore.pool.query(
+      'SELECT snapshot_data, status FROM data_snapshots WHERE id = $1',
+      [snapshotId]
+    );
+    if (snapResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Snapshot not found' });
+    }
+    if (snapResult.rows[0].status !== 'valid') {
+      return res.status(400).json({ success: false, error: 'Snapshot is not valid' });
+    }
+
+    const snapshotData = snapResult.rows[0].snapshot_data;
+    const wsData = snapshotData[sharedKey];
+    if (!wsData) {
+      return res.status(404).json({ success: false, error: `Workspace "${wsId}" not found in snapshot ${snapshotId}` });
+    }
+
+    // Restore all data types for this workspace (boards, task-details, etc.)
+    let restoredTypes = [];
+    for (const [dt, record] of Object.entries(wsData)) {
+      await dataStore.writeUserData(sharedKey, dt, record.data);
+      restoredTypes.push(dt);
+      console.log(`[Snapshot Restore] Workspace ${wsId}: restored ${dt} from snapshot #${snapshotId}`);
+    }
+
+    res.json({ success: true, workspaceId: wsId, snapshotId, restoredTypes });
+  } catch (e) {
+    console.error('[Snapshot Restore Workspace] Error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/snapshots/:id/preview-workspace/:workspaceId - Preview workspace data in a snapshot
+app.get('/api/snapshots/:id/preview-workspace/:workspaceId', requireSuperAdmin, async (req, res) => {
+  try {
+    const snapshotId = parseInt(req.params.id);
+    const wsId = req.params.workspaceId;
+    const sharedKey = `workspace_shared_${wsId}`;
+
+    const snapResult = await dataStore.pool.query(
+      'SELECT snapshot_data, status, created_at FROM data_snapshots WHERE id = $1',
+      [snapshotId]
+    );
+    if (snapResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Snapshot not found' });
+    }
+
+    const snapshotData = snapResult.rows[0].snapshot_data;
+    const wsData = snapshotData[sharedKey];
+    if (!wsData) {
+      return res.json({ success: true, found: false, workspaceId: wsId, snapshotId });
+    }
+
+    // Summarize boards data
+    const boardsRecord = wsData.boards;
+    let summary = { dataTypes: Object.keys(wsData) };
+    if (boardsRecord && boardsRecord.data) {
+      const bd = boardsRecord.data;
+      summary.boards = (bd.boards || []).map(b => ({ id: b.id, name: b.name }));
+      summary.totalTasks = 0;
+      summary.totalSubtasks = 0;
+      if (bd.boardGroups) {
+        for (const groups of Object.values(bd.boardGroups)) {
+          if (Array.isArray(groups)) {
+            for (const g of groups) {
+              summary.totalTasks += (g.tasks || []).length;
+              for (const t of (g.tasks || [])) {
+                summary.totalSubtasks += (t.subtasks || []).length;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, found: true, workspaceId: wsId, snapshotId, createdAt: snapResult.rows[0].created_at, summary });
+  } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -2647,7 +2797,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '71';
+const APP_VERSION = '72';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
