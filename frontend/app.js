@@ -9496,6 +9496,10 @@ function addTdpPendingFile(file) {
     
     tdpPendingFiles.push({ file, previewUrl, name: file.name, type: file.type, size: file.size });
     renderTdpFilePreview();
+    
+    // Focus back to message input so Enter key works
+    const inputEl = document.getElementById('tdpMessageInput');
+    if (inputEl) inputEl.focus();
 }
 
 function removeTdpPendingFile(index) {
@@ -10077,7 +10081,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '79';
+const CURRENT_APP_VERSION = '80';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
