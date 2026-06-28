@@ -3135,15 +3135,21 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
     
     for (const entry of tdpEntries) {
       const wsId = entry.user_key.replace('workspace_shared_', '') || 'unknown';
-      const data = await dataStore.readUserData(entry.user_key, entry.data_type);
-      if (!data || typeof data !== 'object') {
+      const rawData = await dataStore.readUserData(entry.user_key, entry.data_type);
+      if (!rawData || typeof rawData !== 'object') {
         console.log(`[Migration] Skipping ${entry.user_key}/${entry.data_type} — no data or not object`);
         continue;
       }
 
+      // TDP data structure: { messages: { taskId: [...] }, liked: {...}, privacy: {...} }
+      // OR legacy flat: { taskId: [...] }
+      const messagesMap = rawData.messages && typeof rawData.messages === 'object' 
+        ? rawData.messages 
+        : rawData;
+      
       let modified = false;
       
-      for (const [taskId, messages] of Object.entries(data)) {
+      for (const [taskId, messages] of Object.entries(messagesMap)) {
         if (!Array.isArray(messages)) continue;
         totalMessages += messages.length;
         
@@ -3172,7 +3178,11 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
       }
 
       if (modified) {
-        await dataStore.writeUserData(entry.user_key, entry.data_type, data);
+        // Write back the full structure (not just messages)
+        if (rawData.messages) {
+          rawData.messages = messagesMap;
+        }
+        await dataStore.writeUserData(entry.user_key, entry.data_type, rawData);
       }
     }
 
@@ -3185,7 +3195,7 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '81';
+const APP_VERSION = '82';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

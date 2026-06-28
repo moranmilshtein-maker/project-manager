@@ -4565,7 +4565,8 @@ async function migrateBase64ToR2() {
         const result = await res.json();
         
         if (result.success) {
-            resultDiv.innerHTML = `<span style="color:#00c875">✅ Migration complete! Migrated: ${result.migrated} images, Errors: ${result.errors}, Skipped: ${result.skipped}</span>`;
+            const dbg = result.debug ? ` (Found ${result.debug.tdpEntries} TDP records, ${result.debug.totalMessages} messages, ${result.debug.imagesFound} images)` : '';
+            resultDiv.innerHTML = `<span style="color:#00c875">✅ Migration complete! Migrated: ${result.migrated}, Errors: ${result.errors}, Skipped: ${result.skipped}${dbg}</span>`;
             loadStorageUsage(); // Refresh usage
         } else {
             resultDiv.innerHTML = `<span style="color:#e2445c">❌ ${result.error}</span>`;
@@ -10081,7 +10082,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '81';
+const CURRENT_APP_VERSION = '82';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
