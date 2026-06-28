@@ -9734,7 +9734,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '76';
+const CURRENT_APP_VERSION = '77';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
@@ -9797,7 +9797,7 @@ function startCollabStream() {
     
     collabStream.addEventListener('editing', (e) => {
         const data = JSON.parse(e.data);
-        if (data.userId === currentUser?.id) return; // Ignore self
+        if (String(data.userId) === String(currentUser?.id)) return; // Ignore self
         const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
         // Clear existing timeout
         const existing = collabEditingIndicators.get(key);
@@ -9822,7 +9822,7 @@ function startCollabStream() {
     
     collabStream.addEventListener('updated', (e) => {
         const data = JSON.parse(e.data);
-        if (data.userId === currentUser?.id) return;
+        if (String(data.userId) === String(currentUser?.id)) return;
         const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
         collabEditingIndicators.delete(key);
         removeCollabIndicator(data.taskId, data.subtaskId, data.field);

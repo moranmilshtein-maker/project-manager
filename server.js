@@ -2982,7 +2982,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '76';
+const APP_VERSION = '77';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
@@ -3065,7 +3065,7 @@ function broadcastToWorkspace(wsId, excludeUserId, eventName, data) {
   if (!conns) return;
   const msg = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const conn of conns) {
-    if (conn.userId !== excludeUserId) {
+    if (String(conn.userId) !== String(excludeUserId)) {
       try { conn.res.write(msg); } catch(e) {
         conns.delete(conn); // Dead connection
       }
