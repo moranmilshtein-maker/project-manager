@@ -64,11 +64,66 @@ function getAvatarHTML(user, size, extraClass) {
 function findMemberByOwnerName(ownerName) {
     if (!ownerName) return null;
     return cachedWorkspaceMembers.find(m => 
-        m.userName === ownerName || getInitials(m.userName || m.userEmail) === ownerName
+        m.userName === ownerName || m.userId === ownerName || getInitials(m.userName || m.userEmail) === ownerName
     ) || null;
 }
 
-// Helper: Get avatar for "Owner" column - shows profile picture if available
+// Helper: Get owners array from task (backward compat with old single-owner string)
+function getTaskOwners(task) {
+    if (!task) return [];
+    if (task.owners && Array.isArray(task.owners)) return task.owners;
+    // Backward compat: migrate single owner string
+    if (task.owner) {
+        const member = findMemberByOwnerName(task.owner);
+        if (member) return [{ id: member.userId, name: member.userName || member.userEmail, picture: member.picture || '' }];
+        return [{ id: '', name: task.owner, picture: '' }];
+    }
+    return [];
+}
+
+// Helper: Get avatar for "Owner" column - shows stacked avatars for multi-owner
+function getOwnersAvatarsHTML(task, clickAttr, extraClass) {
+    extraClass = extraClass || '';
+    const owners = getTaskOwners(task);
+    if (owners.length === 0) {
+        return `<div class="owner-avatar no-owner ${extraClass}" ${clickAttr} title="Assign this task"><span class="owner-plus-icon">+</span></div>`;
+    }
+    if (owners.length === 1) {
+        const o = owners[0];
+        const member = o.id ? cachedWorkspaceMembers.find(m => m.userId === o.id) : findMemberByOwnerName(o.name);
+        const displayName = member ? (member.userName || member.userEmail || o.name) : o.name;
+        const pic = member?.picture || o.picture;
+        const initials = escapeHtml(getInitials(displayName));
+        if (pic) {
+            return `<div class="owner-avatar has-owner ${extraClass}" ${clickAttr} title="${escapeHtml(displayName)}"><img src="${pic}" class="owner-avatar-img" referrerpolicy="no-referrer" onerror="this.outerHTML='${initials}'"></div>`;
+        }
+        return `<div class="owner-avatar has-owner ${extraClass}" ${clickAttr} title="${escapeHtml(displayName)}">${initials}</div>`;
+    }
+    // Multiple owners — stacked avatars
+    const maxShow = 2;
+    const shown = owners.slice(0, maxShow);
+    const remaining = owners.length - maxShow;
+    let html = `<div class="owners-stack ${extraClass}" ${clickAttr} title="${owners.map(o => o.name).join(', ')}">`;
+    shown.forEach((o, i) => {
+        const member = o.id ? cachedWorkspaceMembers.find(m => m.userId === o.id) : findMemberByOwnerName(o.name);
+        const displayName = member ? (member.userName || member.userEmail || o.name) : o.name;
+        const pic = member?.picture || o.picture;
+        const initials = escapeHtml(getInitials(displayName));
+        const offset = i * 14;
+        if (pic) {
+            html += `<div class="owner-stack-item" style="margin-left:${i > 0 ? '-8px' : '0'}"><img src="${pic}" class="owner-avatar-img" referrerpolicy="no-referrer" onerror="this.outerHTML='${initials}'"></div>`;
+        } else {
+            html += `<div class="owner-stack-item" style="margin-left:${i > 0 ? '-8px' : '0'}">${initials}</div>`;
+        }
+    });
+    if (remaining > 0) {
+        html += `<div class="owner-stack-item owner-stack-more" style="margin-left:-8px">+${remaining}</div>`;
+    }
+    html += '</div>';
+    return html;
+}
+
+// Keep old function as backward-compat wrapper
 function getOwnerAvatarHTML(ownerName, clickAttr, extraClass) {
     extraClass = extraClass || '';
     if (!ownerName) return `<div class="owner-avatar no-owner ${extraClass}" ${clickAttr} title="Assign this task"><span class="owner-plus-icon">+</span></div>`;
@@ -1836,7 +1891,7 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
                 </div>
             </td>`;
         case 'owner': return `<td class="cell-owner">
-                ${getOwnerAvatarHTML(task.owner, !isViewer ? `onclick="toggleOwner(event, '${taskIdStr}', '${groupIdStr}')"` : '')}
+                ${getOwnersAvatarsHTML(task, !isViewer ? `onclick="toggleOwner(event, '${taskIdStr}', '${groupIdStr}')"` : '')}
             </td>`;
         case 'status': return `<td class="cell-status">
                 <div class="status-label" style="background:${status.color}"
@@ -2064,7 +2119,7 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
                 </div>
             </td>`;
         case 'owner': return `<td class="cell-owner">
-                ${getOwnerAvatarHTML(sub.owner, !isViewer ? `onclick="toggleSubtaskOwner(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : '', 'subtask-avatar')}
+                ${getOwnersAvatarsHTML(sub, !isViewer ? `onclick="toggleSubtaskOwner(event, '${subIdStr}', '${taskIdStr}', '${groupIdStr}')"` : '', 'subtask-avatar')}
             </td>`;
         case 'status': return `<td class="cell-status">
                 <div class="status-label subtask-status-label" style="background:${subStatus.color}"
@@ -2284,7 +2339,7 @@ function showSubtaskStatusDropdown(event, subtaskId, taskId, groupId) {
 function setSubtaskStatus(subtaskId, taskId, groupId, statusId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.status = statusId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); }
+    if (subtask) { subtask.status = statusId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); sendCollabDone(taskId, subtaskId, 'status', statusId, subtask.name); }
 }
 
 // Edit subtask date
@@ -2558,6 +2613,9 @@ function setTaskStatus(taskId, groupId, statusId) {
         markUpdated(task);
         saveToStorage();
         renderBoard();
+        // Send collab done signal
+        const statusLabel = (STATUS_OPTIONS.find(s => s.id === statusId) || {}).label || statusId;
+        sendCollabDone(taskId, null, 'status', statusLabel, task.name);
         // Trigger status change notification
         if (oldStatus !== statusId && currentUser) {
             const statusInfo = STATUS_OPTIONS.find(s => s.id === statusId) || { label: statusId };
@@ -3159,6 +3217,8 @@ function showAppScreen() {
     processPendingInvite();
     // Start mention polling
     startMentionPolling();
+    // Start real-time collaboration stream
+    startCollabStream();
 }
 
 function showLoginForm() {
@@ -3656,13 +3716,24 @@ function saveToServer() {
         if (!authToken) return;
         try {
             const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+            const savePayload = { ...boardData, _baseVersion: boardData._savedAt || '' };
             const res = await authFetch('/api/user-data/boards' + wsParam, {
                 method: 'PUT',
-                body: JSON.stringify({ data: boardData })
+                body: JSON.stringify({ data: savePayload })
             });
             const result = await res.json();
             if (result.blocked) {
                 console.warn('[Save] Server blocked save:', result.reason || 'empty data protection');
+            } else if (result.mergedData) {
+                // Server merged our data with newer server data — update local state
+                const oldActive = boardData.activeBoard;
+                boardData = result.mergedData;
+                boardData.activeBoard = oldActive; // Keep client's active board
+                initBoardGroups();
+                renderBoard();
+                renderBoardSidebar();
+                try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch(e) {}
+                console.log('[Save] Server merged data — local state updated');
             }
         } catch (e) { console.error('[Save] Failed:', e.message); }
     }, 1000);
@@ -6901,22 +6972,22 @@ function renderOwnerPopupList(filter) {
         return;
     }
     
-    // Add "Unassign" option at top if task already has owner
+    // Get current owners for the target task
+    const currentOwners = getCurrentOwnersForTarget();
+    const currentIds = new Set(currentOwners.map(o => o.id));
+    const currentNames = new Set(currentOwners.map(o => o.name));
+    
     let html = '';
-    const currentOwner = getCurrentOwnerForTarget();
-    if (currentOwner) {
-        html += `<div class="owner-popup-item unassign-item" onclick="assignOwner(null)">
-            <div class="owner-popup-avatar unassign-avatar"><span class="material-icons-outlined" style="font-size:14px">close</span></div>
-            <div class="owner-popup-info"><span class="owner-popup-name">Unassign</span></div>
-        </div>`;
-    }
     
     members.forEach(m => {
         const initials = getInitials(m.userName || m.userEmail || '?');
         const avatarHtml = m.picture 
             ? `<img src="${m.picture}" class="owner-popup-avatar" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'owner-popup-avatar\\'>${initials}</div>'">`
             : `<div class="owner-popup-avatar">${initials}</div>`;
-        html += `<div class="owner-popup-item" onclick="assignOwner('${escapeHtml(m.userId)}')">
+        const isSelected = currentIds.has(m.userId) || currentNames.has(m.userName);
+        const checkClass = isSelected ? 'owner-checkbox checked' : 'owner-checkbox';
+        html += `<div class="owner-popup-item ${isSelected ? 'selected' : ''}" onclick="toggleOwnerSelection('${escapeHtml(m.userId)}')">
+            <div class="${checkClass}"><span class="material-icons-outlined" style="font-size:14px">${isSelected ? 'check_box' : 'check_box_outline_blank'}</span></div>
             ${avatarHtml}
             <div class="owner-popup-info">
                 <span class="owner-popup-name">${escapeHtml(m.userName || 'Unknown')}</span>
@@ -6928,17 +6999,74 @@ function renderOwnerPopupList(filter) {
     container.innerHTML = html;
 }
 
-function getCurrentOwnerForTarget() {
-    if (!ownerPopupTarget) return null;
+function getCurrentOwnersForTarget() {
+    if (!ownerPopupTarget) return [];
     const { taskId, groupId, subtaskId } = ownerPopupTarget;
     if (subtaskId) {
         const { subtask } = findSubtask(subtaskId, taskId, groupId);
-        return subtask ? subtask.owner : null;
+        return subtask ? getTaskOwners(subtask) : [];
     }
     const { task } = findTask(taskId, groupId);
-    return task ? task.owner : null;
+    return task ? getTaskOwners(task) : [];
 }
 
+function toggleOwnerSelection(userId) {
+    if (!ownerPopupTarget) return;
+    const { taskId, groupId, subtaskId } = ownerPopupTarget;
+    
+    const member = cachedWorkspaceMembers.find(m => m.userId === userId);
+    if (!member) return;
+    
+    let targetItem;
+    let parentTask;
+    if (subtaskId) {
+        const result = findSubtask(subtaskId, taskId, groupId);
+        targetItem = result.subtask;
+        parentTask = result.task;
+    } else {
+        const result = findTask(taskId, groupId);
+        targetItem = result.task;
+    }
+    if (!targetItem) return;
+    
+    // Ensure owners array exists
+    if (!targetItem.owners || !Array.isArray(targetItem.owners)) {
+        targetItem.owners = getTaskOwners(targetItem);
+    }
+    
+    // Toggle this member
+    const idx = targetItem.owners.findIndex(o => o.id === userId);
+    if (idx >= 0) {
+        // Remove
+        targetItem.owners.splice(idx, 1);
+    } else {
+        // Add
+        targetItem.owners.push({
+            id: member.userId,
+            name: member.userName || member.userEmail || '?',
+            picture: member.picture || ''
+        });
+    }
+    
+    // Sync legacy owner field (first owner name for backward compat)
+    targetItem.owner = targetItem.owners.length > 0 ? targetItem.owners[0].name : '';
+    
+    markUpdated(targetItem);
+    if (parentTask) markUpdated(parentTask);
+    
+    // Re-render popup list (checkboxes update)
+    const searchVal = document.getElementById('ownerSearchInput')?.value || '';
+    renderOwnerPopupList(searchVal.toLowerCase().trim());
+    
+    // Re-render board
+    saveToStorage();
+    renderBoard();
+    // Send collab done signal for owner change
+    const ownerNames = targetItem.owners.map(o => o.name).join(', ');
+    sendCollabDone(taskId, subtaskId || null, 'owner', ownerNames, targetItem.name);
+}
+
+// Legacy function kept for any remaining references
 function assignOwner(userId) {
     if (!ownerPopupTarget) return;
     const { taskId, groupId, subtaskId } = ownerPopupTarget;
@@ -6955,6 +7083,7 @@ function assignOwner(userId) {
         const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
         if (subtask) {
             subtask.owner = ownerValue;
+            subtask.owners = ownerValue ? [{ id: userId, name: ownerValue, picture: '' }] : [];
             markUpdated(subtask);
             markUpdated(task);
         }
@@ -6962,6 +7091,7 @@ function assignOwner(userId) {
         const { task } = findTask(taskId, groupId);
         if (task) {
             task.owner = ownerValue;
+            task.owners = ownerValue ? [{ id: userId, name: ownerValue, picture: '' }] : [];
             markUpdated(task);
         }
     }
@@ -7121,6 +7251,9 @@ async function switchWorkspace(workspaceId) {
     
     // Reload TDP data for the new workspace
     loadTdpDataFromServer();
+    
+    // Restart collab stream for new workspace
+    startCollabStream();
     
     // Refresh workspace list UI
     await loadWorkspaces();
@@ -8681,19 +8814,19 @@ function openTdpOwnerPicker(event) {
     picker.className = 'tdp-owner-picker';
     
     const members = cachedWorkspaceMembers || [];
+    const currentOwners = tdpCurrentTask ? getTaskOwners(tdpCurrentTask) : [];
+    const currentIds = new Set(currentOwners.map(o => o.id));
+    
     let html = members.map(m => {
-        const pic = m.picture ? `<img src="${m.picture}" alt="">` : escapeHtml(getInitials(m.name || m.email));
-        return `<div class="tdp-owner-picker-item" onclick="selectTdpOwner('${escapeHtml(m.name || m.email)}')">
+        const pic = m.picture ? `<img src="${m.picture}" alt="" referrerpolicy="no-referrer">` : escapeHtml(getInitials(m.userName || m.userEmail));
+        const isSelected = currentIds.has(m.userId);
+        const checkIcon = isSelected ? 'check_box' : 'check_box_outline_blank';
+        return `<div class="tdp-owner-picker-item ${isSelected ? 'selected' : ''}" onclick="toggleTdpOwner('${escapeHtml(m.userId)}')">
+            <span class="material-icons-outlined" style="font-size:16px;color:${isSelected ? '#0073ea' : '#999'}">${checkIcon}</span>
             <div class="owner-pic">${pic}</div>
-            <span>${escapeHtml(m.name || m.email)}</span>
+            <span>${escapeHtml(m.userName || m.userEmail)}</span>
         </div>`;
     }).join('');
-    
-    // Add "Remove owner" option
-    html += `<div class="tdp-owner-picker-item" onclick="selectTdpOwner('')" style="color:var(--text-muted)">
-        <div class="owner-pic" style="background:#ccc"><span class="material-icons-outlined" style="font-size:14px;color:#fff">close</span></div>
-        <span>No owner</span>
-    </div>`;
     
     picker.innerHTML = html;
     
@@ -8714,9 +8847,46 @@ function openTdpOwnerPicker(event) {
     }, 10);
 }
 
+function toggleTdpOwner(userId) {
+    if (!tdpCurrentTask) return;
+    const member = cachedWorkspaceMembers.find(m => m.userId === userId);
+    if (!member) return;
+    
+    if (!tdpCurrentTask.owners || !Array.isArray(tdpCurrentTask.owners)) {
+        tdpCurrentTask.owners = getTaskOwners(tdpCurrentTask);
+    }
+    
+    const idx = tdpCurrentTask.owners.findIndex(o => o.id === userId);
+    if (idx >= 0) {
+        tdpCurrentTask.owners.splice(idx, 1);
+    } else {
+        tdpCurrentTask.owners.push({
+            id: member.userId,
+            name: member.userName || member.userEmail || '?',
+            picture: member.picture || ''
+        });
+    }
+    
+    // Sync legacy field
+    tdpCurrentTask.owner = tdpCurrentTask.owners.length > 0 ? tdpCurrentTask.owners[0].name : '';
+    markUpdated(tdpCurrentTask);
+    
+    // Re-render picker inline (update checkboxes)
+    document.querySelectorAll('.tdp-owner-picker').forEach(el => el.remove());
+    renderTaskDetailsPanel();
+    renderBoard();
+    saveToStorage();
+}
+
 function selectTdpOwner(ownerName) {
     if (!tdpCurrentTask) return;
     tdpCurrentTask.owner = ownerName;
+    if (ownerName) {
+        const member = findMemberByOwnerName(ownerName);
+        tdpCurrentTask.owners = [{ id: member?.userId || '', name: ownerName, picture: member?.picture || '' }];
+    } else {
+        tdpCurrentTask.owners = [];
+    }
     markUpdated(tdpCurrentTask);
     document.querySelectorAll('.tdp-owner-picker').forEach(el => el.remove());
     renderTaskDetailsPanel();
@@ -9532,7 +9702,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '72';
+const CURRENT_APP_VERSION = '73';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
@@ -9581,3 +9751,160 @@ setTimeout(() => {
     checkForUpdates();
     setInterval(checkForUpdates, VERSION_CHECK_INTERVAL);
 }, 5000); // Wait 5 seconds after page load before first check
+
+// ===== REAL-TIME COLLABORATION (SSE) =====
+let collabStream = null;
+let collabEditingIndicators = new Map(); // `${taskId}:${field}` -> {userName, picture, timeout}
+
+function startCollabStream() {
+    if (collabStream) { collabStream.close(); collabStream = null; }
+    if (!authToken || !activeWorkspaceId) return;
+    
+    const url = `/api/collab/stream?workspaceId=${activeWorkspaceId}&token=${authToken}`;
+    collabStream = new EventSource(url);
+    
+    collabStream.addEventListener('editing', (e) => {
+        const data = JSON.parse(e.data);
+        if (data.userId === currentUser?.id) return; // Ignore self
+        const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
+        // Clear existing timeout
+        const existing = collabEditingIndicators.get(key);
+        if (existing && existing.timeout) clearTimeout(existing.timeout);
+        // Set indicator with auto-expire
+        const timeout = setTimeout(() => {
+            collabEditingIndicators.delete(key);
+            removeCollabIndicator(data.taskId, data.subtaskId, data.field);
+        }, 30000);
+        collabEditingIndicators.set(key, { userName: data.userName, picture: data.picture, timeout });
+        showCollabIndicator(data.taskId, data.subtaskId, data.field, data.userName, data.picture);
+    });
+    
+    collabStream.addEventListener('editing_stopped', (e) => {
+        const data = JSON.parse(e.data);
+        const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
+        const existing = collabEditingIndicators.get(key);
+        if (existing && existing.timeout) clearTimeout(existing.timeout);
+        collabEditingIndicators.delete(key);
+        removeCollabIndicator(data.taskId, data.subtaskId, data.field);
+    });
+    
+    collabStream.addEventListener('updated', (e) => {
+        const data = JSON.parse(e.data);
+        if (data.userId === currentUser?.id) return;
+        const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
+        collabEditingIndicators.delete(key);
+        removeCollabIndicator(data.taskId, data.subtaskId, data.field);
+        showCollabToast(data.userName, data.picture, data.field, data.newValue, data.taskName);
+    });
+    
+    collabStream.onerror = () => {
+        // Auto-reconnect is built into EventSource
+        console.warn('[Collab] SSE connection error, will auto-reconnect');
+    };
+}
+
+function stopCollabStream() {
+    if (collabStream) { collabStream.close(); collabStream = null; }
+    collabEditingIndicators.clear();
+}
+
+// Send editing signal when user starts editing a field
+function sendCollabEditing(taskId, subtaskId, field, boardId, groupId) {
+    if (!authToken || !activeWorkspaceId) return;
+    authFetch('/api/collab/editing', {
+        method: 'POST',
+        body: JSON.stringify({ workspaceId: activeWorkspaceId, taskId, subtaskId: subtaskId || null, field, boardId, groupId })
+    }).catch(() => {});
+}
+
+// Send done signal when user finishes editing
+function sendCollabDone(taskId, subtaskId, field, newValue, taskName) {
+    if (!authToken || !activeWorkspaceId) return;
+    authFetch('/api/collab/done', {
+        method: 'POST',
+        body: JSON.stringify({ workspaceId: activeWorkspaceId, taskId, subtaskId: subtaskId || null, field, newValue, taskName })
+    }).catch(() => {});
+}
+
+// UI: Show editing indicator on a cell
+function showCollabIndicator(taskId, subtaskId, field, userName, picture) {
+    const cellSelector = subtaskId 
+        ? `tr[data-subtask-id="${subtaskId}"] td.cell-${field}`
+        : `tr[data-task-id="${taskId}"] td.cell-${field}`;
+    const cell = document.querySelector(cellSelector);
+    if (!cell) return;
+    
+    // Add indicator
+    cell.classList.add('collab-editing');
+    let indicator = cell.querySelector('.collab-indicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.className = 'collab-indicator';
+        cell.style.position = 'relative';
+        cell.appendChild(indicator);
+    }
+    const initials = getInitials(userName);
+    if (picture) {
+        indicator.innerHTML = `<img src="${picture}" class="collab-indicator-img" referrerpolicy="no-referrer" title="${escapeHtml(userName)} is editing...">`;
+    } else {
+        indicator.innerHTML = `<span class="collab-indicator-initials" title="${escapeHtml(userName)} is editing...">${initials}</span>`;
+    }
+}
+
+// UI: Remove editing indicator
+function removeCollabIndicator(taskId, subtaskId, field) {
+    const cellSelector = subtaskId 
+        ? `tr[data-subtask-id="${subtaskId}"] td.cell-${field}`
+        : `tr[data-task-id="${taskId}"] td.cell-${field}`;
+    const cell = document.querySelector(cellSelector);
+    if (!cell) return;
+    cell.classList.remove('collab-editing');
+    const indicator = cell.querySelector('.collab-indicator');
+    if (indicator) indicator.remove();
+}
+
+// UI: Show toast notification when another user updates something
+function showCollabToast(userName, picture, field, newValue, taskName) {
+    const container = document.getElementById('collabToasts') || createCollabToastContainer();
+    
+    const toast = document.createElement('div');
+    toast.className = 'collab-toast';
+    
+    const initials = getInitials(userName);
+    const avatarHtml = picture 
+        ? `<img src="${picture}" class="collab-toast-avatar" referrerpolicy="no-referrer">`
+        : `<div class="collab-toast-avatar collab-toast-initials">${initials}</div>`;
+    
+    const fieldLabel = field === 'owner' ? 'Owner' : field === 'status' ? 'Status' : field === 'name' ? 'Title' : field;
+    const valueDisplay = newValue ? ` → "${String(newValue).substring(0, 30)}"` : '';
+    const taskDisplay = taskName ? ` in "${String(taskName).substring(0, 25)}"` : '';
+    
+    toast.innerHTML = `
+        ${avatarHtml}
+        <div class="collab-toast-content">
+            <strong>${escapeHtml(userName)}</strong> updated ${fieldLabel}${valueDisplay}${taskDisplay}
+        </div>
+        <button class="collab-toast-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Auto-remove after 5s
+    setTimeout(() => {
+        toast.classList.add('collab-toast-exit');
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+    
+    // Max 3 toasts
+    while (container.children.length > 3) {
+        container.firstChild.remove();
+    }
+}
+
+function createCollabToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'collabToasts';
+    container.className = 'collab-toast-container';
+    document.body.appendChild(container);
+    return container;
+}

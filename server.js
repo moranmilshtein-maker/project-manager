@@ -1142,13 +1142,183 @@ app.get('/api/user-data/boards', async (req, res) => {
   }
 });
 
+// ===== SERVER-SIDE MERGE LOGIC =====
+// Merges incoming board data with existing server data based on timestamps
+function mergeWorkspaceData(serverData, clientData, clientBaseVersion) {
+  // If server hasn't changed since client loaded (or no server data), no merge needed
+  if (!serverData || !serverData._savedAt || !clientBaseVersion) return clientData;
+  if (serverData._savedAt <= clientBaseVersion) return clientData;
+  
+  // Server is newer than client's base — need to merge
+  console.log(`[Merge] Server _savedAt=${serverData._savedAt} > client baseVersion=${clientBaseVersion}, performing merge`);
+  
+  const merged = JSON.parse(JSON.stringify(serverData)); // Start with server data
+  
+  // Merge boards array — keep server boards + any new boards from client
+  const serverBoardIds = new Set((serverData.boards || []).map(b => b.id));
+  const clientBoards = clientData.boards || [];
+  for (const cb of clientBoards) {
+    if (!serverBoardIds.has(cb.id)) {
+      // New board from client (created after baseVersion)
+      merged.boards = merged.boards || [];
+      merged.boards.push(cb);
+    }
+  }
+  
+  // Merge boardGroups — this is where tasks live
+  const serverBG = serverData.boardGroups || {};
+  const clientBG = clientData.boardGroups || {};
+  
+  for (const [boardId, clientGroups] of Object.entries(clientBG)) {
+    if (!Array.isArray(clientGroups)) continue;
+    
+    if (!serverBG[boardId]) {
+      // Entire board is new from client
+      merged.boardGroups[boardId] = clientGroups;
+      continue;
+    }
+    
+    const serverGroups = serverBG[boardId];
+    merged.boardGroups[boardId] = mergeGroups(serverGroups, clientGroups, clientBaseVersion);
+  }
+  
+  // Keep server boards/groups that client doesn't have (added by other users)
+  // Already done since we start with serverData
+  
+  // Copy activeBoard from client (UI preference)
+  merged.activeBoard = clientData.activeBoard || serverData.activeBoard;
+  
+  return merged;
+}
+
+function mergeGroups(serverGroups, clientGroups, baseVersion) {
+  const result = [];
+  const serverGroupMap = new Map(serverGroups.map(g => [g.id, g]));
+  const clientGroupMap = new Map(clientGroups.map(g => [g.id, g]));
+  const processedIds = new Set();
+  
+  // Process all server groups first (preserve server order)
+  for (const sg of serverGroups) {
+    processedIds.add(sg.id);
+    const cg = clientGroupMap.get(sg.id);
+    if (cg) {
+      // Group exists in both — merge tasks inside
+      const mergedGroup = { ...sg };
+      mergedGroup.tasks = mergeTasks(sg.tasks || [], cg.tasks || [], baseVersion);
+      // Take client's collapsed/name if client changed them (after baseVersion)
+      if (cg.name !== sg.name) mergedGroup.name = cg.name; // Client renamed
+      if (cg.collapsed !== sg.collapsed) mergedGroup.collapsed = cg.collapsed;
+      if (cg.color !== sg.color) mergedGroup.color = cg.color;
+      result.push(mergedGroup);
+    } else {
+      // Group exists only in server — keep it (added by others OR client deleted it)
+      // If client has baseVersion and this group existed before, client may have deleted it
+      // But we prioritize keeping data (safer) — deletions should be explicit via a flag
+      result.push(sg);
+    }
+  }
+  
+  // Add client-only groups (new groups created by client)
+  for (const cg of clientGroups) {
+    if (!processedIds.has(cg.id)) {
+      // Check if any task inside has lastUpdated > baseVersion (confirming it's new)
+      const hasNewContent = (cg.tasks || []).some(t => t.lastUpdated && t.lastUpdated > baseVersion);
+      if (hasNewContent || !baseVersion) {
+        result.push(cg);
+      }
+      // If all tasks are old (<=baseVersion), skip — likely a deleted-then-recreated from stale data
+    }
+  }
+  
+  return result;
+}
+
+function mergeTasks(serverTasks, clientTasks, baseVersion) {
+  const result = [];
+  const serverTaskMap = new Map(serverTasks.map(t => [String(t.id), t]));
+  const clientTaskMap = new Map(clientTasks.map(t => [String(t.id), t]));
+  const processedIds = new Set();
+  
+  // Process all server tasks first
+  for (const st of serverTasks) {
+    const stId = String(st.id);
+    processedIds.add(stId);
+    const ct = clientTaskMap.get(stId);
+    if (ct) {
+      // Task exists in both — keep the one with newer lastUpdated
+      const serverTime = st.lastUpdated || '';
+      const clientTime = ct.lastUpdated || '';
+      if (clientTime > serverTime) {
+        // Client has newer version — use client's, but merge subtasks
+        const mergedTask = { ...ct };
+        mergedTask.subtasks = mergeSubtasks(st.subtasks || [], ct.subtasks || [], baseVersion);
+        result.push(mergedTask);
+      } else {
+        // Server has newer or equal — keep server's, merge subtasks
+        const mergedTask = { ...st };
+        mergedTask.subtasks = mergeSubtasks(st.subtasks || [], ct.subtasks || [], baseVersion);
+        result.push(mergedTask);
+      }
+    } else {
+      // Task only in server — keep (added by others)
+      result.push(st);
+    }
+  }
+  
+  // Add client-only tasks (new tasks created by this client)
+  for (const ct of clientTasks) {
+    const ctId = String(ct.id);
+    if (!processedIds.has(ctId)) {
+      // Only add if lastUpdated > baseVersion (truly new, not stale)
+      if (ct.lastUpdated && ct.lastUpdated > baseVersion) {
+        result.push(ct);
+      }
+      // If lastUpdated <= baseVersion, it means this task existed before but was deleted on server
+    }
+  }
+  
+  return result;
+}
+
+function mergeSubtasks(serverSubs, clientSubs, baseVersion) {
+  const result = [];
+  const serverMap = new Map(serverSubs.map(s => [String(s.id), s]));
+  const clientMap = new Map(clientSubs.map(s => [String(s.id), s]));
+  const processedIds = new Set();
+  
+  for (const ss of serverSubs) {
+    const ssId = String(ss.id);
+    processedIds.add(ssId);
+    const cs = clientMap.get(ssId);
+    if (cs) {
+      // Exists in both — newer wins
+      const serverTime = ss.lastUpdated || '';
+      const clientTime = cs.lastUpdated || '';
+      result.push(clientTime > serverTime ? cs : ss);
+    } else {
+      result.push(ss);
+    }
+  }
+  
+  // Client-only subtasks (new)
+  for (const cs of clientSubs) {
+    if (!processedIds.has(String(cs.id))) {
+      if (cs.lastUpdated && cs.lastUpdated > baseVersion) {
+        result.push(cs);
+      }
+    }
+  }
+  
+  return result;
+}
+
 // PUT /api/user-data/boards - Save board data (SHARED per workspace)
 app.put('/api/user-data/boards', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const key = sessions.get(token);
   if (!key) return res.status(401).json({ error: 'Not authenticated' });
 
-  const { data } = req.body;
+  let { data } = req.body;
   if (!data) return res.status(400).json({ error: 'data is required' });
 
   const user = users.get(key);
@@ -1234,11 +1404,12 @@ app.put('/api/user-data/boards', async (req, res) => {
     data._savedAt = new Date().toISOString();
     
     // WAL: Save previous state before overwriting (write-ahead log for disaster recovery)
+    let existingData = null;
     try {
-      const previousData = await dataStore.readUserData(sharedKey, 'boards');
-      if (previousData && previousData.boardGroups) {
+      existingData = await dataStore.readUserData(sharedKey, 'boards');
+      if (existingData && existingData.boardGroups) {
         await dataStore.writeUserData(sharedKey, 'boards_wal', {
-          previousData,
+          previousData: existingData,
           overwrittenBy: user.email || key,
           overwrittenAt: new Date().toISOString(),
           reason: 'normal_save'
@@ -1248,6 +1419,20 @@ app.put('/api/user-data/boards', async (req, res) => {
       console.warn('[WAL] Failed to write WAL entry:', walErr.message);
       // Don't block the save if WAL fails
     }
+    
+    // SERVER-SIDE MERGE: If client sends _baseVersion, merge instead of overwrite
+    if (data._baseVersion && existingData && existingData._savedAt) {
+      if (existingData._savedAt > data._baseVersion) {
+        // Server has been updated since client last loaded — MERGE
+        const mergedData = mergeWorkspaceData(existingData, data, data._baseVersion);
+        mergedData._savedAt = data._savedAt; // Update timestamp
+        delete mergedData._baseVersion;
+        data = mergedData;
+        console.log(`[Merge] Merged save for workspace ${wsId} by ${user.email}`);
+      }
+    }
+    // Remove _baseVersion from stored data
+    delete data._baseVersion;
     
     // CLEANUP: Remove stale boardGroups keys on save
     if (data.boardGroups && data.boards) {
@@ -1262,7 +1447,7 @@ app.put('/api/user-data/boards', async (req, res) => {
     
     const success = await dataStore.writeUserData(sharedKey, 'boards', data);
     if (success) {
-      res.json({ success: true });
+      res.json({ success: true, mergedData: data });
     } else {
       res.status(500).json({ error: 'Failed to save data' });
     }
@@ -2797,7 +2982,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '72';
+const APP_VERSION = '73';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
@@ -2821,6 +3006,124 @@ app.get('*', (req, res, next) => {
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+});
+
+// ===== REAL-TIME COLLABORATION (SSE) =====
+const collabConnections = new Map(); // workspaceId -> Set<{userId, userName, picture, res}>
+const collabEditing = new Map(); // `${workspaceId}:${taskId}:${field}` -> {userId, userName, picture, timestamp}
+
+// SSE Stream — each connected user gets real-time events
+app.get('/api/collab/stream', (req, res) => {
+  const token = req.query.token || (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+  
+  const user = users.get(key);
+  const wsId = req.query.workspaceId;
+  if (!wsId || !isWorkspaceMember(user.id, wsId)) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
+  
+  // SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  
+  // Send initial connection event
+  res.write(`event: connected\ndata: ${JSON.stringify({ userId: user.id, timestamp: Date.now() })}\n\n`);
+  
+  // Register connection
+  if (!collabConnections.has(wsId)) collabConnections.set(wsId, new Set());
+  const conn = { userId: user.id, userName: user.fullName || user.email, picture: user.picture || '', res };
+  collabConnections.get(wsId).add(conn);
+  
+  // Keep-alive ping every 30s
+  const keepAlive = setInterval(() => {
+    try { res.write(': keepalive\n\n'); } catch(e) { clearInterval(keepAlive); }
+  }, 30000);
+  
+  // Cleanup on disconnect
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    const conns = collabConnections.get(wsId);
+    if (conns) conns.delete(conn);
+    // Clear any editing indicators for this user
+    for (const [editKey, info] of collabEditing.entries()) {
+      if (info.userId === user.id && editKey.startsWith(wsId + ':')) {
+        collabEditing.delete(editKey);
+        broadcastToWorkspace(wsId, user.id, 'editing_stopped', { taskId: info.taskId, field: info.field, userId: user.id });
+      }
+    }
+  });
+});
+
+function broadcastToWorkspace(wsId, excludeUserId, eventName, data) {
+  const conns = collabConnections.get(wsId);
+  if (!conns) return;
+  const msg = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const conn of conns) {
+    if (conn.userId !== excludeUserId) {
+      try { conn.res.write(msg); } catch(e) {
+        conns.delete(conn); // Dead connection
+      }
+    }
+  }
+}
+
+// POST /api/collab/editing — user started editing a field
+app.post('/api/collab/editing', (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+  
+  const user = users.get(key);
+  const { workspaceId, taskId, subtaskId, field, boardId, groupId } = req.body;
+  if (!workspaceId || !taskId || !field) return res.status(400).json({ error: 'Missing fields' });
+  
+  const editKey = `${workspaceId}:${taskId}:${subtaskId || ''}:${field}`;
+  collabEditing.set(editKey, {
+    userId: user.id, userName: user.fullName || user.email, picture: user.picture || '',
+    taskId, subtaskId, field, timestamp: Date.now()
+  });
+  
+  broadcastToWorkspace(workspaceId, user.id, 'editing', {
+    userId: user.id, userName: user.fullName || user.email, picture: user.picture || '',
+    taskId, subtaskId, field, boardId, groupId
+  });
+  
+  // Auto-expire after 30s
+  setTimeout(() => {
+    if (collabEditing.has(editKey) && collabEditing.get(editKey).userId === user.id) {
+      collabEditing.delete(editKey);
+      broadcastToWorkspace(workspaceId, user.id, 'editing_stopped', { taskId, subtaskId, field, userId: user.id });
+    }
+  }, 30000);
+  
+  res.json({ success: true });
+});
+
+// POST /api/collab/done — user finished editing
+app.post('/api/collab/done', (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+  
+  const user = users.get(key);
+  const { workspaceId, taskId, subtaskId, field, newValue, taskName } = req.body;
+  if (!workspaceId || !taskId || !field) return res.status(400).json({ error: 'Missing fields' });
+  
+  const editKey = `${workspaceId}:${taskId}:${subtaskId || ''}:${field}`;
+  collabEditing.delete(editKey);
+  
+  broadcastToWorkspace(workspaceId, user.id, 'updated', {
+    userId: user.id, userName: user.fullName || user.email, picture: user.picture || '',
+    taskId, subtaskId, field, newValue, taskName, timestamp: Date.now()
+  });
+  
+  res.json({ success: true });
 });
 
 app.use((req, res) => {
