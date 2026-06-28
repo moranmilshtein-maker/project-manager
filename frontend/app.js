@@ -1169,6 +1169,8 @@ function canEdit() {
 function renderBoard() {
     const container = document.getElementById('tableContent');
     if (!container) return;
+    // If there's an active inline edit input, DON'T re-render (would destroy user's input)
+    if (document.querySelector('.inline-edit-input:focus')) return;
     activeAddTaskInputs.clear();
 
     // Update board title to match active board
@@ -2218,7 +2220,7 @@ function addSubtaskFromRow(taskId, groupId) {
         task.subtasksExpanded = true;
         renderBoard();
     }
-    setTimeout(() => addSubtaskInline(taskId, groupId), 50);
+    setTimeout(() => addSubtaskInline(taskId, groupId), 150);
 }
 
 // Add subtask inline
@@ -2277,8 +2279,8 @@ function addSubtaskInline(taskId, groupId) {
         if (e.key === 'Enter') { e.preventDefault(); commit(); }
         if (e.key === 'Escape') { committed = true; activeSubtaskInputs.delete(inputKey); renderBoard(); }
     });
-    input.addEventListener('blur', function() { setTimeout(commit, 50); });
-    input.focus();
+    input.addEventListener('blur', function() { setTimeout(commit, 100); });
+    requestAnimationFrame(() => { input.focus(); });
 }
 
 // Find subtask
@@ -2898,10 +2900,11 @@ function addTaskInline(groupId) {
 
     input.addEventListener('blur', function() {
         // Delay slightly to allow click events on other elements to fire first
-        setTimeout(commit, 50);
+        setTimeout(commit, 100);
     });
 
-    input.focus();
+    // Use requestAnimationFrame to ensure DOM is settled before focusing
+    requestAnimationFrame(() => { input.focus(); });
 }
 
 // ===== Add Group =====
@@ -3742,12 +3745,15 @@ function saveToServer() {
                 console.warn('[Save] Server blocked save:', result.reason || 'empty data protection');
             } else if (result.mergedData) {
                 // Server merged our data with newer server data — update local state
+                // BUT don't re-render if user is actively editing (add task/subtask input open)
                 const oldActive = boardData.activeBoard;
                 boardData = result.mergedData;
                 boardData.activeBoard = oldActive; // Keep client's active board
                 initBoardGroups();
-                renderBoard();
-                renderBoardSidebar();
+                if (activeAddTaskInputs.size === 0 && activeSubtaskInputs.size === 0 && !document.querySelector('.inline-edit-input')) {
+                    renderBoard();
+                    renderBoardSidebar();
+                }
                 try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch(e) {}
                 console.log('[Save] Server merged data — local state updated');
             }
@@ -9721,7 +9727,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '74';
+const CURRENT_APP_VERSION = '75';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
