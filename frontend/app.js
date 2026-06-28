@@ -172,7 +172,8 @@ function authFetch(url, options) {
     if (authToken) {
         options.headers['Authorization'] = 'Bearer ' + authToken;
     }
-    if (!options.headers['Content-Type'] && options.body) {
+    // Don't set Content-Type for FormData (browser sets multipart boundary automatically)
+    if (!options.headers['Content-Type'] && options.body && !(options.body instanceof FormData)) {
         options.headers['Content-Type'] = 'application/json';
     }
     return fetch(url, options);
@@ -1133,7 +1134,15 @@ function clearSelection() {
 }
 
 // ===== Toast notification =====
-function showToast(message, duration = 3000) {
+function showToast(message, durationOrType = 3000) {
+    let duration = 3000;
+    let type = 'info';
+    if (typeof durationOrType === 'number') {
+        duration = durationOrType;
+    } else if (typeof durationOrType === 'string') {
+        type = durationOrType;
+        duration = type === 'error' ? 5000 : 3000;
+    }
     let container = document.getElementById('toastContainer');
     if (!container) {
         container = document.createElement('div');
@@ -1142,7 +1151,7 @@ function showToast(message, duration = 3000) {
         document.body.appendChild(container);
     }
     const toast = document.createElement('div');
-    toast.className = 'toast-msg';
+    toast.className = 'toast-msg' + (type === 'error' ? ' toast-error' : '');
     toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => toast.classList.add('show'), 10);
@@ -4463,11 +4472,15 @@ function switchAdminTab(tab) {
     document.getElementById('adminSnapshotsTab').style.display = tab === 'snapshots' ? '' : 'none';
     const healthTab = document.getElementById('adminHealthTab');
     if (healthTab) healthTab.style.display = tab === 'health' ? '' : 'none';
+    const storageTab = document.getElementById('adminStorageTab');
+    if (storageTab) storageTab.style.display = tab === 'storage' ? '' : 'none';
     document.getElementById('adminTabUsers').classList.toggle('active', tab === 'users');
     document.getElementById('adminTabEmail').classList.toggle('active', tab === 'email');
     document.getElementById('adminTabSnapshots').classList.toggle('active', tab === 'snapshots');
     const healthBtn = document.getElementById('adminTabHealth');
     if (healthBtn) healthBtn.classList.toggle('active', tab === 'health');
+    const storageBtn = document.getElementById('adminTabStorage');
+    if (storageBtn) storageBtn.classList.toggle('active', tab === 'storage');
     if (tab === 'email') {
         loadPendingInvites();
         loadEmailPreferences();
@@ -4479,6 +4492,88 @@ function switchAdminTab(tab) {
     if (tab === 'health') {
         populateHealthWorkspaceSelect();
     }
+    if (tab === 'storage') {
+        loadStorageUsage();
+    }
+}
+
+// ===== Admin - Storage Usage =====
+async function loadStorageUsage() {
+    const widget = document.getElementById('storageUsageWidget');
+    if (!widget) return;
+    widget.innerHTML = '<div class="storage-loading">Loading storage data...</div>';
+    
+    try {
+        const res = await authFetch('/api/storage/usage');
+        const result = await res.json();
+        
+        if (!result.success) {
+            widget.innerHTML = `<div class="storage-error">⚠️ ${result.error || 'Failed to load storage data'}</div>`;
+            return;
+        }
+        
+        const u = result.usage;
+        const statusColors = { green: '#00c875', orange: '#fdab3d', red: '#e2445c' };
+        const statusLabels = { green: '✅ Healthy', orange: '⚠️ Warning', red: '🔴 Critical' };
+        const statusColor = statusColors[u.status] || '#676879';
+        const statusLabel = statusLabels[u.status] || 'Unknown';
+        
+        widget.innerHTML = `
+            <div class="storage-status-card" style="border-left: 4px solid ${statusColor}">
+                <div class="storage-status-header">
+                    <span class="storage-status-light" style="background:${statusColor}"></span>
+                    <span class="storage-status-label" style="color:${statusColor}">${statusLabel}</span>
+                    ${!u.configured ? '<span class="storage-not-configured">(R2 not configured — using fallback)</span>' : ''}
+                </div>
+                <div class="storage-progress-wrap">
+                    <div class="storage-progress-bar">
+                        <div class="storage-progress-fill" style="width:${Math.min(u.usagePercent, 100)}%;background:${statusColor}"></div>
+                    </div>
+                    <div class="storage-progress-text">${u.usagePercent}% used</div>
+                </div>
+                <div class="storage-details">
+                    <div class="storage-detail-item">
+                        <span class="material-icons-outlined">folder</span>
+                        <strong>${u.fileCount}</strong> files
+                    </div>
+                    <div class="storage-detail-item">
+                        <span class="material-icons-outlined">storage</span>
+                        <strong>${u.totalFormatted}</strong> / ${u.limitFormatted}
+                    </div>
+                    <div class="storage-detail-item">
+                        <span class="material-icons-outlined">speed</span>
+                        Available: <strong>${formatFileSize(u.limitBytes - u.totalBytes)}</strong>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        widget.innerHTML = `<div class="storage-error">⚠️ Failed to load storage data: ${err.message}</div>`;
+    }
+}
+
+async function migrateBase64ToR2() {
+    if (!confirm('This will migrate all existing base64 images in chat messages to Cloudflare R2. This may take a while. Continue?')) return;
+    
+    const resultDiv = document.getElementById('migrationResult');
+    const btn = document.getElementById('migrateBtn');
+    btn.disabled = true;
+    resultDiv.innerHTML = '<span style="color:#676879">⏳ Migration in progress...</span>';
+    
+    try {
+        const res = await authFetch('/api/migrate/base64-to-r2', { method: 'POST' });
+        const result = await res.json();
+        
+        if (result.success) {
+            resultDiv.innerHTML = `<span style="color:#00c875">✅ Migration complete! Migrated: ${result.migrated} images, Errors: ${result.errors}, Skipped: ${result.skipped}</span>`;
+            loadStorageUsage(); // Refresh usage
+        } else {
+            resultDiv.innerHTML = `<span style="color:#e2445c">❌ ${result.error}</span>`;
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<span style="color:#e2445c">❌ Migration failed: ${err.message}</span>`;
+    }
+    btn.disabled = false;
 }
 
 // ===== Admin - Invite Wizard Step Navigation =====
@@ -8425,6 +8520,7 @@ let tdpMessages = {}; // taskId -> messages array
 let tdpLikedMap = {}; // taskId -> boolean
 let tdpPrivateMap = {}; // taskId -> boolean
 let tdpPendingImage = null;
+let tdpPendingFiles = []; // Array of { file, previewUrl, name, type, size }
 let tdpDataLoaded = false;
 
 // Load all task details data from server
@@ -8729,6 +8825,8 @@ function renderTdpMessages() {
             ? `<img src="${msg.picture}" referrerpolicy="no-referrer" alt="">` 
             : escapeHtml(getInitials(msg.author));
         const timeStr = formatTimeAgo(msg.timestamp);
+        
+        // Legacy image support (base64 or URL)
         const imgHtml = msg.image ? `<div class="tdp-message-image-wrap">
             <img src="${msg.image}" alt="attached image" onclick="openTdpImageLightbox(this.src)">
             <button class="tdp-image-delete-btn" onclick="deleteTdpMessageImage(${idx})" title="Remove image">
@@ -8738,6 +8836,58 @@ function renderTdpMessages() {
                 <span class="material-icons-outlined">download</span>
             </a>
         </div>` : '';
+        
+        // New attachments system
+        const attachHtml = (msg.attachments && msg.attachments.length > 0) ? msg.attachments.map((att, attIdx) => {
+            if (att.type && att.type.startsWith('image/')) {
+                return `<div class="tdp-message-image-wrap">
+                    <img src="${att.url}" alt="${escapeHtml(att.name)}" onclick="openTdpImageLightbox(this.src)">
+                    <button class="tdp-image-delete-btn" onclick="deleteTdpAttachment(${idx}, ${attIdx})" title="Remove">
+                        <span class="material-icons-outlined">close</span>
+                    </button>
+                    <a class="tdp-image-download-btn" href="${att.url}" download="${escapeHtml(att.name)}" title="Download">
+                        <span class="material-icons-outlined">download</span>
+                    </a>
+                </div>`;
+            } else if (att.type && att.type.startsWith('video/')) {
+                return `<div class="tdp-message-file-wrap tdp-file-video">
+                    <video src="${att.url}" controls preload="metadata" style="max-width:100%;max-height:200px;border-radius:6px;"></video>
+                    <div class="tdp-file-info">
+                        <span class="material-icons-outlined">videocam</span>
+                        <span class="tdp-file-name">${escapeHtml(att.name)}</span>
+                        <span class="tdp-file-size">${formatFileSize(att.size)}</span>
+                        <a href="${att.url}" download="${escapeHtml(att.name)}" class="tdp-file-download" title="Download"><span class="material-icons-outlined">download</span></a>
+                        <button class="tdp-file-delete" onclick="deleteTdpAttachment(${idx}, ${attIdx})" title="Remove"><span class="material-icons-outlined">close</span></button>
+                    </div>
+                </div>`;
+            } else if (att.type && att.type.startsWith('audio/')) {
+                return `<div class="tdp-message-file-wrap tdp-file-audio">
+                    <audio src="${att.url}" controls preload="metadata" style="width:100%;"></audio>
+                    <div class="tdp-file-info">
+                        <span class="material-icons-outlined">audiotrack</span>
+                        <span class="tdp-file-name">${escapeHtml(att.name)}</span>
+                        <span class="tdp-file-size">${formatFileSize(att.size)}</span>
+                        <a href="${att.url}" download="${escapeHtml(att.name)}" class="tdp-file-download" title="Download"><span class="material-icons-outlined">download</span></a>
+                        <button class="tdp-file-delete" onclick="deleteTdpAttachment(${idx}, ${attIdx})" title="Remove"><span class="material-icons-outlined">close</span></button>
+                    </div>
+                </div>`;
+            } else {
+                return `<div class="tdp-message-file-wrap tdp-file-generic">
+                    <div class="tdp-file-info">
+                        <span class="material-icons-outlined">${getFileIcon(att.type, att.name)}</span>
+                        <span class="tdp-file-name">${escapeHtml(att.name)}</span>
+                        <span class="tdp-file-size">${formatFileSize(att.size)}</span>
+                        <a href="${att.url}" download="${escapeHtml(att.name)}" class="tdp-file-download" title="Download"><span class="material-icons-outlined">download</span></a>
+                        <button class="tdp-file-delete" onclick="deleteTdpAttachment(${idx}, ${attIdx})" title="Remove"><span class="material-icons-outlined">close</span></button>
+                    </div>
+                </div>`;
+            }
+        }).join('') : '';
+        
+        // Render text with auto-linked URLs
+        const textHtml = renderMessageTextWithMentions(msg.text, msg.mentions);
+        const linkedTextHtml = autoLinkUrls(textHtml);
+        
         return `<div class="tdp-message" data-msg-idx="${idx}">
             <div class="tdp-message-avatar">${avatar}</div>
             <div class="tdp-message-content">
@@ -8753,7 +8903,7 @@ function renderTdpMessages() {
                         </button>
                     </div>
                 </div>
-                <div class="tdp-message-text">${renderMessageTextWithMentions(msg.text, msg.mentions)}${imgHtml}</div>
+                <div class="tdp-message-text">${linkedTextHtml}${imgHtml}${attachHtml}</div>
             </div>
         </div>`;
     }).join('');
@@ -9039,13 +9189,14 @@ function deleteTdpSubitem(idx) {
 }
 
 // Messages
-function sendTdpMessage() {
+async function sendTdpMessage() {
     if (!tdpCurrentTask || !currentUser) return;
     const inputEl = document.getElementById('tdpMessageInput');
     const text = inputEl.textContent.trim();
     const image = tdpPendingImage;
+    const pendingFilesCopy = [...tdpPendingFiles];
     
-    if (!text && !image) return;
+    if (!text && !image && pendingFilesCopy.length === 0) return;
     
     const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
     if (!tdpMessages[taskId]) tdpMessages[taskId] = [];
@@ -9075,10 +9226,57 @@ function sendTdpMessage() {
         author: currentUser.fullName || currentUser.email,
         picture: currentUser.picture || '',
         text: text,
-        image: image || '',
+        image: '', // No longer use base64 inline
+        attachments: [],
         timestamp: new Date().toISOString(),
         mentions: mentions.length > 0 ? mentions : undefined
     };
+    
+    // Upload files to R2 if any
+    if (pendingFilesCopy.length > 0) {
+        const formData = new FormData();
+        formData.append('workspaceId', activeWorkspaceId || 'general');
+        for (const pf of pendingFilesCopy) {
+            formData.append('files', pf.file);
+        }
+        
+        try {
+            const uploadRes = await authFetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const uploadResult = await uploadRes.json();
+            if (uploadResult.success && uploadResult.files) {
+                msg.attachments = uploadResult.files;
+            } else if (uploadResult.error) {
+                showToast(uploadResult.error, 'error');
+                return;
+            }
+        } catch (err) {
+            console.error('[TDP] File upload failed:', err);
+            showToast('File upload failed. Please try again.', 'error');
+            return;
+        }
+    }
+    
+    // Handle legacy image paste (if user pasted an image, upload it)
+    if (image && image.startsWith('data:')) {
+        try {
+            const uploadRes = await authFetch('/api/upload/base64', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataUrl: image, workspaceId: activeWorkspaceId || 'general' })
+            });
+            const uploadResult = await uploadRes.json();
+            if (uploadResult.success && uploadResult.file) {
+                if (!msg.attachments) msg.attachments = [];
+                msg.attachments.push(uploadResult.file);
+            }
+        } catch (err) {
+            // Fallback: store as base64 if R2 not configured
+            msg.image = image;
+        }
+    }
     
     tdpMessages[taskId].push(msg);
     
@@ -9088,9 +9286,9 @@ function sendTdpMessage() {
     // Clear input
     inputEl.textContent = '';
     tdpPendingImage = null;
+    tdpPendingFiles = [];
     pendingMentions = [];
-    document.getElementById('tdpImagePreview').style.display = 'none';
-    document.getElementById('tdpImagePreview').innerHTML = '';
+    clearTdpFilePreview();
     closeMentionDropdown();
     
     // Send mention notifications to server
@@ -9164,7 +9362,7 @@ function editTdpMessage(idx) {
     renderTdpMessages();
 }
 
-// Delete image from a message
+// Delete image from a message (legacy support)
 function deleteTdpMessageImage(idx) {
     if (!tdpCurrentTask) return;
     const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
@@ -9175,7 +9373,25 @@ function deleteTdpMessageImage(idx) {
     renderTdpMessages();
 }
 
-// Image paste support
+// Delete an attachment from a message
+function deleteTdpAttachment(msgIdx, attIdx) {
+    if (!tdpCurrentTask) return;
+    const taskId = tdpCurrentSubtask ? `sub_${tdpCurrentSubtask.subId}` : String(tdpCurrentTask.id);
+    const messages = tdpMessages[taskId];
+    if (!messages || !messages[msgIdx] || !messages[msgIdx].attachments) return;
+    
+    const att = messages[msgIdx].attachments[attIdx];
+    // Delete from R2 (fire and forget)
+    if (att && att.key) {
+        authFetch(`/api/upload/${att.key}`, { method: 'DELETE' }).catch(() => {});
+    }
+    
+    messages[msgIdx].attachments.splice(attIdx, 1);
+    saveTdpDataToServer();
+    renderTdpMessages();
+}
+
+// File paste support (images + files)
 function setupTdpImagePaste() {
     const inputEl = document.getElementById('tdpMessageInput');
     if (!inputEl) return;
@@ -9188,21 +9404,15 @@ function setupTdpImagePaste() {
             if (items[i].type.indexOf('image') !== -1) {
                 e.preventDefault();
                 const blob = items[i].getAsFile();
-                const reader = new FileReader();
-                reader.onload = function(ev) {
-                    tdpPendingImage = ev.target.result;
-                    const preview = document.getElementById('tdpImagePreview');
-                    preview.style.display = 'block';
-                    preview.innerHTML = `<div style="position:relative;display:inline-block"><img src="${ev.target.result}" alt="preview"><button class="tdp-remove-image" onclick="removeTdpPendingImage()">&times;</button></div>`;
-                };
-                reader.readAsDataURL(blob);
+                // Add to pending files
+                addTdpPendingFile(blob);
                 break;
             }
         }
     });
 }
 
-// Drag and drop image support
+// Drag and drop file support (all file types)
 function setupTdpDragDrop() {
     const dropZone = document.querySelector('.tdp-message-input-area');
     if (!dropZone) return;
@@ -9240,38 +9450,146 @@ function setupTdpDragDrop() {
         const files = e.dataTransfer && e.dataTransfer.files;
         if (!files || files.length === 0) return;
 
-        const file = files[0];
-        if (!file.type.startsWith('image/')) return;
-
-        const reader = new FileReader();
-        reader.onload = function(ev) {
-            tdpPendingImage = ev.target.result;
-            const preview = document.getElementById('tdpImagePreview');
-            preview.style.display = 'block';
-            preview.innerHTML = `<div style="position:relative;display:inline-block"><img src="${ev.target.result}" alt="preview"><button class="tdp-remove-image" onclick="removeTdpPendingImage()">&times;</button></div>`;
-        };
-        reader.readAsDataURL(file);
+        for (let i = 0; i < files.length; i++) {
+            addTdpPendingFile(files[i]);
+        }
     });
 }
 
-function handleTdpImageUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(ev) {
-        tdpPendingImage = ev.target.result;
-        const preview = document.getElementById('tdpImagePreview');
-        preview.style.display = 'block';
-        preview.innerHTML = `<div style="position:relative;display:inline-block"><img src="${ev.target.result}" alt="preview"><button class="tdp-remove-image" onclick="removeTdpPendingImage()">&times;</button></div>`;
-    };
-    reader.readAsDataURL(file);
+// Handle file input change (multiple files)
+function handleTdpFileUpload(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    for (let i = 0; i < files.length; i++) {
+        addTdpPendingFile(files[i]);
+    }
     event.target.value = '';
 }
 
-function removeTdpPendingImage() {
+// Blocked extensions check (client side)
+const BLOCKED_EXTENSIONS = ['.exe','.bat','.cmd','.com','.msi','.scr','.pif','.vbs','.vbe','.ws','.wsf','.wsc','.wsh','.ps1','.reg','.inf','.lnk','.cpl','.hta','.msp','.mst','.dll','.sys','.drv','.ocx'];
+
+function addTdpPendingFile(file) {
+    // Check extension
+    const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+    if (BLOCKED_EXTENSIONS.includes(ext)) {
+        showToast(`File type ${ext} is not allowed (security risk)`, 'error');
+        return;
+    }
+    // Check size (100MB)
+    if (file.size > 100 * 1024 * 1024) {
+        showToast(`File "${file.name}" exceeds 100MB limit`, 'error');
+        return;
+    }
+    // Check total pending size
+    const totalSize = tdpPendingFiles.reduce((sum, f) => sum + f.file.size, 0) + file.size;
+    if (totalSize > 100 * 1024 * 1024) {
+        showToast('Total upload size exceeds 100MB limit', 'error');
+        return;
+    }
+    
+    // Generate preview URL for images
+    let previewUrl = '';
+    if (file.type.startsWith('image/')) {
+        previewUrl = URL.createObjectURL(file);
+    }
+    
+    tdpPendingFiles.push({ file, previewUrl, name: file.name, type: file.type, size: file.size });
+    renderTdpFilePreview();
+}
+
+function removeTdpPendingFile(index) {
+    const removed = tdpPendingFiles.splice(index, 1);
+    if (removed[0] && removed[0].previewUrl) {
+        URL.revokeObjectURL(removed[0].previewUrl);
+    }
+    renderTdpFilePreview();
+}
+
+function clearTdpFilePreview() {
+    tdpPendingFiles.forEach(pf => { if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl); });
+    tdpPendingFiles = [];
     tdpPendingImage = null;
-    document.getElementById('tdpImagePreview').style.display = 'none';
-    document.getElementById('tdpImagePreview').innerHTML = '';
+    const preview = document.getElementById('tdpFilePreview');
+    if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+}
+
+function renderTdpFilePreview() {
+    const preview = document.getElementById('tdpFilePreview');
+    if (!preview) return;
+    
+    if (tdpPendingFiles.length === 0) {
+        preview.style.display = 'none';
+        preview.innerHTML = '';
+        return;
+    }
+    
+    preview.style.display = 'block';
+    preview.innerHTML = tdpPendingFiles.map((pf, i) => {
+        if (pf.previewUrl) {
+            return `<div class="tdp-preview-item" title="${escapeHtml(pf.name)} (${formatFileSize(pf.size)})">
+                <img src="${pf.previewUrl}" alt="${escapeHtml(pf.name)}">
+                <button class="tdp-remove-file" onclick="removeTdpPendingFile(${i})">&times;</button>
+            </div>`;
+        } else {
+            return `<div class="tdp-preview-item tdp-preview-file" title="${escapeHtml(pf.name)} (${formatFileSize(pf.size)})">
+                <span class="material-icons-outlined">${getFileIcon(pf.type, pf.name)}</span>
+                <span class="tdp-preview-name">${escapeHtml(truncateFileName(pf.name, 20))}</span>
+                <button class="tdp-remove-file" onclick="removeTdpPendingFile(${i})">&times;</button>
+            </div>`;
+        }
+    }).join('');
+}
+
+// Legacy compat
+function removeTdpPendingImage() {
+    clearTdpFilePreview();
+}
+
+// File utility functions
+function getFileIcon(mimeType, fileName) {
+    if (!mimeType && fileName) {
+        const ext = fileName.split('.').pop().toLowerCase();
+        const extMap = { pdf: 'picture_as_pdf', doc: 'description', docx: 'description', xls: 'table_chart', xlsx: 'table_chart', ppt: 'slideshow', pptx: 'slideshow', zip: 'folder_zip', rar: 'folder_zip', '7z': 'folder_zip', ace: 'folder_zip', srt: 'subtitles', txt: 'article', csv: 'table_chart' };
+        return extMap[ext] || 'insert_drive_file';
+    }
+    if (!mimeType) return 'insert_drive_file';
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'videocam';
+    if (mimeType.startsWith('audio/')) return 'audiotrack';
+    if (mimeType.includes('pdf')) return 'picture_as_pdf';
+    if (mimeType.includes('word') || mimeType.includes('document')) return 'description';
+    if (mimeType.includes('sheet') || mimeType.includes('excel') || mimeType.includes('csv')) return 'table_chart';
+    if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return 'slideshow';
+    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('compressed') || mimeType.includes('archive')) return 'folder_zip';
+    if (mimeType.includes('text')) return 'article';
+    return 'insert_drive_file';
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function truncateFileName(name, maxLen) {
+    if (name.length <= maxLen) return name;
+    const ext = name.split('.').pop();
+    const base = name.substring(0, name.length - ext.length - 1);
+    const truncBase = base.substring(0, maxLen - ext.length - 4) + '...';
+    return truncBase + '.' + ext;
+}
+
+// Auto-link URLs in message text
+function autoLinkUrls(html) {
+    // Don't link URLs that are already inside href or src attributes
+    // Match URLs that aren't already in an anchor tag
+    return html.replace(/(?<!["'=])(https?:\/\/[^\s<>"']+)/g, function(url) {
+        // Don't double-link if already in an <a> tag
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="tdp-auto-link">${url}</a>`;
+    });
 }
 
 // Image lightbox - click to enlarge
@@ -9317,10 +9635,15 @@ document.addEventListener('DOMContentLoaded', function() {
     setupTdpEnterKey();
 });
 
-// Count files (images) in TDP messages for a given task/subtask
+// Count files (images + attachments) in TDP messages for a given task/subtask
 function getTdpFileCount(taskId) {
     const messages = tdpMessages[String(taskId)] || [];
-    return messages.filter(m => m.image && m.image.length > 0).length;
+    let count = 0;
+    for (const m of messages) {
+        if (m.image && m.image.length > 0) count++;
+        if (m.attachments && m.attachments.length > 0) count += m.attachments.length;
+    }
+    return count;
 }
 
 // Count total files for a task - only its OWN messages (not subtasks)
@@ -9754,7 +10077,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '78';
+const CURRENT_APP_VERSION = '79';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

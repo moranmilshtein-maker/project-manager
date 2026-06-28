@@ -461,6 +461,9 @@
                 <button class="admin-tab" onclick="switchAdminTab('health')" id="adminTabHealth">
                     <span class="material-icons-outlined">verified</span> Data Health
                 </button>
+                <button class="admin-tab" onclick="switchAdminTab('storage')" id="adminTabStorage">
+                    <span class="material-icons-outlined">cloud_upload</span> Storage
+                </button>
             </div>
 
             <!-- Users Tab -->
@@ -720,6 +723,23 @@
                     </button>
                 </div>
             </div><!-- end adminHealthTab -->
+
+            <!-- Storage Tab -->
+            <div id="adminStorageTab" class="admin-tab-content" style="display:none">
+                <h3 style="margin-bottom:16px">☁️ Cloud Storage (Cloudflare R2)</h3>
+                <div id="storageUsageWidget" class="storage-usage-widget">
+                    <div class="storage-loading">Loading storage data...</div>
+                </div>
+                <div style="margin-top:16px">
+                    <button class="admin-btn" onclick="loadStorageUsage()" style="margin-right:8px">
+                        <span class="material-icons-outlined">refresh</span> Refresh
+                    </button>
+                    <button class="admin-btn admin-btn-danger" onclick="migrateBase64ToR2()" id="migrateBtn">
+                        <span class="material-icons-outlined">cloud_sync</span> Migrate Base64 Images to R2
+                    </button>
+                </div>
+                <div id="migrationResult" style="margin-top:12px"></div>
+            </div><!-- end adminStorageTab -->
         </div>
     </div>
 
@@ -1090,15 +1110,15 @@
                 <div class="tdp-message-input-area">
                     <div class="tdp-message-input" id="tdpMessageInput" contenteditable="true" data-placeholder="Write a message..." dir="rtl"></div>
                     <div class="tdp-message-actions">
-                        <button class="tdp-attach-btn" onclick="document.getElementById('tdpImageUpload').click()" title="Attach image">
-                            <span class="material-icons-outlined">image</span>
+                        <button class="tdp-attach-btn" onclick="document.getElementById('tdpFileUpload').click()" title="Attach files">
+                            <span class="material-icons-outlined">attach_file</span>
                         </button>
                         <button class="tdp-send-btn" onclick="sendTdpMessage()" title="Send">
                             <span class="material-icons-outlined">send</span>
                         </button>
                     </div>
-                    <input type="file" id="tdpImageUpload" accept="image/*" style="display:none" onchange="handleTdpImageUpload(event)">
-                    <div id="tdpImagePreview" class="tdp-image-preview" style="display:none"></div>
+                    <input type="file" id="tdpFileUpload" multiple style="display:none" onchange="handleTdpFileUpload(event)">
+                    <div id="tdpFilePreview" class="tdp-file-preview" style="display:none"></div>
                 </div>
             </div>
         </div>

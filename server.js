@@ -54,8 +54,8 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // ===== SECURITY: HTTPS enforcement in production =====
 app.use((req, res, next) => {
@@ -2988,8 +2988,189 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
   }
 });
 
+// ===== FILE UPLOAD SYSTEM (Cloudflare R2) =====
+const multer = require('multer');
+const fileStorage = require('./file-storage');
+
+// Multer config — store in memory, upload to R2
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: fileStorage.MAX_FILE_SIZE, files: 10 }
+});
+
+// POST /api/upload — Upload files to R2
+app.post('/api/upload', requireAuth, upload.array('files', 10), async (req, res) => {
+  try {
+    if (!fileStorage.isConfigured()) {
+      return res.status(503).json({ success: false, error: 'File storage not configured. Contact administrator.' });
+    }
+
+    const workspaceId = req.body.workspaceId || 'general';
+    const files = req.files;
+    
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, error: 'No files provided' });
+    }
+
+    // Check total upload size
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > fileStorage.MAX_UPLOAD_SIZE) {
+      return res.status(413).json({ success: false, error: `Total upload size ${(totalSize / 1024 / 1024).toFixed(1)}MB exceeds limit of 100MB` });
+    }
+
+    // Check storage capacity before upload
+    const usageResult = await fileStorage.getStorageUsage();
+    if (usageResult.success && (usageResult.usage.totalBytes + totalSize) > fileStorage.STORAGE_LIMIT_BYTES) {
+      return res.status(507).json({ success: false, error: 'Storage limit reached. Please contact administrator to upgrade storage plan.' });
+    }
+
+    // Upload each file
+    const uploaded = [];
+    const errors = [];
+
+    for (const file of files) {
+      const result = await fileStorage.uploadFile(file.buffer, file.originalname, file.mimetype, workspaceId);
+      if (result.success) {
+        uploaded.push(result.file);
+      } else {
+        errors.push({ name: file.originalname, error: result.error });
+      }
+    }
+
+    res.json({ success: true, files: uploaded, errors: errors.length > 0 ? errors : undefined });
+  } catch (err) {
+    console.error('[Upload] Error:', err.message);
+    res.status(500).json({ success: false, error: 'Upload failed' });
+  }
+});
+
+// POST /api/upload/base64 — Upload base64 data URL (for migration)
+app.post('/api/upload/base64', requireAuth, async (req, res) => {
+  try {
+    if (!fileStorage.isConfigured()) {
+      return res.status(503).json({ success: false, error: 'File storage not configured' });
+    }
+
+    const { dataUrl, workspaceId, fileName } = req.body;
+    if (!dataUrl) {
+      return res.status(400).json({ success: false, error: 'No dataUrl provided' });
+    }
+
+    const result = await fileStorage.uploadBase64(dataUrl, workspaceId || 'general', fileName);
+    res.json(result);
+  } catch (err) {
+    console.error('[Upload/base64] Error:', err.message);
+    res.status(500).json({ success: false, error: 'Upload failed' });
+  }
+});
+
+// DELETE /api/upload/:fileKey — Delete a file from R2
+app.delete('/api/upload/*', requireAuth, async (req, res) => {
+  try {
+    const fileKey = req.params[0]; // Everything after /api/upload/
+    if (!fileKey) {
+      return res.status(400).json({ success: false, error: 'No file key provided' });
+    }
+
+    const result = await fileStorage.deleteFile(fileKey);
+    res.json(result);
+  } catch (err) {
+    console.error('[Upload/delete] Error:', err.message);
+    res.status(500).json({ success: false, error: 'Delete failed' });
+  }
+});
+
+// GET /api/storage/usage — Get storage usage stats (admin only)
+app.get('/api/storage/usage', requireAuth, async (req, res) => {
+  try {
+    if (!fileStorage.isConfigured()) {
+      return res.json({
+        success: true,
+        usage: {
+          totalBytes: 0,
+          totalFormatted: '0 B',
+          fileCount: 0,
+          limitBytes: fileStorage.STORAGE_LIMIT_BYTES,
+          limitFormatted: fileStorage.formatBytes(fileStorage.STORAGE_LIMIT_BYTES),
+          usagePercent: 0,
+          status: 'green',
+          configured: false
+        }
+      });
+    }
+
+    const workspaceId = req.query.workspaceId; // Optional filter
+    const result = await fileStorage.getStorageUsage(workspaceId);
+    if (result.success) {
+      result.usage.configured = true;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[Storage/usage] Error:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to get usage' });
+  }
+});
+
+// POST /api/migrate/base64-to-r2 — Migrate all base64 images in TDP messages to R2 (super admin only)
+app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!fileStorage.isConfigured()) {
+      return res.status(503).json({ success: false, error: 'File storage not configured' });
+    }
+
+    // Get all TDP data entries from database
+    const allData = await dataStore.listAllData();
+    let migrated = 0;
+    let errors = 0;
+    let skipped = 0;
+
+    // Filter for task_details entries
+    const tdpEntries = allData.filter(row => row.data_type === 'task_details');
+    
+    for (const entry of tdpEntries) {
+      const wsId = entry.user_key.replace('workspace_shared_', '') || 'unknown';
+      const data = await dataStore.readUserData(entry.user_key, 'task_details');
+      if (!data || typeof data !== 'object') continue;
+
+      let modified = false;
+      
+      for (const [taskId, messages] of Object.entries(data)) {
+        if (!Array.isArray(messages)) continue;
+        
+        for (let i = 0; i < messages.length; i++) {
+          const msg = messages[i];
+          if (msg.image && msg.image.startsWith('data:')) {
+            // Migrate this base64 image to R2
+            const result = await fileStorage.uploadBase64(msg.image, wsId, `chat_image_${msg.id || i}.png`);
+            if (result.success) {
+              if (!msg.attachments) msg.attachments = [];
+              msg.attachments.push(result.file);
+              msg.image = ''; // Clear base64
+              modified = true;
+              migrated++;
+            } else {
+              errors++;
+            }
+          } else if (msg.image && !msg.image.startsWith('data:')) {
+            skipped++; // Already a URL
+          }
+        }
+      }
+
+      if (modified) {
+        await dataStore.writeUserData(entry.user_key, 'task_details', data);
+      }
+    }
+
+    res.json({ success: true, migrated, errors, skipped });
+  } catch (err) {
+    console.error('[Migration] Error:', err.message);
+    res.status(500).json({ success: false, error: `Migration failed: ${err.message}` });
+  }
+});
+
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '78';
+const APP_VERSION = '79';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

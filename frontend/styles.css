@@ -2847,6 +2847,10 @@ thead input[type="checkbox"].cb-selected {
     transform: translateY(0);
 }
 
+.toast-msg.toast-error {
+    background: #e2445c;
+}
+
 /* ===== Group body animation fix ===== */
 .group-body {
     overflow: hidden;
@@ -6440,6 +6444,255 @@ tr.subtask-row:hover .subtask-action-btn {
     align-items: center;
     justify-content: center;
     font-size: 10px;
+}
+
+/* TDP File Preview (multi-file) */
+.tdp-file-preview {
+    padding: 8px 12px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tdp-preview-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    padding: 4px;
+    background: #f6f7fb;
+}
+
+.tdp-preview-item img {
+    max-width: 60px;
+    max-height: 50px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.tdp-preview-item.tdp-preview-file {
+    padding: 6px 10px;
+    gap: 6px;
+}
+
+.tdp-preview-item.tdp-preview-file .material-icons-outlined {
+    font-size: 18px;
+    color: #676879;
+}
+
+.tdp-preview-name {
+    font-size: 11px;
+    color: var(--text-primary);
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tdp-remove-file {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 16px;
+    height: 16px;
+    background: #e2445c;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    line-height: 1;
+}
+
+/* TDP Message File Attachments */
+.tdp-message-file-wrap {
+    margin-top: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: #f6f7fb;
+}
+
+.tdp-file-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.tdp-file-info .material-icons-outlined {
+    font-size: 18px;
+    color: #676879;
+}
+
+.tdp-file-name {
+    color: var(--text-primary);
+    font-weight: 500;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tdp-file-size {
+    color: #676879;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.tdp-file-download {
+    display: flex;
+    align-items: center;
+    color: #0073ea;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.tdp-file-download:hover {
+    opacity: 1;
+}
+
+.tdp-file-download .material-icons-outlined {
+    font-size: 16px;
+    color: #0073ea;
+}
+
+.tdp-file-delete {
+    display: flex;
+    align-items: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #e2445c;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+    padding: 0;
+}
+
+.tdp-file-delete:hover {
+    opacity: 1;
+}
+
+.tdp-file-delete .material-icons-outlined {
+    font-size: 16px;
+}
+
+.tdp-file-video video {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.tdp-file-audio audio {
+    display: block;
+    margin-bottom: 6px;
+    width: 100%;
+}
+
+/* Auto-linked URLs in messages */
+.tdp-auto-link {
+    color: #0073ea;
+    text-decoration: none;
+    word-break: break-all;
+}
+.tdp-auto-link:hover {
+    text-decoration: underline;
+}
+
+/* Storage Usage Widget (Admin) */
+.storage-usage-widget {
+    max-width: 600px;
+}
+
+.storage-loading {
+    color: #676879;
+    font-size: 14px;
+}
+
+.storage-error {
+    color: #e2445c;
+    font-size: 14px;
+}
+
+.storage-status-card {
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px 20px;
+}
+
+.storage-status-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.storage-status-light {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.storage-status-label {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.storage-not-configured {
+    font-size: 11px;
+    color: #676879;
+    margin-left: 8px;
+}
+
+.storage-progress-wrap {
+    margin-bottom: 14px;
+}
+
+.storage-progress-bar {
+    width: 100%;
+    height: 10px;
+    background: #e6e9ef;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.storage-progress-fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.5s ease;
+}
+
+.storage-progress-text {
+    font-size: 12px;
+    color: #676879;
+    text-align: right;
+}
+
+.storage-details {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.storage-detail-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #323338;
+}
+
+.storage-detail-item .material-icons-outlined {
+    font-size: 16px;
+    color: #676879;
 }
 
 /* TDP Owner Picker */
