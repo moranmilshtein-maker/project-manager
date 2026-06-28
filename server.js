@@ -3123,46 +3123,61 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
     let migrated = 0;
     let errors = 0;
     let skipped = 0;
+    let totalMessages = 0;
+    let imagesFound = 0;
 
-    // Filter for task_details entries
-    const tdpEntries = allData.filter(row => row.data_type === 'task_details');
+    // Filter for task_details entries (both 'task_details' and 'task_details_default')
+    const tdpEntries = allData.filter(row => 
+      row.data_type && row.data_type.startsWith('task_details')
+    );
+    
+    console.log(`[Migration] Found ${tdpEntries.length} TDP entries from ${allData.length} total records`);
     
     for (const entry of tdpEntries) {
       const wsId = entry.user_key.replace('workspace_shared_', '') || 'unknown';
-      const data = await dataStore.readUserData(entry.user_key, 'task_details');
-      if (!data || typeof data !== 'object') continue;
+      const data = await dataStore.readUserData(entry.user_key, entry.data_type);
+      if (!data || typeof data !== 'object') {
+        console.log(`[Migration] Skipping ${entry.user_key}/${entry.data_type} — no data or not object`);
+        continue;
+      }
 
       let modified = false;
       
       for (const [taskId, messages] of Object.entries(data)) {
         if (!Array.isArray(messages)) continue;
+        totalMessages += messages.length;
         
         for (let i = 0; i < messages.length; i++) {
           const msg = messages[i];
-          if (msg.image && msg.image.startsWith('data:')) {
-            // Migrate this base64 image to R2
-            const result = await fileStorage.uploadBase64(msg.image, wsId, `chat_image_${msg.id || i}.png`);
-            if (result.success) {
-              if (!msg.attachments) msg.attachments = [];
-              msg.attachments.push(result.file);
-              msg.image = ''; // Clear base64
-              modified = true;
-              migrated++;
+          if (msg.image && msg.image.length > 0) {
+            imagesFound++;
+            if (msg.image.startsWith('data:')) {
+              // Migrate this base64 image to R2
+              const result = await fileStorage.uploadBase64(msg.image, wsId, `chat_image_${msg.id || i}.png`);
+              if (result.success) {
+                if (!msg.attachments) msg.attachments = [];
+                msg.attachments.push(result.file);
+                msg.image = ''; // Clear base64
+                modified = true;
+                migrated++;
+              } else {
+                errors++;
+                console.log(`[Migration] Upload error for ${taskId}[${i}]: ${result.error}`);
+              }
             } else {
-              errors++;
+              skipped++; // Already a URL
             }
-          } else if (msg.image && !msg.image.startsWith('data:')) {
-            skipped++; // Already a URL
           }
         }
       }
 
       if (modified) {
-        await dataStore.writeUserData(entry.user_key, 'task_details', data);
+        await dataStore.writeUserData(entry.user_key, entry.data_type, data);
       }
     }
 
-    res.json({ success: true, migrated, errors, skipped });
+    console.log(`[Migration] Complete: entries=${tdpEntries.length}, messages=${totalMessages}, imagesFound=${imagesFound}, migrated=${migrated}, errors=${errors}, skipped=${skipped}`);
+    res.json({ success: true, migrated, errors, skipped, debug: { tdpEntries: tdpEntries.length, totalMessages, imagesFound } });
   } catch (err) {
     console.error('[Migration] Error:', err.message);
     res.status(500).json({ success: false, error: `Migration failed: ${err.message}` });
@@ -3170,7 +3185,7 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '80';
+const APP_VERSION = '81';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
