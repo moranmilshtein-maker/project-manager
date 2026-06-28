@@ -2296,6 +2296,7 @@ function editSubtaskName(subtaskId, taskId, groupId, element) {
     const currentName = subtask.name;
     element.innerHTML = `<input class="inline-edit-input subtask-inline-input" type="text" value="${escapeHtml(currentName)}">`;
     const input = element.querySelector('input');
+    sendCollabEditing(taskId, subtaskId, 'name', boardData.activeBoard, null);
     let saved = false;
     const save = () => {
         if (saved) return;
@@ -2306,13 +2307,16 @@ function editSubtaskName(subtaskId, taskId, groupId, element) {
             markUpdated(subtask);
             markUpdated(task);
             saveToStorage();
+            sendCollabDone(taskId, subtaskId, 'name', val, val);
+        } else {
+            sendCollabDone(taskId, subtaskId, 'name', null, currentName);
         }
         renderBoard();
     };
     input.addEventListener('blur', save);
     input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
-        if (e.key === 'Escape') { saved = true; renderBoard(); }
+        if (e.key === 'Escape') { saved = true; sendCollabDone(taskId, subtaskId, 'name', null, currentName); renderBoard(); }
     });
     input.focus();
     input.select();
@@ -2348,6 +2352,7 @@ function editSubtaskDate(subtaskId, taskId, groupId, cell) {
     if (!subtask) return;
     cell.innerHTML = `<input class="inline-edit-input" type="date" value="${subtask.dueDate || ''}" style="width:120px">`;
     const input = cell.querySelector('input');
+    sendCollabEditing(taskId, subtaskId, 'dueDate', boardData.activeBoard, groupId);
     let saved = false;
     const save = () => {
         if (saved) return;
@@ -2356,6 +2361,7 @@ function editSubtaskDate(subtaskId, taskId, groupId, cell) {
         markUpdated(subtask);
         markUpdated(task);
         saveToStorage();
+        sendCollabDone(taskId, subtaskId, 'dueDate', input.value, subtask.name);
         renderBoard();
     };
     input.addEventListener('change', save);
@@ -2389,7 +2395,7 @@ function showSubtaskPriorityDropdown(event, subtaskId, taskId, groupId) {
 function setSubtaskPriority(subtaskId, taskId, groupId, priorityId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.priority = priorityId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); }
+    if (subtask) { subtask.priority = priorityId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); sendCollabDone(taskId, subtaskId, 'priority', priorityId, subtask.name); }
 }
 
 // Subtask notes edit
@@ -2399,6 +2405,7 @@ function editSubtaskNotes(subtaskId, taskId, groupId, cell) {
     const current = subtask.notes || '';
     cell.innerHTML = `<input class="inline-edit-input" type="text" value="${escapeHtml(current)}" style="width:100%">`;
     const input = cell.querySelector('input');
+    sendCollabEditing(taskId, subtaskId, 'notes', boardData.activeBoard, groupId);
     let saved = false;
     const save = () => {
         if (saved) return;
@@ -2407,10 +2414,11 @@ function editSubtaskNotes(subtaskId, taskId, groupId, cell) {
         markUpdated(subtask);
         markUpdated(task);
         saveToStorage();
+        sendCollabDone(taskId, subtaskId, 'notes', input.value, subtask.name);
         renderBoard();
     };
     input.addEventListener('blur', save);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { saved = true; renderBoard(); } });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { saved = true; sendCollabDone(taskId, subtaskId, 'notes', null, subtask.name); renderBoard(); } });
     input.focus();
     input.select();
 }
@@ -2642,7 +2650,7 @@ function showPriorityDropdown(event, taskId, groupId) {
 function setTaskPriority(taskId, groupId, priorityId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { group, task } = findTask(taskId, groupId);
-    if (task) { task.priority = priorityId; markUpdated(task); saveToStorage(); renderBoard(); }
+    if (task) { task.priority = priorityId; markUpdated(task); saveToStorage(); renderBoard(); sendCollabDone(taskId, null, 'priority', priorityId, task.name); }
 }
 
 // ============================================================
@@ -2656,6 +2664,7 @@ function editTaskName(taskId, groupId, cell) {
     cell.innerHTML = `<input class="inline-edit-input" type="text" value="${safeVal}" 
                         data-edit-field="name" data-task-id="${taskId}" data-group-id="${groupId}">`;
     const input = cell.querySelector('input');
+    sendCollabEditing(taskId, null, 'name', boardData.activeBoard, groupId);
     let saved = false;
     const save = () => {
         if (saved) return;
@@ -2664,13 +2673,16 @@ function editTaskName(taskId, groupId, cell) {
         if (val && val !== currentName) {
             task.name = val;
             markUpdated(task);
+            sendCollabDone(taskId, null, 'name', val, val);
+        } else {
+            sendCollabDone(taskId, null, 'name', null, currentName);
         }
         renderBoard();
     };
     input.addEventListener('blur', save);
     input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
-        if (e.key === 'Escape') { saved = true; renderBoard(); }
+        if (e.key === 'Escape') { saved = true; sendCollabDone(taskId, null, 'name', null, currentName); renderBoard(); }
     });
     input.focus();
     input.select();
@@ -2681,12 +2693,14 @@ function editDueDate(taskId, groupId, cell) {
     if (!task) return;
     cell.innerHTML = `<input class="inline-edit-input" type="date" value="${task.dueDate || ''}">`;
     const input = cell.querySelector('input');
+    sendCollabEditing(taskId, null, 'dueDate', boardData.activeBoard, groupId);
     let saved = false;
     const save = () => {
         if (saved) return;
         saved = true;
         task.dueDate = input.value;
         markUpdated(task);
+        sendCollabDone(taskId, null, 'dueDate', input.value, task.name);
         renderBoard();
     };
     input.addEventListener('change', save);
@@ -2743,12 +2757,14 @@ function editNotes(taskId, groupId, cell) {
     const currentNotes = task.notes || '';
     cell.innerHTML = `<input class="inline-edit-input" type="text" value="${escapeHtml(currentNotes)}">`;
     const input = cell.querySelector('input');
+    sendCollabEditing(taskId, null, 'notes', boardData.activeBoard, groupId);
     let saved = false;
     const save = () => {
         if (saved) return;
         saved = true;
         task.notes = input.value;
         markUpdated(task);
+        sendCollabDone(taskId, null, 'notes', input.value, task.name);
         renderBoard();
     };
     input.addEventListener('blur', save);
@@ -8932,6 +8948,8 @@ function selectTdpStatus(statusId) {
     renderTaskDetailsPanel();
     renderBoard();
     saveToStorage();
+    const statusLabel = (STATUS_OPTIONS.find(s => s.id === statusId) || {}).label || statusId;
+    sendCollabDone(tdpCurrentTask.id, null, 'status', statusLabel, tdpCurrentTask.name);
 }
 
 // Due date
@@ -8941,6 +8959,7 @@ function updateTdpDueDate(value) {
     markUpdated(tdpCurrentTask);
     renderBoard();
     saveToStorage();
+    sendCollabDone(tdpCurrentTask.id, null, 'dueDate', value, tdpCurrentTask.name);
 }
 
 // Subitems
@@ -9702,7 +9721,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '73';
+const CURRENT_APP_VERSION = '74';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
