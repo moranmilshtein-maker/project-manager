@@ -2982,7 +2982,7 @@ app.get('/api/mentions/check', requireAuth, (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '75';
+const APP_VERSION = '76';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });

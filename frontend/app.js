@@ -1169,8 +1169,6 @@ function canEdit() {
 function renderBoard() {
     const container = document.getElementById('tableContent');
     if (!container) return;
-    // If there's an active inline edit input, DON'T re-render (would destroy user's input)
-    if (document.querySelector('.inline-edit-input:focus')) return;
     activeAddTaskInputs.clear();
 
     // Update board title to match active board
@@ -2246,6 +2244,9 @@ function addSubtaskInline(taskId, groupId) {
         committed = true;
         activeSubtaskInputs.delete(inputKey);
 
+        // Remove focus before renderBoard so the guard won't block it
+        if (document.activeElement === input) input.blur();
+
         const name = input.value.trim();
         if (name) {
             const { task } = findTask(taskId, groupId);
@@ -2272,12 +2273,13 @@ function addSubtaskInline(taskId, groupId) {
                 markUpdated(task);
             }
         }
+        saveToStorage();
         renderBoard();
     };
 
     input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); commit(); }
-        if (e.key === 'Escape') { committed = true; activeSubtaskInputs.delete(inputKey); renderBoard(); }
+        if (e.key === 'Escape') { committed = true; activeSubtaskInputs.delete(inputKey); if (document.activeElement === input) input.blur(); renderBoard(); }
     });
     input.addEventListener('blur', function() { setTimeout(commit, 100); });
     requestAnimationFrame(() => { input.focus(); });
@@ -2858,6 +2860,9 @@ function addTaskInline(groupId) {
         committed = true;
         activeAddTaskInputs.delete(groupId);
 
+        // Remove focus before renderBoard so the guard won't block it
+        if (document.activeElement === input) input.blur();
+
         const name = input.value.trim();
         if (name) {
             const group = boardData.groups.find(g => String(g.id) === String(groupId));
@@ -2883,6 +2888,7 @@ function addTaskInline(groupId) {
                 triggerTaskAddedNotification(name);
             }
         }
+        saveToStorage();
         renderBoard();
     };
 
@@ -2894,6 +2900,7 @@ function addTaskInline(groupId) {
         if (e.key === 'Escape') {
             committed = true;
             activeAddTaskInputs.delete(groupId);
+            if (document.activeElement === input) input.blur();
             renderBoard();
         }
     });
@@ -9727,7 +9734,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '75';
+const CURRENT_APP_VERSION = '76';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
