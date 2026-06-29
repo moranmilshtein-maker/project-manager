@@ -1923,7 +1923,7 @@ function getCellHTML(col, task, group, taskIdStr, groupIdStr, isViewer, status, 
         case 'files': {
                 const fileCount = getTaskOwnFileCount(taskIdStr);
                 return `<td class="cell-files">
-                <div class="file-icon${fileCount > 0 ? ' has-files' : ''}" ${fileCount > 0 ? `title="${fileCount} file${fileCount > 1 ? 's' : ''}" onclick="openTaskDetailsPanel('${taskIdStr}', '${groupIdStr}', true)"` : ''}>
+                <div class="file-icon${fileCount > 0 ? ' has-files' : ''}" title="${fileCount > 0 ? fileCount + ' file' + (fileCount > 1 ? 's' : '') + ' — click to manage' : 'Click to attach files'}" onclick="showFileUploadPopover(event, '${taskIdStr}', '${groupIdStr}', 'task')">
                     <span class="material-icons-outlined">attach_file</span>
                     ${fileCount > 0 ? `<span class="file-count-badge">${fileCount}</span>` : ''}
                 </div>
@@ -2151,7 +2151,7 @@ function getSubtaskCellHTML(col, sub, group, subIdStr, taskIdStr, groupIdStr, is
         case 'files': {
                 const subFileCount = getTdpFileCount('sub_' + sub.id);
                 return `<td class="cell-files">
-                <div class="file-icon${subFileCount > 0 ? ' has-files' : ''}" ${subFileCount > 0 ? `title="${subFileCount} file${subFileCount > 1 ? 's' : ''}" onclick="openSubtaskDetailsPanel('${subIdStr}', '${taskIdStr}', '${groupIdStr}', true)"` : ''}>
+                <div class="file-icon${subFileCount > 0 ? ' has-files' : ''}" title="${subFileCount > 0 ? subFileCount + ' file' + (subFileCount > 1 ? 's' : '') + ' — click to manage' : 'Click to attach files'}" onclick="showFileUploadPopover(event, 'sub_${subIdStr}', '${groupIdStr}', 'subtask', '${taskIdStr}')">
                     <span class="material-icons-outlined">attach_file</span>
                     ${subFileCount > 0 ? `<span class="file-count-badge">${subFileCount}</span>` : ''}
                 </div>
@@ -9809,6 +9809,287 @@ function getTaskTotalFileCount(task) {
     return count;
 }
 
+// ===== FILE UPLOAD POPOVER (Option C — Hybrid) =====
+let filePopoverEl = null;
+let filePopoverTaskId = null;
+let filePopoverGroupId = null;
+let filePopoverType = null; // 'task' or 'subtask'
+let filePopoverParentTaskId = null; // for subtasks
+
+function showFileUploadPopover(event, itemId, groupId, type, parentTaskId) {
+    event.stopPropagation();
+    markUserInteraction();
+    
+    // Close existing popover if any
+    closeFileUploadPopover();
+    
+    filePopoverTaskId = itemId;
+    filePopoverGroupId = groupId;
+    filePopoverType = type;
+    filePopoverParentTaskId = parentTaskId || null;
+    
+    const iconEl = event.currentTarget;
+    const rect = iconEl.getBoundingClientRect();
+    
+    // Determine TDP message key
+    const msgKey = type === 'subtask' ? itemId : itemId; // already 'sub_xxx' for subtasks
+    const fileCount = getTdpFileCount(msgKey);
+    
+    const popover = document.createElement('div');
+    popover.className = 'file-upload-popover';
+    popover.innerHTML = `
+        <div class="fup-drop-zone" id="fupDropZone">
+            <span class="material-icons-outlined fup-drop-icon">cloud_upload</span>
+            <div class="fup-drop-text">Drop files here</div>
+            <div class="fup-drop-or">or</div>
+            <label class="fup-choose-btn">
+                <span class="material-icons-outlined">folder_open</span> Choose files
+                <input type="file" multiple id="fupFileInput" style="display:none" onchange="handleFilePopoverSelect(event)">
+            </label>
+        </div>
+        <div class="fup-progress-area" id="fupProgressArea" style="display:none">
+            <div class="fup-progress-bar"><div class="fup-progress-fill" id="fupProgressFill"></div></div>
+            <div class="fup-progress-text" id="fupProgressText">Uploading...</div>
+        </div>
+        ${fileCount > 0 ? `<div class="fup-file-count">${fileCount} file${fileCount > 1 ? 's' : ''} attached</div>` : ''}
+        <div class="fup-actions">
+            <button class="fup-open-tdp" onclick="filePopoverOpenTDP()">
+                <span class="material-icons-outlined">open_in_new</span> Open task details
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(popover);
+    filePopoverEl = popover;
+    
+    // Position popover near the icon
+    const popW = 240;
+    const popH = 220;
+    let left = rect.left + rect.width / 2 - popW / 2;
+    let top = rect.bottom + 6;
+    
+    // Keep within viewport
+    if (left < 8) left = 8;
+    if (left + popW > window.innerWidth - 8) left = window.innerWidth - 8 - popW;
+    if (top + popH > window.innerHeight - 8) {
+        top = rect.top - popH - 6; // flip above
+    }
+    
+    popover.style.left = left + 'px';
+    popover.style.top = top + 'px';
+    
+    // Setup drag-and-drop on the drop zone
+    const dropZone = popover.querySelector('#fupDropZone');
+    let dragCounter = 0;
+    
+    dropZone.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragCounter++;
+        dropZone.classList.add('fup-drag-over');
+    });
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter <= 0) {
+            dragCounter = 0;
+            dropZone.classList.remove('fup-drag-over');
+        }
+    });
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+    });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropZone.classList.remove('fup-drag-over');
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (files && files.length > 0) {
+            handleFilePopoverUpload(Array.from(files));
+        }
+    });
+    
+    // Close on outside click (delayed to avoid immediate close)
+    setTimeout(() => {
+        document.addEventListener('click', filePopoverOutsideClick);
+    }, 50);
+}
+
+function filePopoverOutsideClick(e) {
+    if (filePopoverEl && !filePopoverEl.contains(e.target)) {
+        closeFileUploadPopover();
+    }
+}
+
+function closeFileUploadPopover() {
+    if (filePopoverEl) {
+        filePopoverEl.remove();
+        filePopoverEl = null;
+    }
+    document.removeEventListener('click', filePopoverOutsideClick);
+    filePopoverTaskId = null;
+    filePopoverGroupId = null;
+    filePopoverType = null;
+    filePopoverParentTaskId = null;
+}
+
+function handleFilePopoverSelect(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    handleFilePopoverUpload(Array.from(files));
+    event.target.value = '';
+}
+
+async function handleFilePopoverUpload(files) {
+    if (!authToken || !activeWorkspaceId) {
+        showToast('Please log in to upload files', 'error');
+        return;
+    }
+    
+    // Validate files
+    const BLOCKED_EXTENSIONS = ['.exe','.bat','.cmd','.com','.msi','.scr','.pif','.vbs','.vbe','.ws','.wsf','.wsc','.wsh','.ps1','.reg','.inf','.lnk','.cpl','.hta','.msp','.mst','.dll','.sys','.drv','.ocx'];
+    const validFiles = [];
+    let totalSize = 0;
+    
+    for (const file of files) {
+        const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+        if (BLOCKED_EXTENSIONS.includes(ext)) {
+            showToast(`File type ${ext} is not allowed`, 'error');
+            continue;
+        }
+        if (file.size > 100 * 1024 * 1024) {
+            showToast(`"${file.name}" exceeds 100MB limit`, 'error');
+            continue;
+        }
+        totalSize += file.size;
+        if (totalSize > 100 * 1024 * 1024) {
+            showToast('Total upload size exceeds 100MB', 'error');
+            break;
+        }
+        validFiles.push(file);
+    }
+    
+    if (validFiles.length === 0) return;
+    
+    // Show progress
+    const progressArea = filePopoverEl && filePopoverEl.querySelector('#fupProgressArea');
+    const progressFill = filePopoverEl && filePopoverEl.querySelector('#fupProgressFill');
+    const progressText = filePopoverEl && filePopoverEl.querySelector('#fupProgressText');
+    const dropZone = filePopoverEl && filePopoverEl.querySelector('#fupDropZone');
+    
+    if (dropZone) dropZone.style.display = 'none';
+    if (progressArea) progressArea.style.display = 'block';
+    if (progressText) progressText.textContent = `Uploading ${validFiles.length} file${validFiles.length > 1 ? 's' : ''}...`;
+    if (progressFill) progressFill.style.width = '30%';
+    
+    // Upload to R2 via /api/upload
+    const formData = new FormData();
+    formData.append('workspaceId', activeWorkspaceId);
+    for (const f of validFiles) {
+        formData.append('files', f);
+    }
+    
+    try {
+        if (progressFill) progressFill.style.width = '60%';
+        
+        const res = await authFetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await res.json();
+        
+        if (progressFill) progressFill.style.width = '90%';
+        
+        if (!result.success || !result.files || result.files.length === 0) {
+            showToast(result.error || 'Upload failed', 'error');
+            closeFileUploadPopover();
+            return;
+        }
+        
+        // Create a TDP message with the uploaded files
+        const taskId = filePopoverTaskId;
+        if (!tdpMessages[taskId]) tdpMessages[taskId] = [];
+        
+        const msg = {
+            id: Date.now(),
+            author: currentUser.fullName || currentUser.email,
+            picture: currentUser.picture || '',
+            text: '',
+            image: '',
+            attachments: result.files,
+            timestamp: new Date().toISOString()
+        };
+        
+        tdpMessages[taskId].push(msg);
+        saveTdpDataToServer();
+        
+        if (progressFill) progressFill.style.width = '100%';
+        if (progressText) progressText.textContent = `✓ ${validFiles.length} file${validFiles.length > 1 ? 's' : ''} uploaded`;
+        
+        // Update the file count badge in the DOM
+        updateFileCountBadge(taskId);
+        
+        // Auto-close after short delay
+        setTimeout(() => {
+            closeFileUploadPopover();
+        }, 1200);
+        
+    } catch (err) {
+        console.error('[FilePopover] Upload failed:', err);
+        showToast('File upload failed. Please try again.', 'error');
+        closeFileUploadPopover();
+    }
+}
+
+function updateFileCountBadge(taskId) {
+    // Find the .cell-files td that contains this task's file icon
+    // The file-icon has an onclick with the taskId
+    const allFileIcons = document.querySelectorAll('.cell-files .file-icon');
+    for (const icon of allFileIcons) {
+        const onclick = icon.getAttribute('onclick') || '';
+        if (onclick.includes(`'${taskId}'`)) {
+            const newCount = getTdpFileCount(taskId);
+            // Update has-files class
+            if (newCount > 0) {
+                icon.classList.add('has-files');
+            } else {
+                icon.classList.remove('has-files');
+            }
+            // Update or create badge
+            let badge = icon.querySelector('.file-count-badge');
+            if (newCount > 0) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'file-count-badge';
+                    icon.appendChild(badge);
+                }
+                badge.textContent = newCount;
+            } else if (badge) {
+                badge.remove();
+            }
+            // Update title
+            icon.title = newCount > 0 ? `${newCount} file${newCount > 1 ? 's' : ''} — click to manage` : 'Click to attach files';
+            break;
+        }
+    }
+}
+
+function filePopoverOpenTDP() {
+    const taskId = filePopoverTaskId;
+    const groupId = filePopoverGroupId;
+    const type = filePopoverType;
+    const parentTaskId = filePopoverParentTaskId;
+    
+    closeFileUploadPopover();
+    
+    if (type === 'subtask') {
+        // Extract subtask id from 'sub_xxx' format
+        const subId = taskId.replace('sub_', '');
+        openSubtaskDetailsPanel(subId, parentTaskId, groupId, true);
+    } else {
+        openTaskDetailsPanel(taskId, groupId, true);
+    }
+}
+
 // ===== ENTER KEY TO SEND MESSAGE =====
 function setupTdpEnterKey() {
     const inputEl = document.getElementById('tdpMessageInput');
@@ -10224,7 +10505,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '84';
+const CURRENT_APP_VERSION = '85';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
