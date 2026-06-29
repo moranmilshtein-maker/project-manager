@@ -5859,17 +5859,37 @@ document.addEventListener('dragover', function(e) {
 
     // Handle subtask drag — allow dropping on any task row (to move between parents) or reorder within same parent
     if (_subtaskDragData) {
-        // Allow dropping on a task row (to move subtask to a different parent)
+        // Allow dropping on a task row (to move subtask to a different parent OR promote to task)
         const taskRow = e.target.closest('tr[data-task-id]');
         if (taskRow) {
-            const targetTaskId = taskRow.getAttribute('data-task-id');
-            // Don't drop on itself's parent if it's the same
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
             document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
                 el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
             });
-            taskRow.classList.add('row-drag-over-nest');
+            // Three zones: top 25% = promote to task above, bottom 25% = promote to task below, middle = nest as subtask
+            const rect = taskRow.getBoundingClientRect();
+            const relY = e.clientY - rect.top;
+            const height = rect.height;
+            if (relY < height * 0.25) {
+                taskRow.classList.add('row-drag-over-top');
+            } else if (relY > height * 0.75) {
+                taskRow.classList.add('row-drag-over-bottom');
+            } else {
+                taskRow.classList.add('row-drag-over-nest');
+            }
+            return;
+        }
+
+        // Allow drop on add-task-row (promote subtask to task in that group)
+        const addTaskRow = e.target.closest('tr.add-task-row');
+        if (addTaskRow) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
+            });
+            addTaskRow.classList.add('row-drag-over-top');
             return;
         }
 
@@ -5889,13 +5909,19 @@ document.addEventListener('dragover', function(e) {
         }
         // Allow reorder within same parent task
         if (subtaskRow.getAttribute('data-parent-task') !== _subtaskDragData.taskId) {
-            // Dropping on a subtask of a different parent — treat as moving to that parent
+            // Dropping on a subtask of a different parent — show positional indicators
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
             document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
                 el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
             });
-            subtaskRow.classList.add('row-drag-over-nest');
+            const rect = subtaskRow.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            if (e.clientY < midY) {
+                subtaskRow.classList.add('row-drag-over-top');
+            } else {
+                subtaskRow.classList.add('row-drag-over-bottom');
+            }
             return;
         }
         if (subtaskRow.getAttribute('data-subtask-id') === _subtaskDragData.subtaskId) return;
@@ -5920,6 +5946,36 @@ document.addEventListener('dragover', function(e) {
     if (!_rowDragData) return;
     const row = e.target.closest('tr[data-task-id]');
     if (!row) {
+        // Check if hovering over a subtask row (to insert task as subtask at position)
+        const subtaskRow = e.target.closest('tr.subtask-row[data-subtask-id]');
+        if (subtaskRow) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
+            });
+            // Three zones: top 25% = insert as subtask before, bottom 25% = insert as subtask after, middle = insert as subtask at this position
+            const rect = subtaskRow.getBoundingClientRect();
+            const relY = e.clientY - rect.top;
+            const height = rect.height;
+            if (relY < height * 0.35) {
+                subtaskRow.classList.add('row-drag-over-top');
+            } else {
+                subtaskRow.classList.add('row-drag-over-bottom');
+            }
+            return;
+        }
+        // Check if hovering over a subtask-add-row (insert as subtask at end)
+        const subtaskAddRow = e.target.closest('tr.subtask-add-row');
+        if (subtaskAddRow) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.row-drag-over-top, .row-drag-over-bottom, .row-drag-over-nest').forEach(el => {
+                el.classList.remove('row-drag-over-top', 'row-drag-over-bottom', 'row-drag-over-nest');
+            });
+            subtaskAddRow.classList.add('row-drag-over-top');
+            return;
+        }
         // Check if hovering over an empty group (add-task-row area)
         const addRow = e.target.closest('tr.add-task-row');
         if (addRow) {
@@ -5993,25 +6049,57 @@ document.addEventListener('drop', function(e) {
 
     // Handle subtask drop
     if (_subtaskDragData) {
-        // Check if dropped on a task row (move subtask to different parent)
+        // Check if dropped on a task row
         const taskRow = e.target.closest('tr[data-task-id]');
         if (taskRow) {
             const targetTaskId = taskRow.getAttribute('data-task-id');
             const targetGroupId = taskRow.getAttribute('data-group-id');
-            // Move subtask to this task as a subtask
             e.preventDefault();
-            moveSubtaskToTask(_subtaskDragData.subtaskId, _subtaskDragData.taskId, _subtaskDragData.groupId, targetTaskId, targetGroupId);
+            
+            // Save drag data before potential cleanup
+            const _subId = _subtaskDragData.subtaskId;
+            const _fromTaskId = _subtaskDragData.taskId;
+            const _fromGroupId = _subtaskDragData.groupId;
+            
+            // Detect zone: top 25% = promote above, bottom 25% = promote below, middle = nest as subtask
+            const rect = taskRow.getBoundingClientRect();
+            const relY = e.clientY - rect.top;
+            const height = rect.height;
+            
+            if (relY >= height * 0.25 && relY <= height * 0.75) {
+                // MIDDLE: Nest as subtask of target task
+                moveSubtaskToTask(_subId, _fromTaskId, _fromGroupId, targetTaskId, targetGroupId);
+                cleanupRowDrag();
+                renderBoard();
+                saveToStorage();
+                // Persist move in normalized DB
+                const targetTask = findTask(targetTaskId, targetGroupId).task;
+                const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
+                sendStructural('moveSubtask', {
+                    subtaskId: _subId,
+                    groupId: targetGroupId,
+                    data: { fromTaskId: _fromTaskId, toTaskId: targetTaskId, toGroupId: targetGroupId, position: newPos }
+                });
+            } else {
+                // TOP/BOTTOM: Promote subtask to a task at this position
+                const insertAfter = relY > height * 0.75;
+                promoteSubtaskToTaskAtPosition(_subId, _fromTaskId, _fromGroupId, targetTaskId, targetGroupId, insertAfter);
+                cleanupRowDrag();
+                renderBoard();
+                saveToStorage();
+            }
+            return;
+        }
+
+        // Check if dropped on add-task-row (promote subtask to task in that group)
+        const addTaskRow = e.target.closest('tr.add-task-row');
+        if (addTaskRow) {
+            const targetGroupId = addTaskRow.getAttribute('data-add-group');
+            e.preventDefault();
+            promoteSubtaskToTaskInGroup(_subtaskDragData.subtaskId, _subtaskDragData.taskId, _subtaskDragData.groupId, targetGroupId);
             cleanupRowDrag();
             renderBoard();
             saveToStorage();
-            // Persist move in normalized DB
-            const targetTask = findTask(targetTaskId, targetGroupId).task;
-            const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
-            sendStructural('moveSubtask', {
-                subtaskId: _subtaskDragData.subtaskId,
-                groupId: targetGroupId,
-                data: { fromTaskId: _subtaskDragData.taskId, toTaskId: targetTaskId, toGroupId: targetGroupId, position: newPos }
-            });
             return;
         }
 
@@ -6022,20 +6110,26 @@ document.addEventListener('drop', function(e) {
         if (targetSubtaskRow) {
             const targetParentTask = targetSubtaskRow.getAttribute('data-parent-task');
             if (targetParentTask !== _subtaskDragData.taskId) {
-                // Move to the different parent task
+                // Move to the different parent task at specific position
                 const targetGroupId = targetSubtaskRow.getAttribute('data-group-id');
+                const targetSubtaskId = targetSubtaskRow.getAttribute('data-subtask-id');
+                const rect = targetSubtaskRow.getBoundingClientRect();
+                insertAfter = e.clientY >= (rect.top + rect.height / 2);
                 e.preventDefault();
-                moveSubtaskToTask(_subtaskDragData.subtaskId, _subtaskDragData.taskId, _subtaskDragData.groupId, targetParentTask, targetGroupId);
+                const _subId = _subtaskDragData.subtaskId;
+                const _fromTaskId = _subtaskDragData.taskId;
+                const _fromGroupId = _subtaskDragData.groupId;
+                moveSubtaskToTaskAtPosition(_subId, _fromTaskId, _fromGroupId, targetParentTask, targetGroupId, targetSubtaskId, insertAfter);
                 cleanupRowDrag();
                 renderBoard();
                 saveToStorage();
                 // Persist move in normalized DB
                 const targetTask = findTask(targetParentTask, targetGroupId).task;
-                const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
+                const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.findIndex(s => String(s.id) === String(_subId)) : 0;
                 sendStructural('moveSubtask', {
-                    subtaskId: _subtaskDragData.subtaskId,
+                    subtaskId: _subId,
                     groupId: targetGroupId,
-                    data: { fromTaskId: _subtaskDragData.taskId, toTaskId: targetParentTask, toGroupId: targetGroupId, position: newPos }
+                    data: { fromTaskId: _fromTaskId, toTaskId: targetParentTask, toGroupId: targetGroupId, position: newPos >= 0 ? newPos : 0 }
                 });
                 return;
             }
@@ -6086,13 +6180,66 @@ document.addEventListener('drop', function(e) {
             }
         }
 
+        // Save data before cleanup
+        const _savedSubDragData = { ..._subtaskDragData };
+        cleanupRowDrag();
+        renderBoard();
+        saveToStorage();
+        // Persist subtask reorder in normalized DB
+        const parentTask = findTask(_savedSubDragData.taskId, _savedSubDragData.groupId).task;
+        if (parentTask && parentTask.subtasks) {
+            sendStructural('reorderSubtasks', {
+                taskId: _savedSubDragData.taskId,
+                groupId: _savedSubDragData.groupId,
+                data: { subtaskIds: parentTask.subtasks.map(s => s.id) }
+            });
+        }
+        return;
+    }
+
+    if (!_rowDragData) return;
+
+    // Check if task dropped on a subtask row (convert to subtask at specific position)
+    const targetSubRow = e.target.closest('tr.subtask-row[data-subtask-id]');
+    if (targetSubRow) {
+        const targetParentTaskId = targetSubRow.getAttribute('data-parent-task');
+        const targetGroupId = targetSubRow.getAttribute('data-group-id');
+        const targetSubtaskId = targetSubRow.getAttribute('data-subtask-id');
+        
+        // Don't drop on own subtasks
+        if (String(targetParentTaskId) === String(_rowDragData.taskId)) {
+            cleanupRowDrag(); return;
+        }
+        
+        const rect = targetSubRow.getBoundingClientRect();
+        const insertAfter = e.clientY >= (rect.top + rect.height / 2);
+        
+        e.preventDefault();
+        // Convert task to subtask at the specific position
+        convertTaskToSubtaskAtPosition(_rowDragData.taskId, _rowDragData.groupId, targetParentTaskId, targetGroupId, targetSubtaskId, insertAfter);
         cleanupRowDrag();
         renderBoard();
         saveToStorage();
         return;
     }
 
-    if (!_rowDragData) return;
+    // Check if task dropped on a subtask-add-row (convert to subtask at end)
+    const targetSubAddRow = e.target.closest('tr.subtask-add-row');
+    if (targetSubAddRow && !e.target.closest('tr.add-task-row')) {
+        const targetParentTaskId = targetSubAddRow.getAttribute('data-parent-task');
+        const targetGroupId = targetSubAddRow.getAttribute('data-group-id');
+        
+        if (String(targetParentTaskId) === String(_rowDragData.taskId)) {
+            cleanupRowDrag(); return;
+        }
+        
+        e.preventDefault();
+        convertTaskToSubtask(_rowDragData.taskId, _rowDragData.groupId, targetParentTaskId, targetGroupId);
+        cleanupRowDrag();
+        renderBoard();
+        saveToStorage();
+        return;
+    }
 
     // Check drop on a task row (any group)
     let targetRow = e.target.closest('tr[data-task-id]');
@@ -6333,7 +6480,7 @@ function convertTaskToSubtask(taskId, sourceGroupId, targetTaskId, targetGroupId
     
     // Convert task to subtask format
     if (!targetTask.subtasks) targetTask.subtasks = [];
-    targetTask.subtasks.push({
+    const newSubtask = {
         id: task.id,
         name: task.name,
         owner: task.owner || '',
@@ -6346,20 +6493,48 @@ function convertTaskToSubtask(taskId, sourceGroupId, targetTaskId, targetGroupId
         timelineStart: task.timelineStart || '',
         timelineEnd: task.timelineEnd || '',
         lastUpdated: nowISO()
-    });
+    };
+    targetTask.subtasks.push(newSubtask);
+    
+    // Flatten: also move task's own subtasks into target (Option C)
+    const childSubtasks = task.subtasks || [];
+    for (const child of childSubtasks) {
+        targetTask.subtasks.push({
+            id: child.id,
+            name: child.name,
+            owner: child.owner || '',
+            status: child.status || '',
+            priority: child.priority || '',
+            dueDate: child.dueDate || '',
+            notes: child.notes || '',
+            budget: child.budget || 0,
+            files: child.files || 0,
+            timelineStart: child.timelineStart || '',
+            timelineEnd: child.timelineEnd || '',
+            lastUpdated: child.lastUpdated || nowISO()
+        });
+    }
+    
     targetTask.subtasksExpanded = true;
     markUpdated(targetTask);
     
-    showToast(`"${task.name}" moved as subitem of "${targetTask.name}"`);
+    const totalMoved = 1 + childSubtasks.length;
+    showToast(`"${task.name}"${childSubtasks.length > 0 ? ` + ${childSubtasks.length} subitem${childSubtasks.length > 1 ? 's' : ''}` : ''} moved as subitem${totalMoved > 1 ? 's' : ''} of "${targetTask.name}"`);
     
-    // Persist in normalized DB: delete task, create subtask
+    // Persist in normalized DB: delete task (and its subtasks), create new subtasks
     sendStructural('deleteTask', { taskId: taskId, groupId: sourceGroupId });
-    const newSubtask = targetTask.subtasks[targetTask.subtasks.length - 1];
     sendStructural('createSubtask', {
         taskId: targetTaskId,
         groupId: targetGroupId,
-        data: { subtask: newSubtask, position: targetTask.subtasks.length - 1 }
+        data: { subtask: newSubtask, position: targetTask.subtasks.length - 1 - childSubtasks.length }
     });
+    for (let i = 0; i < childSubtasks.length; i++) {
+        sendStructural('createSubtask', {
+            taskId: targetTaskId,
+            groupId: targetGroupId,
+            data: { subtask: targetTask.subtasks[targetTask.subtasks.length - childSubtasks.length + i], position: targetTask.subtasks.length - childSubtasks.length + i }
+        });
+    }
 }
 
 // Move a subtask from one parent task to another
@@ -6392,6 +6567,225 @@ function moveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, targetTaskId,
     markUpdated(targetTask);
     
     showToast(`Subitem moved to "${targetTask.name}"`);
+}
+
+// Move subtask to a different parent at a specific position (before/after a target subtask)
+function moveSubtaskToTaskAtPosition(subtaskId, sourceTaskId, sourceGroupId, targetTaskId, targetGroupId, targetSubtaskId, insertAfter) {
+    const { task: sourceTask } = findTask(sourceTaskId, sourceGroupId);
+    if (!sourceTask || !sourceTask.subtasks) return;
+    const subIdx = sourceTask.subtasks.findIndex(s => String(s.id) === String(subtaskId));
+    if (subIdx === -1) return;
+    const subtask = sourceTask.subtasks[subIdx];
+    
+    if (String(sourceTaskId) === String(targetTaskId)) {
+        // Same parent — just reorder
+        moveSubtaskWithinParent(subtaskId, sourceTaskId, sourceGroupId, targetSubtaskId, insertAfter);
+        return;
+    }
+    
+    const targetGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+    if (!targetGroup) return;
+    const targetTask = targetGroup.tasks.find(t => String(t.id) === String(targetTaskId));
+    if (!targetTask) return;
+    
+    // Remove from source
+    sourceTask.subtasks.splice(subIdx, 1);
+    markUpdated(sourceTask);
+    
+    // Insert at position in target
+    if (!targetTask.subtasks) targetTask.subtasks = [];
+    let toIdx = targetTask.subtasks.findIndex(s => String(s.id) === String(targetSubtaskId));
+    if (toIdx === -1) toIdx = targetTask.subtasks.length;
+    else if (insertAfter) toIdx += 1;
+    
+    markUpdated(subtask);
+    targetTask.subtasks.splice(toIdx, 0, subtask);
+    targetTask.subtasksExpanded = true;
+    markUpdated(targetTask);
+    
+    showToast(`Subitem moved to "${targetTask.name}"`);
+}
+
+// Convert task to subtask at a specific position within target task's subtask list
+function convertTaskToSubtaskAtPosition(taskId, sourceGroupId, targetTaskId, targetGroupId, targetSubtaskId, insertAfter) {
+    // Find and remove source task
+    const sourceGroup = boardData.groups.find(g => String(g.id) === String(sourceGroupId));
+    if (!sourceGroup) return;
+    const taskIdx = sourceGroup.tasks.findIndex(t => String(t.id) === String(taskId));
+    if (taskIdx === -1) return;
+    const task = sourceGroup.tasks[taskIdx];
+    
+    // Find target task
+    const targetGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+    if (!targetGroup) return;
+    const targetTask = targetGroup.tasks.find(t => String(t.id) === String(targetTaskId));
+    if (!targetTask) return;
+    
+    // Don't allow nesting into itself
+    if (String(task.id) === String(targetTask.id)) return;
+    
+    // Remove from source
+    sourceGroup.tasks.splice(taskIdx, 1);
+    
+    // Convert to subtask format
+    if (!targetTask.subtasks) targetTask.subtasks = [];
+    const newSubtask = {
+        id: task.id,
+        name: task.name,
+        owner: task.owner || '',
+        status: task.status || '',
+        priority: task.priority || '',
+        dueDate: task.dueDate || '',
+        notes: task.notes || '',
+        budget: task.budget || 0,
+        files: task.files || 0,
+        timelineStart: task.timelineStart || '',
+        timelineEnd: task.timelineEnd || '',
+        lastUpdated: nowISO()
+    };
+    
+    // Insert at specific position
+    let toIdx = targetTask.subtasks.findIndex(s => String(s.id) === String(targetSubtaskId));
+    if (toIdx === -1) toIdx = targetTask.subtasks.length;
+    else if (insertAfter) toIdx += 1;
+    
+    // Build array of items to insert: parent first, then its children (Option C: flatten)
+    const childSubtasks = task.subtasks || [];
+    const itemsToInsert = [newSubtask];
+    for (const child of childSubtasks) {
+        itemsToInsert.push({
+            id: child.id,
+            name: child.name,
+            owner: child.owner || '',
+            status: child.status || '',
+            priority: child.priority || '',
+            dueDate: child.dueDate || '',
+            notes: child.notes || '',
+            budget: child.budget || 0,
+            files: child.files || 0,
+            timelineStart: child.timelineStart || '',
+            timelineEnd: child.timelineEnd || '',
+            lastUpdated: child.lastUpdated || nowISO()
+        });
+    }
+    
+    targetTask.subtasks.splice(toIdx, 0, ...itemsToInsert);
+    targetTask.subtasksExpanded = true;
+    markUpdated(targetTask);
+    
+    const totalMoved = itemsToInsert.length;
+    showToast(`"${task.name}"${childSubtasks.length > 0 ? ` + ${childSubtasks.length} subitem${childSubtasks.length > 1 ? 's' : ''}` : ''} moved as subitem${totalMoved > 1 ? 's' : ''} of "${targetTask.name}"`);
+    
+    // Persist in normalized DB: delete task (and its subtasks), create new subtasks
+    sendStructural('deleteTask', { taskId: taskId, groupId: sourceGroupId });
+    for (let i = 0; i < itemsToInsert.length; i++) {
+        sendStructural('createSubtask', {
+            taskId: targetTaskId,
+            groupId: targetGroupId,
+            data: { subtask: itemsToInsert[i], position: toIdx + i }
+        });
+    }
+}
+
+// Promote subtask to a task at a specific position (before/after a target task row)
+function promoteSubtaskToTaskAtPosition(subtaskId, sourceTaskId, sourceGroupId, targetTaskId, targetGroupId, insertAfter) {
+    // Find and remove subtask from source
+    const { task: sourceTask } = findTask(sourceTaskId, sourceGroupId);
+    if (!sourceTask || !sourceTask.subtasks) return;
+    const subIdx = sourceTask.subtasks.findIndex(s => String(s.id) === String(subtaskId));
+    if (subIdx === -1) return;
+    const subtask = sourceTask.subtasks[subIdx];
+    
+    // Remove from source parent
+    sourceTask.subtasks.splice(subIdx, 1);
+    markUpdated(sourceTask);
+    
+    // Find target group and position
+    const targetGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+    if (!targetGroup) return;
+    
+    // Create new task from subtask
+    const newTask = {
+        id: subtask.id,
+        name: subtask.name,
+        owner: subtask.owner || '',
+        status: subtask.status || '',
+        dueDate: subtask.dueDate || '',
+        priority: subtask.priority || '',
+        notes: subtask.notes || '',
+        budget: subtask.budget || 0,
+        files: subtask.files || 0,
+        timelineStart: subtask.timelineStart || '',
+        timelineEnd: subtask.timelineEnd || '',
+        lastUpdated: nowISO(),
+        lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
+        subtasks: [],
+        subtasksExpanded: false
+    };
+    
+    // Insert at position relative to target task
+    let insertIndex = targetGroup.tasks.findIndex(t => String(t.id) === String(targetTaskId));
+    if (insertIndex === -1) insertIndex = targetGroup.tasks.length;
+    else if (insertAfter) insertIndex += 1;
+    
+    targetGroup.tasks.splice(insertIndex, 0, newTask);
+    
+    showToast(`"${newTask.name}" promoted to task`);
+    
+    // Persist in normalized DB
+    sendStructural('deleteSubtask', { subtaskId: String(subtask.id), groupId: sourceGroupId });
+    sendStructural('createTask', {
+        groupId: targetGroupId,
+        data: { task: newTask, position: insertIndex }
+    });
+}
+
+// Promote subtask to a task at the end of a target group
+function promoteSubtaskToTaskInGroup(subtaskId, sourceTaskId, sourceGroupId, targetGroupId) {
+    // Find and remove subtask from source
+    const { task: sourceTask } = findTask(sourceTaskId, sourceGroupId);
+    if (!sourceTask || !sourceTask.subtasks) return;
+    const subIdx = sourceTask.subtasks.findIndex(s => String(s.id) === String(subtaskId));
+    if (subIdx === -1) return;
+    const subtask = sourceTask.subtasks[subIdx];
+    
+    // Remove from source parent
+    sourceTask.subtasks.splice(subIdx, 1);
+    markUpdated(sourceTask);
+    
+    // Find target group
+    const targetGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+    if (!targetGroup) return;
+    
+    // Create new task from subtask
+    const newTask = {
+        id: subtask.id,
+        name: subtask.name,
+        owner: subtask.owner || '',
+        status: subtask.status || '',
+        dueDate: subtask.dueDate || '',
+        priority: subtask.priority || '',
+        notes: subtask.notes || '',
+        budget: subtask.budget || 0,
+        files: subtask.files || 0,
+        timelineStart: subtask.timelineStart || '',
+        timelineEnd: subtask.timelineEnd || '',
+        lastUpdated: nowISO(),
+        lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
+        subtasks: [],
+        subtasksExpanded: false
+    };
+    
+    targetGroup.tasks.push(newTask);
+    
+    showToast(`"${newTask.name}" promoted to task in ${targetGroup.name}`);
+    
+    // Persist in normalized DB
+    sendStructural('deleteSubtask', { subtaskId: String(subtask.id), groupId: sourceGroupId });
+    sendStructural('createTask', {
+        groupId: targetGroupId,
+        data: { task: newTask, position: targetGroup.tasks.length - 1 }
+    });
 }
 
 // ============================================================
