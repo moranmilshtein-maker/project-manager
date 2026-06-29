@@ -3719,6 +3719,7 @@ function setupNewTaskButton() {
                     timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
                     subtasks: [], subtasksExpanded: false
                 });
+                saveToStorage();
                 renderBoard();
             }
         });
@@ -3752,6 +3753,15 @@ function saveToServer() {
         if (!authToken) return;
         try {
             const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
+            // Snapshot current task IDs before sending — so we can detect locally-added tasks when response arrives
+            const preSaveTaskIds = new Set();
+            if (boardData.groups) {
+                for (const g of boardData.groups) {
+                    for (const t of (g.tasks || [])) {
+                        preSaveTaskIds.add(String(t.id));
+                    }
+                }
+            }
             const savePayload = { ...boardData, _baseVersion: boardData._savedAt || '' };
             const res = await authFetch('/api/user-data/boards' + wsParam, {
                 method: 'PUT',
@@ -3765,8 +3775,40 @@ function saveToServer() {
                 // BUT don't re-render if user is actively editing (add task/subtask input open)
                 const oldActive = boardData.activeBoard;
                 const oldGroups = boardData.groups; // Preserve current expanded states
+                
+                // Detect tasks added locally AFTER we sent the save payload
+                const locallyAddedTasks = {}; // groupId -> [task, task, ...]
+                if (oldGroups) {
+                    for (const g of oldGroups) {
+                        for (const t of (g.tasks || [])) {
+                            if (!preSaveTaskIds.has(String(t.id))) {
+                                // This task was added after we sent the save
+                                if (!locallyAddedTasks[String(g.id)]) locallyAddedTasks[String(g.id)] = [];
+                                locallyAddedTasks[String(g.id)].push(t);
+                            }
+                        }
+                    }
+                }
+                
                 boardData = result.mergedData;
                 boardData.activeBoard = oldActive; // Keep client's active board
+                
+                // Re-inject locally added tasks that the server doesn't know about yet
+                if (Object.keys(locallyAddedTasks).length > 0 && boardData.groups) {
+                    for (const [gId, tasks] of Object.entries(locallyAddedTasks)) {
+                        const targetGroup = boardData.groups.find(g => String(g.id) === String(gId));
+                        if (targetGroup) {
+                            for (const t of tasks) {
+                                // Only add if not already present in merged data
+                                if (!(targetGroup.tasks || []).find(mt => String(mt.id) === String(t.id))) {
+                                    targetGroup.tasks.push(t);
+                                }
+                            }
+                        }
+                    }
+                    console.log('[Save] Re-injected locally added tasks:', locallyAddedTasks);
+                }
+                
                 // Preserve subtasksExpanded state from current groups
                 if (oldGroups && boardData.groups) {
                     for (const newGroup of boardData.groups) {
@@ -10082,7 +10124,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '82';
+const CURRENT_APP_VERSION = '83';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

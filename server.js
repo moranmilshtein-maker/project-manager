@@ -3195,7 +3195,7 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '82';
+const APP_VERSION = '83';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
