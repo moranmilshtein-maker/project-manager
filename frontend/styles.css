@@ -7716,3 +7716,88 @@ img.mention-popup-avatar {
 .collab-toast-close:hover {
     color: #333;
 }
+
+/* ===== CELL-LEVEL PRESENCE (Google Sheets style) ===== */
+.cell-presence-border {
+    box-shadow: inset 0 0 0 2px var(--presence-color, #fdab3d) !important;
+    border-radius: 2px;
+    transition: box-shadow 0.2s ease;
+}
+
+.cell-presence {
+    position: absolute;
+    top: -12px;
+    right: -8px;
+    z-index: 100;
+    pointer-events: none;
+}
+
+.cell-presence-img {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--presence-color, #fdab3d);
+    object-fit: cover;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.cell-presence-initials {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+/* Presence indicator in toolbar */
+.presence-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-right: 12px;
+    padding: 4px 0;
+}
+
+.presence-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #fdab3d;
+    object-fit: cover;
+    margin-left: -8px;
+    background: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+    cursor: default;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.presence-avatar:first-child {
+    margin-left: 0;
+}
+
+.presence-more {
+    background: #f5f6f8;
+    font-size: 9px;
+    color: #555;
+}
+
+/* Remote cell flash animation */
+@keyframes cellRemoteFlash {
+    0% { background-color: rgba(87, 155, 252, 0.3); }
+    100% { background-color: transparent; }
+}
+
+.cell-remote-flash {
+    animation: cellRemoteFlash 1s ease-out;
+}

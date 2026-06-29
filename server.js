@@ -11,6 +11,7 @@ const helmet = require('helmet');
 const dataStore = require('./data-store');
 const workspaceStore = require('./workspace-store');
 const snapshotStore = require('./snapshot-store');
+const cellStore = require('./cell-store');
 let emailService;
 try {
   emailService = require('./email-service');
@@ -3195,7 +3196,7 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '83';
+const APP_VERSION = '84';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
@@ -3219,6 +3220,198 @@ app.get('*', (req, res, next) => {
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+});
+
+// ===== CELL-LEVEL GRANULAR SAVE API =====
+
+// PATCH /api/boards/cell - Update a single cell (field) on a task/subtask/group
+app.patch('/api/boards/cell', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const user = users.get(key);
+  const { workspaceId, boardId, groupId, taskId, subtaskId, field, value } = req.body;
+  
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+  if (!field) return res.status(400).json({ error: 'field required' });
+  if (!isWorkspaceMember(user.id, workspaceId)) {
+    return res.status(403).json({ error: 'Not a member of this workspace' });
+  }
+
+  // Ensure workspace is migrated to normalized tables
+  const isNormalized = await cellStore.isWorkspaceNormalized(workspaceId);
+  if (!isNormalized) {
+    const migrated = await cellStore.migrateWorkspaceToNormalized(workspaceId);
+    if (!migrated) {
+      return res.status(500).json({ error: 'Failed to migrate workspace to cell store' });
+    }
+  }
+
+  const result = await cellStore.patchCell({
+    workspaceId, boardId, groupId, taskId, subtaskId, field, value,
+    userId: user.id, userName: user.fullName || user.email
+  });
+
+  if (result.success) {
+    // Broadcast cell change to other connected users via SSE
+    broadcastToWorkspace(workspaceId, user.id, 'cell_updated', {
+      userId: user.id, userName: user.fullName || user.email, picture: user.picture || '',
+      boardId, groupId, taskId, subtaskId, field, value, timestamp: result.timestamp
+    });
+    res.json({ success: true, timestamp: result.timestamp });
+  } else {
+    res.status(400).json({ error: result.error });
+  }
+});
+
+// POST /api/boards/structural - Structural changes (create/delete/move/reorder)
+app.post('/api/boards/structural', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const user = users.get(key);
+  const { workspaceId, action, boardId, groupId, taskId, subtaskId, data: actionData } = req.body;
+  
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+  if (!action) return res.status(400).json({ error: 'action required' });
+  if (!isWorkspaceMember(user.id, workspaceId)) {
+    return res.status(403).json({ error: 'Not a member of this workspace' });
+  }
+
+  // Ensure workspace is migrated
+  const isNormalized = await cellStore.isWorkspaceNormalized(workspaceId);
+  if (!isNormalized) {
+    const migrated = await cellStore.migrateWorkspaceToNormalized(workspaceId);
+    if (!migrated) {
+      return res.status(500).json({ error: 'Failed to migrate workspace to cell store' });
+    }
+  }
+
+  let result;
+  switch (action) {
+    case 'createTask':
+      result = await cellStore.createTask({
+        workspaceId, boardId, groupId,
+        task: actionData.task || actionData,
+        position: actionData.position
+      });
+      break;
+
+    case 'deleteTask':
+      result = await cellStore.deleteTask({ workspaceId, taskId });
+      break;
+
+    case 'moveTask':
+      result = await cellStore.moveTask({
+        workspaceId, taskId,
+        fromGroupId: actionData.fromGroupId,
+        toGroupId: actionData.toGroupId || groupId,
+        newPosition: actionData.position
+      });
+      break;
+
+    case 'createGroup':
+      result = await cellStore.createGroup({
+        workspaceId, boardId,
+        group: actionData.group || actionData,
+        position: actionData.position
+      });
+      break;
+
+    case 'deleteGroup':
+      result = await cellStore.deleteGroup({ workspaceId, groupId });
+      break;
+
+    case 'createSubtask':
+      result = await cellStore.createSubtask({
+        workspaceId, boardId, groupId, taskId,
+        subtask: actionData.subtask || actionData,
+        position: actionData.position
+      });
+      break;
+
+    case 'deleteSubtask':
+      result = await cellStore.deleteSubtask({ workspaceId, subtaskId });
+      break;
+
+    case 'reorderTasks':
+      result = await cellStore.reorderTasks({
+        workspaceId, groupId, taskIds: actionData.taskIds
+      });
+      break;
+
+    case 'reorderGroups':
+      result = await cellStore.reorderGroups({
+        workspaceId, boardId, groupIds: actionData.groupIds
+      });
+      break;
+
+    case 'reorderSubtasks':
+      result = await cellStore.reorderSubtasks({
+        workspaceId, taskId, subtaskIds: actionData.subtaskIds
+      });
+      break;
+
+    default:
+      return res.status(400).json({ error: `Unknown action: ${action}` });
+  }
+
+  if (result && result.success) {
+    // Broadcast structural change to other users
+    broadcastToWorkspace(workspaceId, user.id, 'structural_change', {
+      userId: user.id, userName: user.fullName || user.email, picture: user.picture || '',
+      action, boardId, groupId, taskId, subtaskId, data: actionData, timestamp: new Date().toISOString()
+    });
+    res.json(result);
+  } else {
+    res.status(400).json({ error: result?.error || 'Action failed' });
+  }
+});
+
+// GET /api/boards/normalized - Load full board from normalized tables
+app.get('/api/boards/normalized', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const user = users.get(key);
+  const wsId = req.query.workspaceId;
+  if (!wsId) return res.status(400).json({ error: 'workspaceId required' });
+  if (!isWorkspaceMember(user.id, wsId)) {
+    return res.status(403).json({ error: 'Not a member of this workspace' });
+  }
+
+  // Check if workspace has normalized data; if not, migrate
+  const isNormalized = await cellStore.isWorkspaceNormalized(wsId);
+  if (!isNormalized) {
+    const migrated = await cellStore.migrateWorkspaceToNormalized(wsId);
+    if (!migrated) {
+      // No data to migrate either — return empty
+      return res.json({ success: true, data: null });
+    }
+  }
+
+  const data = await cellStore.loadWorkspaceBoard(wsId);
+  res.json({ success: true, data });
+});
+
+// POST /api/boards/migrate-to-cells - Trigger migration for a workspace
+app.post('/api/boards/migrate-to-cells', async (req, res) => {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const key = sessions.get(token);
+  if (!key) return res.status(401).json({ error: 'Not authenticated' });
+
+  const user = users.get(key);
+  const { workspaceId } = req.body;
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+  if (!isWorkspaceMember(user.id, workspaceId)) {
+    return res.status(403).json({ error: 'Not a member of this workspace' });
+  }
+
+  const result = await cellStore.migrateWorkspaceToNormalized(workspaceId);
+  res.json({ success: result, message: result ? 'Migration complete' : 'Migration failed or no data' });
 });
 
 // ===== REAL-TIME COLLABORATION (SSE) =====
@@ -3253,6 +3446,23 @@ app.get('/api/collab/stream', (req, res) => {
   const conn = { userId: user.id, userName: user.fullName || user.email, picture: user.picture || '', res };
   collabConnections.get(wsId).add(conn);
   
+  // Broadcast presence: tell everyone that this user joined
+  broadcastToWorkspace(wsId, user.id, 'presence_join', {
+    userId: user.id, userName: user.fullName || user.email, picture: user.picture || ''
+  });
+  
+  // Send current presence list to the newly connected user
+  const currentPresence = [];
+  const connsSet = collabConnections.get(wsId);
+  if (connsSet) {
+    for (const c of connsSet) {
+      if (String(c.userId) !== String(user.id)) {
+        currentPresence.push({ userId: c.userId, userName: c.userName, picture: c.picture });
+      }
+    }
+  }
+  res.write(`event: presence_list\ndata: ${JSON.stringify(currentPresence)}\n\n`);
+  
   // Keep-alive ping every 30s
   const keepAlive = setInterval(() => {
     try { res.write(': keepalive\n\n'); } catch(e) { clearInterval(keepAlive); }
@@ -3263,11 +3473,15 @@ app.get('/api/collab/stream', (req, res) => {
     clearInterval(keepAlive);
     const conns = collabConnections.get(wsId);
     if (conns) conns.delete(conn);
+    // Broadcast presence: tell everyone this user left
+    broadcastToWorkspace(wsId, user.id, 'presence_leave', {
+      userId: user.id
+    });
     // Clear any editing indicators for this user
     for (const [editKey, info] of collabEditing.entries()) {
       if (info.userId === user.id && editKey.startsWith(wsId + ':')) {
         collabEditing.delete(editKey);
-        broadcastToWorkspace(wsId, user.id, 'editing_stopped', { taskId: info.taskId, field: info.field, userId: user.id });
+        broadcastToWorkspace(wsId, user.id, 'editing_stopped', { taskId: info.taskId, subtaskId: info.subtaskId, field: info.field, userId: user.id });
       }
     }
   });
@@ -3356,6 +3570,12 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     console.log(`Storage: ${dataStore.getStatus().type}`);
   } catch (e) {
     console.error('[Startup] Database init failed:', e.message);
+  }
+  // Initialize cell store (normalized tables)
+  try {
+    await cellStore.initCellStore();
+  } catch (e) {
+    console.error('[Startup] Cell store init failed:', e.message);
   }
   // Load persisted data
   try {

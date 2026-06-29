@@ -615,6 +615,7 @@ function floatingBarDeleteSubtasks() {
     subItems.forEach(({ task, subtask }) => {
         task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
         markUpdated(task);
+        sendStructural('deleteSubtask', { subtaskId: subtask.id, taskId: task.id });
     });
     clearSelection();
     renderBoard();
@@ -2262,7 +2263,7 @@ function addSubtaskInline(taskId, groupId) {
             const { task } = findTask(taskId, groupId);
             if (task) {
                 if (!task.subtasks) task.subtasks = [];
-                task.subtasks.push({
+                const subtaskData = {
                     id: newId(),
                     name: name,
                     owner: '',
@@ -2276,11 +2277,17 @@ function addSubtaskInline(taskId, groupId) {
                     timelineEnd: '',
                     lastUpdated: nowISO(),
                     lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : ''
-                });
+                };
+                task.subtasks.push(subtaskData);
                 task.subtasksExpanded = true;
                 // Trigger subtask added notification + popup
                 triggerTaskAddedNotification(name, task.name);
                 markUpdated(task);
+                // Send structural change to server
+                sendStructural('createSubtask', {
+                    groupId, taskId,
+                    data: { subtask: subtaskData }
+                });
             }
         }
         saveToStorage();
@@ -2321,6 +2328,7 @@ function editSubtaskName(subtaskId, taskId, groupId, element) {
             markUpdated(subtask);
             markUpdated(task);
             saveToStorage();
+            patchCell({ taskId, subtaskId, groupId, field: 'name', value: val, debounceMs: 0 });
             sendCollabDone(taskId, subtaskId, 'name', val, val);
         } else {
             sendCollabDone(taskId, subtaskId, 'name', null, currentName);
@@ -2357,7 +2365,7 @@ function showSubtaskStatusDropdown(event, subtaskId, taskId, groupId) {
 function setSubtaskStatus(subtaskId, taskId, groupId, statusId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.status = statusId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); sendCollabDone(taskId, subtaskId, 'status', statusId, subtask.name); }
+    if (subtask) { subtask.status = statusId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); patchCell({ taskId, subtaskId, groupId, field: 'status', value: statusId }); sendCollabDone(taskId, subtaskId, 'status', statusId, subtask.name); }
 }
 
 // Edit subtask date
@@ -2375,6 +2383,7 @@ function editSubtaskDate(subtaskId, taskId, groupId, cell) {
         markUpdated(subtask);
         markUpdated(task);
         saveToStorage();
+        patchCell({ taskId, subtaskId, groupId, field: 'dueDate', value: input.value });
         sendCollabDone(taskId, subtaskId, 'dueDate', input.value, subtask.name);
         renderBoard();
     };
@@ -2391,6 +2400,8 @@ function deleteSubtask(subtaskId, taskId, groupId) {
     markUpdated(task);
     renderBoard();
     saveToStorage();
+    // Send structural change to server
+    sendStructural('deleteSubtask', { subtaskId, taskId, groupId });
 }
 
 // Subtask priority dropdown
@@ -2409,7 +2420,7 @@ function showSubtaskPriorityDropdown(event, subtaskId, taskId, groupId) {
 function setSubtaskPriority(subtaskId, taskId, groupId, priorityId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { subtask, task } = findSubtask(subtaskId, taskId, groupId);
-    if (subtask) { subtask.priority = priorityId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); sendCollabDone(taskId, subtaskId, 'priority', priorityId, subtask.name); }
+    if (subtask) { subtask.priority = priorityId; markUpdated(subtask); markUpdated(task); saveToStorage(); renderBoard(); patchCell({ taskId, subtaskId, groupId, field: 'priority', value: priorityId }); sendCollabDone(taskId, subtaskId, 'priority', priorityId, subtask.name); }
 }
 
 // Subtask notes edit
@@ -2428,6 +2439,7 @@ function editSubtaskNotes(subtaskId, taskId, groupId, cell) {
         markUpdated(subtask);
         markUpdated(task);
         saveToStorage();
+        patchCell({ taskId, subtaskId, groupId, field: 'notes', value: input.value, debounceMs: 0 });
         sendCollabDone(taskId, subtaskId, 'notes', input.value, subtask.name);
         renderBoard();
     };
@@ -2542,6 +2554,9 @@ function openSubtaskModal(subtaskId, taskId, groupId) {
 
 function saveSubtaskFromModal() {
     if (!currentSubModalSubtask) return;
+    const subtaskId = currentSubModalSubtask.id;
+    const taskId = currentSubModalTask ? currentSubModalTask.id : null;
+    const groupId = currentSubModalGroup ? currentSubModalGroup.id : null;
     currentSubModalSubtask.name = document.getElementById('subModalName').value.trim() || currentSubModalSubtask.name;
     currentSubModalSubtask.status = document.getElementById('subModalStatus').value;
     currentSubModalSubtask.priority = document.getElementById('subModalPriority').value;
@@ -2552,6 +2567,12 @@ function saveSubtaskFromModal() {
     currentSubModalSubtask.timelineEnd = document.getElementById('subModalTimelineEnd').value;
     markUpdated(currentSubModalSubtask);
     if (currentSubModalTask) markUpdated(currentSubModalTask);
+    // Patch all fields
+    patchCell({ taskId, subtaskId, groupId, field: 'name', value: currentSubModalSubtask.name });
+    patchCell({ taskId, subtaskId, groupId, field: 'status', value: currentSubModalSubtask.status });
+    patchCell({ taskId, subtaskId, groupId, field: 'priority', value: currentSubModalSubtask.priority });
+    patchCell({ taskId, subtaskId, groupId, field: 'dueDate', value: currentSubModalSubtask.dueDate });
+    patchCell({ taskId, subtaskId, groupId, field: 'notes', value: currentSubModalSubtask.notes });
     document.getElementById('subtaskModalOverlay').remove();
     saveToStorage();
     renderBoard();
@@ -2635,6 +2656,8 @@ function setTaskStatus(taskId, groupId, statusId) {
         markUpdated(task);
         saveToStorage();
         renderBoard();
+        // Cell-level patch (instant)
+        patchCell({ taskId, groupId, field: 'status', value: statusId });
         // Send collab done signal
         const statusLabel = (STATUS_OPTIONS.find(s => s.id === statusId) || {}).label || statusId;
         sendCollabDone(taskId, null, 'status', statusLabel, task.name);
@@ -2664,7 +2687,7 @@ function showPriorityDropdown(event, taskId, groupId) {
 function setTaskPriority(taskId, groupId, priorityId) {
     document.getElementById('dropdownMenu').classList.remove('active');
     const { group, task } = findTask(taskId, groupId);
-    if (task) { task.priority = priorityId; markUpdated(task); saveToStorage(); renderBoard(); sendCollabDone(taskId, null, 'priority', priorityId, task.name); }
+    if (task) { task.priority = priorityId; markUpdated(task); saveToStorage(); renderBoard(); patchCell({ taskId, groupId, field: 'priority', value: priorityId }); sendCollabDone(taskId, null, 'priority', priorityId, task.name); }
 }
 
 // ============================================================
@@ -2687,6 +2710,7 @@ function editTaskName(taskId, groupId, cell) {
         if (val && val !== currentName) {
             task.name = val;
             markUpdated(task);
+            patchCell({ taskId, groupId, field: 'name', value: val, debounceMs: 0 });
             sendCollabDone(taskId, null, 'name', val, val);
         } else {
             sendCollabDone(taskId, null, 'name', null, currentName);
@@ -2714,6 +2738,7 @@ function editDueDate(taskId, groupId, cell) {
         saved = true;
         task.dueDate = input.value;
         markUpdated(task);
+        patchCell({ taskId, groupId, field: 'dueDate', value: input.value });
         sendCollabDone(taskId, null, 'dueDate', input.value, task.name);
         renderBoard();
     };
@@ -2778,6 +2803,7 @@ function editNotes(taskId, groupId, cell) {
         saved = true;
         task.notes = input.value;
         markUpdated(task);
+        patchCell({ taskId, groupId, field: 'notes', value: input.value, debounceMs: 0 });
         sendCollabDone(taskId, null, 'notes', input.value, task.name);
         renderBoard();
     };
@@ -2797,6 +2823,7 @@ function editBudget(taskId, groupId, cell) {
         saved = true;
         task.budget = parseFloat(input.value) || 0;
         markUpdated(task);
+        patchCell({ taskId, groupId, field: 'budget', value: task.budget });
         renderBoard();
     };
     input.addEventListener('blur', save);
@@ -2824,7 +2851,10 @@ function editGroupName(groupId, element) {
     const save = () => {
         if (saved) return;
         saved = true;
-        if (input.value.trim()) group.name = input.value.trim();
+        if (input.value.trim()) {
+            group.name = input.value.trim();
+            patchCell({ groupId: group.id, field: 'name', value: group.name });
+        }
         renderBoard();
     };
     input.onblur = save;
@@ -2877,7 +2907,7 @@ function addTaskInline(groupId) {
         if (name) {
             const group = boardData.groups.find(g => String(g.id) === String(groupId));
             if (group) {
-                group.tasks.push({
+                const taskData = {
                     id: newId(),
                     name: name,
                     owner: '',
@@ -2893,9 +2923,15 @@ function addTaskInline(groupId) {
                     lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
                     subtasks: [],
                     subtasksExpanded: false
-                });
+                };
+                group.tasks.push(taskData);
                 // Trigger task added notification + popup
                 triggerTaskAddedNotification(name);
+                // Send structural change to server
+                sendStructural('createTask', {
+                    groupId: groupId,
+                    data: { task: taskData }
+                });
             }
         }
         saveToStorage();
@@ -2927,11 +2963,17 @@ function addTaskInline(groupId) {
 // ===== Add Group =====
 function addNewGroup() {
     const colorIndex = boardData.groups.length % GROUP_COLORS.length;
-    boardData.groups.push({
+    const groupData = {
         id: 'g' + newId(), name: 'New Group', color: GROUP_COLORS[colorIndex],
         collapsed: false, tasks: []
-    });
+    };
+    boardData.groups.push(groupData);
+    saveToStorage();
     renderBoard();
+    // Send structural change to server
+    sendStructural('createGroup', {
+        data: { group: groupData }
+    });
 }
 
 // ===== Group Context Menu (3-dot menu) =====
@@ -3127,6 +3169,7 @@ function deleteGroup(groupId) {
     boardData.groups = boardData.groups.filter(g => String(g.id) !== String(groupId));
     renderBoard();
     saveToStorage();
+    sendStructural('deleteGroup', { groupId });
 }
 
 // ===== Task Modal =====
@@ -3159,6 +3202,8 @@ function closeModal() {
 
 function saveTaskFromModal() {
     if (!currentModalTask) return;
+    const taskId = currentModalTask.id;
+    const groupId = currentModalGroup ? currentModalGroup.id : null;
     currentModalTask.name = document.getElementById('modalTaskName').value.trim() || currentModalTask.name;
     currentModalTask.status = document.getElementById('modalStatus').value;
     currentModalTask.priority = document.getElementById('modalPriority').value;
@@ -3168,6 +3213,15 @@ function saveTaskFromModal() {
     currentModalTask.timelineStart = document.getElementById('modalTimelineStart').value;
     currentModalTask.timelineEnd = document.getElementById('modalTimelineEnd').value;
     markUpdated(currentModalTask);
+    // Patch all fields
+    patchCell({ taskId, groupId, field: 'name', value: currentModalTask.name });
+    patchCell({ taskId, groupId, field: 'status', value: currentModalTask.status });
+    patchCell({ taskId, groupId, field: 'priority', value: currentModalTask.priority });
+    patchCell({ taskId, groupId, field: 'dueDate', value: currentModalTask.dueDate });
+    patchCell({ taskId, groupId, field: 'budget', value: currentModalTask.budget });
+    patchCell({ taskId, groupId, field: 'notes', value: currentModalTask.notes });
+    patchCell({ taskId, groupId, field: 'timelineStart', value: currentModalTask.timelineStart });
+    patchCell({ taskId, groupId, field: 'timelineEnd', value: currentModalTask.timelineEnd });
     closeModal();
     renderBoard();
 }
@@ -3713,14 +3767,20 @@ function setupNewTaskButton() {
             if (!canEdit()) return;
             if (boardData.groups.length > 0) {
                 const firstGroup = boardData.groups[0];
-                firstGroup.tasks.push({
+                const taskData = {
                     id: newId(), name: 'New Task', owner: '', status: '', dueDate: '',
                     priority: '', notes: '', budget: 0, files: 0,
                     timelineStart: '', timelineEnd: '', lastUpdated: nowISO(), lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
                     subtasks: [], subtasksExpanded: false
-                });
+                };
+                firstGroup.tasks.push(taskData);
                 saveToStorage();
                 renderBoard();
+                // Send structural change to server
+                sendStructural('createTask', {
+                    groupId: firstGroup.id,
+                    data: { task: taskData }
+                });
             }
         });
     }
@@ -3823,9 +3883,11 @@ function saveToServer() {
                     }
                 }
                 initBoardGroups();
-                if (activeAddTaskInputs.size === 0 && activeSubtaskInputs.size === 0 && !document.querySelector('.inline-edit-input')) {
+                if (!isRenderProtected() && activeAddTaskInputs.size === 0 && activeSubtaskInputs.size === 0 && !document.querySelector('.inline-edit-input')) {
                     renderBoard();
                     renderBoardSidebar();
+                } else {
+                    requestDeferredRender();
                 }
                 try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch(e) {}
                 console.log('[Save] Server merged data — local state updated');
@@ -3836,7 +3898,7 @@ function saveToServer() {
                 }
             }
         } catch (e) { console.error('[Save] Failed:', e.message); }
-    }, 1000);
+    }, 3000);
 }
 
 // Immediate save - used before switching workspaces to ensure no data loss
@@ -3959,6 +4021,18 @@ function loadFromStorage() {
 async function loadFromServer() {
     if (!authToken) return;
     try {
+        // Try normalized (cell-store) API first if workspace is set
+        if (activeWorkspaceId) {
+            const normLoaded = await loadFromNormalized();
+            if (normLoaded) {
+                renderBoard();
+                renderBoardSidebar();
+                serverDataLoaded = true;
+                return true;
+            }
+        }
+        
+        // Fallback to legacy JSON blob API
         const wsParam = activeWorkspaceId ? `?workspaceId=${activeWorkspaceId}` : '';
         const res = await authFetch('/api/user-data/boards' + wsParam);
         const result = await res.json();
@@ -5321,10 +5395,14 @@ function floatingBarPermanentDelete() {
     const items = getSelectedTaskObjects();
     items.forEach(({ group, task }) => {
         group.tasks = group.tasks.filter(t => t.id !== task.id);
+        // Send structural delete
+        sendStructural('deleteTask', { taskId: task.id });
     });
     subItems.forEach(({ task, subtask }) => {
         task.subtasks = task.subtasks.filter(s => s.id !== subtask.id);
         markUpdated(task);
+        // Send structural delete for subtask
+        sendStructural('deleteSubtask', { subtaskId: subtask.id, taskId: task.id });
     });
     clearSelection();
     renderBoard();
@@ -5884,6 +5962,8 @@ document.addEventListener('drop', function(e) {
         cleanupRowDrag();
         renderBoard();
         saveToStorage();
+        // Send reorder to server
+        sendStructural('reorderGroups', { data: { groupIds: boardData.groups.map(g => g.id) } });
         return;
     }
 
@@ -6018,6 +6098,24 @@ document.addEventListener('drop', function(e) {
     cleanupRowDrag();
     renderBoard();
     saveToStorage();
+    // Send move/reorder to server
+    const movedToGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId || _rowDragData.groupId));
+    if (movedToGroup) {
+        sendStructural('reorderTasks', {
+            groupId: movedToGroup.id,
+            data: { taskIds: movedToGroup.tasks.map(t => t.id) }
+        });
+    }
+    if (targetGroupId && targetGroupId !== _rowDragData.groupId) {
+        // Also reindex source group
+        const srcGroup = boardData.groups.find(g => String(g.id) === String(_rowDragData.groupId));
+        if (srcGroup) {
+            sendStructural('reorderTasks', {
+                groupId: srcGroup.id,
+                data: { taskIds: srcGroup.tasks.map(t => t.id) }
+            });
+        }
+    }
 });
 
 document.addEventListener('dragend', function(e) {
@@ -7248,8 +7346,10 @@ function toggleOwnerSelection(userId) {
     // Re-render board
     saveToStorage();
     renderBoard();
-    // Send collab done signal for owner change
+    // Cell-level patch for owner
     const ownerNames = targetItem.owners.map(o => o.name).join(', ');
+    patchCell({ taskId, subtaskId: subtaskId || null, groupId, field: 'owner', value: ownerNames });
+    // Send collab done signal for owner change
     sendCollabDone(taskId, subtaskId || null, 'owner', ownerNames, targetItem.name);
 }
 
@@ -10124,7 +10224,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '83';
+const CURRENT_APP_VERSION = '84';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
@@ -10331,3 +10431,469 @@ function createCollabToastContainer() {
     document.body.appendChild(container);
     return container;
 }
+
+// ============================================================
+// CELL-LEVEL GRANULAR SAVE SYSTEM
+// Replaces full-board saves for field edits with atomic PATCH calls
+// ============================================================
+
+// --- Render Protection ---
+let lastUserInteraction = 0;
+const RENDER_PROTECTION_MS = 2000; // Don't re-render if user acted within this window
+
+function markUserInteraction() {
+    lastUserInteraction = Date.now();
+}
+
+function isRenderProtected() {
+    return (Date.now() - lastUserInteraction) < RENDER_PROTECTION_MS;
+}
+
+// Track user interaction globally
+document.addEventListener('click', markUserInteraction, true);
+document.addEventListener('keydown', markUserInteraction, true);
+document.addEventListener('input', markUserInteraction, true);
+document.addEventListener('mousedown', markUserInteraction, true);
+
+// Queue for deferred renders when render-protected
+let pendingRender = false;
+function requestDeferredRender() {
+    if (pendingRender) return;
+    pendingRender = true;
+    const check = () => {
+        if (!isRenderProtected() && activeAddTaskInputs.size === 0 && activeSubtaskInputs.size === 0 && !document.querySelector('.inline-edit-input')) {
+            pendingRender = false;
+            renderBoard();
+            renderBoardSidebar();
+        } else {
+            setTimeout(check, 500);
+        }
+    };
+    setTimeout(check, RENDER_PROTECTION_MS);
+}
+
+// --- Cell Patch API ---
+let cellPatchDebounceTimers = {}; // `${taskId}:${field}` -> timer
+
+function patchCell({ taskId, subtaskId, groupId, field, value, debounceMs }) {
+    if (!authToken || !activeWorkspaceId) return;
+
+    const key = `${taskId || ''}:${subtaskId || ''}:${groupId || ''}:${field}`;
+    
+    // For text fields, debounce; for dropdowns, send immediately
+    if (debounceMs && debounceMs > 0) {
+        if (cellPatchDebounceTimers[key]) clearTimeout(cellPatchDebounceTimers[key]);
+        cellPatchDebounceTimers[key] = setTimeout(() => {
+            delete cellPatchDebounceTimers[key];
+            sendCellPatch({ taskId, subtaskId, groupId, field, value });
+        }, debounceMs);
+    } else {
+        sendCellPatch({ taskId, subtaskId, groupId, field, value });
+    }
+}
+
+async function sendCellPatch({ taskId, subtaskId, groupId, field, value }) {
+    try {
+        const res = await authFetch('/api/boards/cell', {
+            method: 'PATCH',
+            body: JSON.stringify({
+                workspaceId: activeWorkspaceId,
+                boardId: boardData.activeBoard,
+                groupId, taskId, subtaskId, field, value
+            })
+        });
+        const result = await res.json();
+        if (!result.success) {
+            console.warn('[CellPatch] Failed:', result.error);
+        }
+    } catch (e) {
+        console.error('[CellPatch] Error:', e.message);
+    }
+}
+
+// --- Structural Change API ---
+async function sendStructural(action, params) {
+    if (!authToken || !activeWorkspaceId) return null;
+    try {
+        const res = await authFetch('/api/boards/structural', {
+            method: 'POST',
+            body: JSON.stringify({
+                workspaceId: activeWorkspaceId,
+                boardId: boardData.activeBoard,
+                action,
+                ...params
+            })
+        });
+        const result = await res.json();
+        if (!result.success) {
+            console.warn('[Structural] Failed:', action, result.error);
+        }
+        return result;
+    } catch (e) {
+        console.error('[Structural] Error:', e.message);
+        return null;
+    }
+}
+
+// --- Presence System ---
+let onlineUsers = new Map(); // userId -> { userName, picture, color }
+let cellPresence = new Map(); // `${taskId}:${subtaskId}:${field}` -> { userId, userName, picture, color }
+const PRESENCE_COLORS = ['#fdab3d', '#e44258', '#00c875', '#579bfc', '#a358df', '#ff642e', '#66ccff', '#7f5347', '#037f4c', '#bb3354'];
+let myPresenceColor = '#fdab3d';
+
+function getPresenceColor(userId) {
+    const user = onlineUsers.get(String(userId));
+    if (user) return user.color;
+    // Assign a deterministic color based on userId
+    let hash = 0;
+    const id = String(userId);
+    for (let i = 0; i < id.length; i++) {
+        hash = ((hash << 5) - hash) + id.charCodeAt(i);
+        hash |= 0;
+    }
+    return PRESENCE_COLORS[Math.abs(hash) % PRESENCE_COLORS.length];
+}
+
+function updatePresenceUI() {
+    // Update presence indicator in toolbar
+    let container = document.getElementById('presenceIndicator');
+    if (!container) {
+        const toolbar = document.querySelector('.toolbar');
+        if (!toolbar) return;
+        container = document.createElement('div');
+        container.id = 'presenceIndicator';
+        container.className = 'presence-indicator';
+        toolbar.insertBefore(container, toolbar.firstChild);
+    }
+    
+    if (onlineUsers.size === 0) {
+        container.style.display = 'none';
+        return;
+    }
+    
+    container.style.display = 'flex';
+    let html = '';
+    let count = 0;
+    for (const [uid, user] of onlineUsers) {
+        if (count >= 5) {
+            html += `<div class="presence-avatar presence-more" style="border-color:${user.color}">+${onlineUsers.size - 5}</div>`;
+            break;
+        }
+        const initials = getInitials(user.userName);
+        if (user.picture) {
+            html += `<img src="${user.picture}" class="presence-avatar" style="border-color:${user.color}" title="${escapeHtml(user.userName)} (online)" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=\\'presence-avatar\\' style=\\'border-color:${user.color}\\'>${initials}</div>'">`;
+        } else {
+            html += `<div class="presence-avatar" style="border-color:${user.color}" title="${escapeHtml(user.userName)} (online)">${initials}</div>`;
+        }
+        count++;
+    }
+    container.innerHTML = html;
+}
+
+// Show/hide cell presence indicators on DOM
+function renderCellPresence() {
+    // Remove all existing presence indicators
+    document.querySelectorAll('.cell-presence').forEach(el => el.remove());
+    document.querySelectorAll('.cell-presence-border').forEach(el => {
+        el.classList.remove('cell-presence-border');
+        el.style.removeProperty('--presence-color');
+    });
+
+    // Only show if 2+ users are online (counting self)
+    if (onlineUsers.size === 0) return;
+
+    for (const [key, info] of cellPresence) {
+        const [taskId, subtaskId, field] = key.split(':');
+        // Don't show own presence
+        if (String(info.userId) === String(currentUser?.id)) continue;
+        
+        const cellSelector = subtaskId 
+            ? `tr[data-subtask-id="${subtaskId}"] td.cell-${field}`
+            : `tr[data-task-id="${taskId}"] td.cell-${field}`;
+        const cell = document.querySelector(cellSelector);
+        if (!cell) continue;
+
+        const color = info.color || getPresenceColor(info.userId);
+        cell.classList.add('cell-presence-border');
+        cell.style.setProperty('--presence-color', color);
+
+        // Add small avatar indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'cell-presence';
+        indicator.style.borderColor = color;
+        const initials = getInitials(info.userName);
+        if (info.picture) {
+            indicator.innerHTML = `<img src="${info.picture}" class="cell-presence-img" referrerpolicy="no-referrer" title="${escapeHtml(info.userName)}">`;
+        } else {
+            indicator.innerHTML = `<span class="cell-presence-initials" style="background:${color}" title="${escapeHtml(info.userName)}">${initials}</span>`;
+        }
+        cell.style.position = 'relative';
+        cell.appendChild(indicator);
+    }
+}
+
+// --- Enhanced SSE Handler ---
+function setupCellStoreSSE() {
+    if (!collabStream) return;
+    
+    // Presence events
+    collabStream.addEventListener('presence_list', (e) => {
+        const users = JSON.parse(e.data);
+        onlineUsers.clear();
+        for (const u of users) {
+            onlineUsers.set(String(u.userId), {
+                userName: u.userName, picture: u.picture, color: getPresenceColor(u.userId)
+            });
+        }
+        updatePresenceUI();
+    });
+
+    collabStream.addEventListener('presence_join', (e) => {
+        const data = JSON.parse(e.data);
+        onlineUsers.set(String(data.userId), {
+            userName: data.userName, picture: data.picture, color: getPresenceColor(data.userId)
+        });
+        updatePresenceUI();
+    });
+
+    collabStream.addEventListener('presence_leave', (e) => {
+        const data = JSON.parse(e.data);
+        onlineUsers.delete(String(data.userId));
+        // Remove their cell presence
+        for (const [key, info] of cellPresence) {
+            if (String(info.userId) === String(data.userId)) {
+                cellPresence.delete(key);
+            }
+        }
+        updatePresenceUI();
+        renderCellPresence();
+    });
+
+    // Cell-level update from another user
+    collabStream.addEventListener('cell_updated', (e) => {
+        const data = JSON.parse(e.data);
+        if (String(data.userId) === String(currentUser?.id)) return;
+        
+        // Apply the change to local boardData without full re-render
+        applyCellPatchLocally(data);
+        // Update just the affected DOM cell
+        updateCellDOM(data);
+    });
+
+    // Structural change from another user
+    collabStream.addEventListener('structural_change', (e) => {
+        const data = JSON.parse(e.data);
+        if (String(data.userId) === String(currentUser?.id)) return;
+        
+        // For structural changes, we need to reload the full board
+        // But respect render protection
+        loadFromNormalized().then(() => {
+            if (!isRenderProtected()) {
+                renderBoard();
+                renderBoardSidebar();
+            } else {
+                requestDeferredRender();
+            }
+        });
+    });
+
+    // Enhanced editing events (for cell presence)
+    collabStream.addEventListener('editing', (e) => {
+        const data = JSON.parse(e.data);
+        if (String(data.userId) === String(currentUser?.id)) return;
+        const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
+        
+        // Clear existing timeout
+        const existing = cellPresence.get(key);
+        if (existing && existing.timeout) clearTimeout(existing.timeout);
+        
+        const color = getPresenceColor(data.userId);
+        const timeout = setTimeout(() => {
+            cellPresence.delete(key);
+            renderCellPresence();
+        }, 30000);
+        
+        cellPresence.set(key, {
+            userId: data.userId, userName: data.userName, picture: data.picture,
+            color, timeout
+        });
+        renderCellPresence();
+    });
+
+    collabStream.addEventListener('editing_stopped', (e) => {
+        const data = JSON.parse(e.data);
+        const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
+        const existing = cellPresence.get(key);
+        if (existing && existing.timeout) clearTimeout(existing.timeout);
+        cellPresence.delete(key);
+        renderCellPresence();
+    });
+}
+
+// --- Apply a cell patch to local boardData in memory ---
+function applyCellPatchLocally(data) {
+    const { groupId, taskId, subtaskId, field, value } = data;
+    
+    if (subtaskId) {
+        // Find subtask and update field
+        for (const group of boardData.groups) {
+            for (const task of (group.tasks || [])) {
+                const sub = (task.subtasks || []).find(s => String(s.id) === String(subtaskId));
+                if (sub) {
+                    sub[field] = value;
+                    sub.lastUpdated = data.timestamp || new Date().toISOString();
+                    return;
+                }
+            }
+        }
+    } else if (taskId) {
+        // Find task and update field
+        for (const group of boardData.groups) {
+            const task = (group.tasks || []).find(t => String(t.id) === String(taskId));
+            if (task) {
+                task[field] = value;
+                task.lastUpdated = data.timestamp || new Date().toISOString();
+                task.lastUpdatedBy = data.userName || '';
+                return;
+            }
+        }
+    } else if (groupId) {
+        // Find group and update field
+        const group = boardData.groups.find(g => String(g.id) === String(groupId));
+        if (group) {
+            group[field] = value;
+        }
+    }
+}
+
+// --- Update a single cell in the DOM without full re-render ---
+function updateCellDOM(data) {
+    const { taskId, subtaskId, field, value, userName } = data;
+    
+    const rowSelector = subtaskId 
+        ? `tr[data-subtask-id="${subtaskId}"]`
+        : `tr[data-task-id="${taskId}"]`;
+    const row = document.querySelector(rowSelector);
+    if (!row) return; // Row not visible
+    
+    const cell = row.querySelector(`td.cell-${field}`);
+    if (!cell) return;
+    
+    // Update cell content based on field type
+    switch (field) {
+        case 'name': {
+            const nameSpan = cell.querySelector('.task-name') || cell.querySelector('.subtask-name-text');
+            if (nameSpan) nameSpan.textContent = value;
+            break;
+        }
+        case 'owner': {
+            // Re-render owner cell
+            const ownerContent = cell.querySelector('.owner-display') || cell;
+            if (value) {
+                const member = getWorkspaceMember(value);
+                const initials = getInitials(value);
+                if (member && member.picture) {
+                    ownerContent.innerHTML = `<img src="${member.picture}" class="owner-avatar" referrerpolicy="no-referrer" title="${escapeHtml(value)}">`;
+                } else {
+                    ownerContent.innerHTML = `<div class="owner-avatar owner-initials" title="${escapeHtml(value)}">${initials}</div>`;
+                }
+            } else {
+                ownerContent.innerHTML = `<span class="material-icons-outlined owner-placeholder">person_add</span>`;
+            }
+            break;
+        }
+        case 'status': {
+            const statusInfo = getStatusInfo(value);
+            cell.style.background = statusInfo.color;
+            cell.style.color = '#fff';
+            const span = cell.querySelector('span') || cell;
+            if (span) span.textContent = statusInfo.label;
+            break;
+        }
+        case 'priority': {
+            const priorityInfo = getPriorityInfo(value);
+            cell.style.background = priorityInfo.color;
+            cell.style.color = '#fff';
+            const span = cell.querySelector('span') || cell;
+            if (span) span.textContent = priorityInfo.label;
+            break;
+        }
+        case 'dueDate': {
+            const span = cell.querySelector('span');
+            if (span) span.textContent = formatDate(value);
+            break;
+        }
+        case 'notes': {
+            const span = cell.querySelector('span');
+            if (span) span.textContent = value ? (value.length > 20 ? value.substring(0, 20) + '...' : value) : '';
+            break;
+        }
+        case 'budget': {
+            const span = cell.querySelector('span');
+            if (span) span.textContent = value ? `₪${Number(value).toLocaleString()}` : '';
+            break;
+        }
+        default:
+            // For other fields, just do a minimal text update
+            break;
+    }
+    
+    // Update the "last updated" cell
+    const updatedCell = row.querySelector('.cell-updated span');
+    if (updatedCell) {
+        updatedCell.textContent = 'just now';
+    }
+    
+    // Flash animation to indicate remote change
+    cell.classList.add('cell-remote-flash');
+    setTimeout(() => cell.classList.remove('cell-remote-flash'), 1000);
+}
+
+// --- Load from normalized API ---
+async function loadFromNormalized() {
+    if (!authToken || !activeWorkspaceId) return false;
+    try {
+        const res = await authFetch(`/api/boards/normalized?workspaceId=${activeWorkspaceId}`);
+        const result = await res.json();
+        if (result.success && result.data) {
+            // Preserve UI state
+            const oldActive = boardData.activeBoard;
+            const oldExpanded = {};
+            if (boardData.groups) {
+                for (const g of boardData.groups) {
+                    for (const t of (g.tasks || [])) {
+                        if (t.subtasksExpanded) oldExpanded[t.id] = true;
+                    }
+                }
+            }
+            
+            boardData = result.data;
+            boardData.activeBoard = oldActive || boardData.activeBoard;
+            
+            // Restore expanded state
+            if (boardData.groups) {
+                for (const g of boardData.groups) {
+                    for (const t of (g.tasks || [])) {
+                        if (oldExpanded[t.id]) t.subtasksExpanded = true;
+                    }
+                }
+            }
+            
+            initBoardGroups();
+            try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch(e) {}
+            return true;
+        }
+    } catch (e) {
+        console.error('[CellStore] loadFromNormalized error:', e.message);
+    }
+    return false;
+}
+
+// --- Integration: Hook into existing startCollabStream ---
+const _originalStartCollabStream = startCollabStream;
+startCollabStream = function() {
+    _originalStartCollabStream();
+    // After SSE is set up, add our cell-store listeners
+    setTimeout(setupCellStoreSSE, 100);
+};
+
