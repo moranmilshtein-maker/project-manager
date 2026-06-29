@@ -639,6 +639,50 @@ async function reorderSubtasks({ workspaceId, taskId, subtaskIds }) {
     }
 }
 
+async function moveSubtask({ workspaceId, subtaskId, fromTaskId, toTaskId, toGroupId, newPosition }) {
+    const pool = getPool();
+    if (!pool) return { success: false, error: 'No database' };
+
+    try {
+        // Update the subtask's parent task and group
+        await pool.query(`
+            UPDATE subtasks SET task_id = $1, group_id = $2, position = $3, last_updated = NOW()
+            WHERE id = $4 AND workspace_id = $5
+        `, [toTaskId, toGroupId, newPosition, subtaskId, workspaceId]);
+
+        // Reindex positions in source task's subtasks
+        const srcSubs = await pool.query(
+            'SELECT id FROM subtasks WHERE task_id = $1 AND workspace_id = $2 ORDER BY position',
+            [fromTaskId, workspaceId]
+        );
+        for (let i = 0; i < srcSubs.rows.length; i++) {
+            await pool.query(
+                'UPDATE subtasks SET position = $1 WHERE id = $2 AND workspace_id = $3',
+                [i, srcSubs.rows[i].id, workspaceId]
+            );
+        }
+
+        // Reindex positions in target task's subtasks
+        if (fromTaskId !== toTaskId) {
+            const tgtSubs = await pool.query(
+                'SELECT id FROM subtasks WHERE task_id = $1 AND workspace_id = $2 ORDER BY position',
+                [toTaskId, workspaceId]
+            );
+            for (let i = 0; i < tgtSubs.rows.length; i++) {
+                await pool.query(
+                    'UPDATE subtasks SET position = $1 WHERE id = $2 AND workspace_id = $3',
+                    [i, tgtSubs.rows[i].id, workspaceId]
+                );
+            }
+        }
+
+        return { success: true };
+    } catch (e) {
+        console.error('[CellStore] moveSubtask error:', e.message);
+        return { success: false, error: e.message };
+    }
+}
+
 module.exports = {
     initCellStore,
     migrateWorkspaceToNormalized,
@@ -648,6 +692,7 @@ module.exports = {
     createTask,
     deleteTask,
     moveTask,
+    moveSubtask,
     createGroup,
     deleteGroup,
     createSubtask,

@@ -3196,7 +3196,7 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '85';
+const APP_VERSION = '86';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
@@ -3334,6 +3334,16 @@ app.post('/api/boards/structural', async (req, res) => {
 
     case 'deleteSubtask':
       result = await cellStore.deleteSubtask({ workspaceId, subtaskId });
+      break;
+
+    case 'moveSubtask':
+      result = await cellStore.moveSubtask({
+        workspaceId, subtaskId,
+        fromTaskId: actionData.fromTaskId,
+        toTaskId: actionData.toTaskId,
+        toGroupId: actionData.toGroupId || groupId,
+        newPosition: actionData.position || 0
+      });
       break;
 
     case 'reorderTasks':

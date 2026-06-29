@@ -1051,6 +1051,14 @@ function executeFloatingBarMoveAsSubitem(targetTaskId, targetGroupId) {
     });
     subItems.forEach(({ group, task, subtask }) => {
         moveSubtaskToTask(String(subtask.id), String(task.id), String(group.id), targetTaskId, targetGroupId);
+        // Persist subtask move in normalized DB
+        const targetTask = findTask(targetTaskId, targetGroupId).task;
+        const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
+        sendStructural('moveSubtask', {
+            subtaskId: String(subtask.id),
+            groupId: targetGroupId,
+            data: { fromTaskId: String(task.id), toTaskId: targetTaskId, toGroupId: targetGroupId, position: newPos }
+        });
     });
     clearSelection(); renderBoard(); saveToStorage();
 }
@@ -1069,6 +1077,14 @@ function executeFloatingBarMove(targetTaskId, targetGroupId) {
     // Move selected subtasks to target
     subItems.forEach(({ group, task, subtask }) => {
         moveSubtaskToTask(String(subtask.id), String(task.id), String(group.id), targetTaskId, targetGroupId);
+        // Persist subtask move in normalized DB
+        const tgtTask = findTask(targetTaskId, targetGroupId).task;
+        const newPos = tgtTask && tgtTask.subtasks ? tgtTask.subtasks.length - 1 : 0;
+        sendStructural('moveSubtask', {
+            subtaskId: String(subtask.id),
+            groupId: targetGroupId,
+            data: { fromTaskId: String(task.id), toTaskId: targetTaskId, toGroupId: targetGroupId, position: newPos }
+        });
     });
     
     clearSelection();
@@ -1094,7 +1110,7 @@ function floatingBarConvert() {
         markUpdated(task);
         
         // Add as a regular task in the same group
-        group.tasks.push({
+        const newTask = {
             id: subtask.id,
             name: subtask.name,
             owner: subtask.owner || '',
@@ -1110,6 +1126,14 @@ function floatingBarConvert() {
             lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : '',
             subtasks: [],
             subtasksExpanded: false
+        };
+        group.tasks.push(newTask);
+        
+        // Persist in normalized DB: delete subtask, create task
+        sendStructural('deleteSubtask', { subtaskId: String(subtask.id), groupId: String(group.id) });
+        sendStructural('createTask', {
+            groupId: String(group.id),
+            data: { task: newTask, position: group.tasks.length - 1 }
         });
     });
     
@@ -5980,6 +6004,14 @@ document.addEventListener('drop', function(e) {
             cleanupRowDrag();
             renderBoard();
             saveToStorage();
+            // Persist move in normalized DB
+            const targetTask = findTask(targetTaskId, targetGroupId).task;
+            const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
+            sendStructural('moveSubtask', {
+                subtaskId: _subtaskDragData.subtaskId,
+                groupId: targetGroupId,
+                data: { fromTaskId: _subtaskDragData.taskId, toTaskId: targetTaskId, toGroupId: targetGroupId, position: newPos }
+            });
             return;
         }
 
@@ -5997,6 +6029,14 @@ document.addEventListener('drop', function(e) {
                 cleanupRowDrag();
                 renderBoard();
                 saveToStorage();
+                // Persist move in normalized DB
+                const targetTask = findTask(targetParentTask, targetGroupId).task;
+                const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
+                sendStructural('moveSubtask', {
+                    subtaskId: _subtaskDragData.subtaskId,
+                    groupId: targetGroupId,
+                    data: { fromTaskId: _subtaskDragData.taskId, toTaskId: targetParentTask, toGroupId: targetGroupId, position: newPos }
+                });
                 return;
             }
             if (targetSubtaskRow.getAttribute('data-subtask-id') === _subtaskDragData.subtaskId) {
@@ -6028,7 +6068,21 @@ document.addEventListener('drop', function(e) {
                 const targetTaskId = addRow.getAttribute('data-parent-task');
                 const targetGroupId = addRow.getAttribute('data-group-id');
                 e.preventDefault();
-                moveSubtaskToTask(_subtaskDragData.subtaskId, _subtaskDragData.taskId, _subtaskDragData.groupId, targetTaskId, targetGroupId);
+                const _fromTaskId = _subtaskDragData.taskId;
+                const _subId = _subtaskDragData.subtaskId;
+                moveSubtaskToTask(_subId, _fromTaskId, _subtaskDragData.groupId, targetTaskId, targetGroupId);
+                cleanupRowDrag();
+                renderBoard();
+                saveToStorage();
+                // Persist move in normalized DB
+                const targetTask = findTask(targetTaskId, targetGroupId).task;
+                const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
+                sendStructural('moveSubtask', {
+                    subtaskId: _subId,
+                    groupId: targetGroupId,
+                    data: { fromTaskId: _fromTaskId, toTaskId: targetTaskId, toGroupId: targetGroupId, position: newPos }
+                });
+                return;
             }
         }
 
@@ -6095,24 +6149,30 @@ document.addEventListener('drop', function(e) {
         moveTaskToEmptyGroup(_rowDragData.taskId, _rowDragData.groupId, targetGroupId);
     }
 
+    // Save drag data before cleanup nullifies it
+    const draggedTaskId = _rowDragData.taskId;
+    const draggedFromGroupId = _rowDragData.groupId;
+
     cleanupRowDrag();
     renderBoard();
     saveToStorage();
-    // Send move/reorder to server
-    const movedToGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId || _rowDragData.groupId));
-    if (movedToGroup) {
-        sendStructural('reorderTasks', {
-            groupId: movedToGroup.id,
-            data: { taskIds: movedToGroup.tasks.map(t => t.id) }
+    // Send move/reorder to server (normalized DB)
+    if (targetGroupId && String(targetGroupId) !== String(draggedFromGroupId)) {
+        // Cross-group move: use moveTask to update group_id in DB
+        const movedToGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId));
+        const newPosition = movedToGroup ? movedToGroup.tasks.findIndex(t => String(t.id) === String(draggedTaskId)) : 0;
+        sendStructural('moveTask', {
+            taskId: draggedTaskId,
+            groupId: draggedFromGroupId,
+            data: { fromGroupId: draggedFromGroupId, toGroupId: targetGroupId, position: newPosition >= 0 ? newPosition : 0 }
         });
-    }
-    if (targetGroupId && targetGroupId !== _rowDragData.groupId) {
-        // Also reindex source group
-        const srcGroup = boardData.groups.find(g => String(g.id) === String(_rowDragData.groupId));
-        if (srcGroup) {
+    } else {
+        // Same-group reorder: just update positions
+        const movedToGroup = boardData.groups.find(g => String(g.id) === String(targetGroupId || draggedFromGroupId));
+        if (movedToGroup) {
             sendStructural('reorderTasks', {
-                groupId: srcGroup.id,
-                data: { taskIds: srcGroup.tasks.map(t => t.id) }
+                groupId: movedToGroup.id,
+                data: { taskIds: movedToGroup.tasks.map(t => t.id) }
             });
         }
     }
@@ -6291,6 +6351,15 @@ function convertTaskToSubtask(taskId, sourceGroupId, targetTaskId, targetGroupId
     markUpdated(targetTask);
     
     showToast(`"${task.name}" moved as subitem of "${targetTask.name}"`);
+    
+    // Persist in normalized DB: delete task, create subtask
+    sendStructural('deleteTask', { taskId: taskId, groupId: sourceGroupId });
+    const newSubtask = targetTask.subtasks[targetTask.subtasks.length - 1];
+    sendStructural('createSubtask', {
+        taskId: targetTaskId,
+        groupId: targetGroupId,
+        data: { subtask: newSubtask, position: targetTask.subtasks.length - 1 }
+    });
 }
 
 // Move a subtask from one parent task to another
@@ -6449,6 +6518,12 @@ async function executeSingleTaskMoveTo(taskId, sourceGroupId, type, opts) {
         targetGroup.tasks.push(removed);
         renderBoard(); saveToStorage();
         showToast(`Moved "${removed.name}" to ${targetGroup.name}`);
+        // Persist move in normalized DB
+        sendStructural('moveTask', {
+            taskId: taskId,
+            groupId: String(sourceGroup.id),
+            data: { fromGroupId: String(sourceGroup.id), toGroupId: String(opts.groupId), position: targetGroup.tasks.length - 1 }
+        });
         
     } else if (type === 'board') {
         const targetGroups = boardData.boardGroups[opts.boardId];
@@ -6629,6 +6704,14 @@ function executeMoveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, target
     moveSubtaskToTask(subtaskId, sourceTaskId, sourceGroupId, targetTaskId, targetGroupId);
     renderBoard();
     saveToStorage();
+    // Persist move in normalized DB
+    const targetTask = findTask(targetTaskId, targetGroupId).task;
+    const newPos = targetTask && targetTask.subtasks ? targetTask.subtasks.length - 1 : 0;
+    sendStructural('moveSubtask', {
+        subtaskId: subtaskId,
+        groupId: targetGroupId,
+        data: { fromTaskId: sourceTaskId, toTaskId: targetTaskId, toGroupId: targetGroupId, position: newPos }
+    });
 }
 
 function closeMoveToMenuOnClick(e) {
@@ -10505,7 +10588,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '85';
+const CURRENT_APP_VERSION = '86';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
