@@ -1266,6 +1266,8 @@ function renderBoard() {
     updateCheckboxStyles();
     updateInviteCount();
     saveToStorage();
+    // Re-apply cell presence indicators after DOM rebuild
+    if (typeof renderCellPresence === 'function') renderCellPresence();
 }
 
 // ============================================================
@@ -3907,6 +3909,8 @@ function saveToServer() {
                     }
                 }
                 initBoardGroups();
+                // Re-link TDP reference if panel is open
+                refreshTdpTaskReference();
                 if (!isRenderProtected() && activeAddTaskInputs.size === 0 && activeSubtaskInputs.size === 0 && !document.querySelector('.inline-edit-input')) {
                     renderBoard();
                     renderBoardSidebar();
@@ -4073,6 +4077,7 @@ async function loadFromServer() {
             // Update localStorage cache
             try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch (e) {}
             initBoardGroups();
+            refreshTdpTaskReference();
             renderBoard();
             renderBoardSidebar();
             serverDataLoaded = true; // Allow saves now that real data is loaded
@@ -7158,6 +7163,7 @@ function closeMoveToMenu() {
     }
 
     document.addEventListener('mouseenter', function(e) {
+        if (!e.target || !e.target.closest) return;
         const thContent = e.target.closest('.th-content[data-tooltip]');
         if (!thContent) return;
         hideTooltip();
@@ -7165,6 +7171,7 @@ function closeMoveToMenu() {
     }, true);
 
     document.addEventListener('mouseleave', function(e) {
+        if (!e.target || !e.target.closest) return;
         const thContent = e.target.closest('.th-content[data-tooltip]');
         if (!thContent) return;
         hideTooltip();
@@ -9297,6 +9304,18 @@ function openTaskDetailsPanel(taskId, groupId, scrollToFiles) {
     setTimeout(() => overlay.classList.add('active'), 10);
 }
 
+// Re-link tdpCurrentTask to the new boardData object after boardData is replaced (merge/loadFromNormalized)
+function refreshTdpTaskReference() {
+    if (!tdpCurrentTask) return;
+    const taskId = tdpCurrentTask.id;
+    const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : null;
+    const { task, group } = findTask(taskId, groupId);
+    if (task) {
+        tdpCurrentTask = task;
+        if (group) tdpCurrentGroup = group;
+    }
+}
+
 function closeTaskDetailsPanel() {
     // Save any edits
     saveTdpChanges();
@@ -9410,12 +9429,17 @@ function renderTdpOwnerAvatars() {
 
 function renderTdpSubitems() {
     const list = document.getElementById('tdpSubitemsList');
-    // Subtasks don't have their own sub-items
+    if (!list) return;
+    // Hide entire subitems section when viewing a subtask's TDP
+    const subitemsSection = list.closest('.tdp-section');
     if (tdpCurrentSubtask) {
-        list.innerHTML = '<div class="tdp-no-messages" style="padding:12px">Subitems not available for sub-items</div>';
+        if (subitemsSection) subitemsSection.style.display = 'none';
         return;
+    } else {
+        if (subitemsSection) subitemsSection.style.display = '';
     }
-    const subtasks = tdpCurrentTask.subtasks || [];
+    const subtasks = tdpCurrentTask ? (tdpCurrentTask.subtasks || []) : [];
+
     if (subtasks.length === 0) {
         list.innerHTML = '<div class="tdp-no-messages" style="padding:12px">No subitems yet</div>';
         return;
@@ -9544,16 +9568,26 @@ function formatTimeAgo(timestamp) {
 function saveTdpChanges() {
     if (!tdpCurrentTask) return;
     
+    const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : '';
+    
     // Save title
     const titleEl = document.getElementById('tdpTaskTitle');
     if (titleEl && titleEl.textContent.trim()) {
-        tdpCurrentTask.name = titleEl.textContent.trim();
+        const newName = titleEl.textContent.trim();
+        if (newName !== tdpCurrentTask.name) {
+            tdpCurrentTask.name = newName;
+            patchCell({ taskId: tdpCurrentTask.id, groupId, field: 'name', value: newName, debounceMs: 0 });
+        }
     }
     
     // Save description to notes
     const descEl = document.getElementById('tdpDescription');
     if (descEl) {
-        tdpCurrentTask.notes = descEl.textContent.trim();
+        const newNotes = descEl.textContent.trim();
+        if (newNotes !== (tdpCurrentTask.notes || '')) {
+            tdpCurrentTask.notes = newNotes;
+            patchCell({ taskId: tdpCurrentTask.id, groupId, field: 'notes', value: newNotes, debounceMs: 0 });
+        }
     }
     
     markUpdated(tdpCurrentTask);
@@ -9747,6 +9781,9 @@ function selectTdpStatus(statusId) {
     if (!tdpCurrentTask) return;
     tdpCurrentTask.status = statusId;
     markUpdated(tdpCurrentTask);
+    // Persist to normalized DB
+    const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : '';
+    patchCell({ taskId: tdpCurrentTask.id, groupId, field: 'status', value: statusId });
     document.querySelectorAll('.tdp-status-picker').forEach(el => el.remove());
     renderTaskDetailsPanel();
     renderBoard();
@@ -9760,6 +9797,9 @@ function updateTdpDueDate(value) {
     if (!tdpCurrentTask) return;
     tdpCurrentTask.dueDate = value;
     markUpdated(tdpCurrentTask);
+    // Persist to normalized DB
+    const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : '';
+    patchCell({ taskId: tdpCurrentTask.id, groupId, field: 'dueDate', value });
     renderBoard();
     saveToStorage();
     sendCollabDone(tdpCurrentTask.id, null, 'dueDate', value, tdpCurrentTask.name);
@@ -9768,23 +9808,66 @@ function updateTdpDueDate(value) {
 // Subitems
 function addTdpSubitem() {
     if (!tdpCurrentTask) return;
-    const name = prompt('Subitem name:');
-    if (!name || !name.trim()) return;
-    if (!tdpCurrentTask.subtasks) tdpCurrentTask.subtasks = [];
-    tdpCurrentTask.subtasks.push({
-        id: Date.now(),
-        name: name.trim(),
-        status: '',
-        priority: '',
-        dueDate: '',
-        timelineStart: '',
-        timelineEnd: '',
-        lastUpdated: nowISO()
+    // Cannot add subitems when viewing a subtask's TDP
+    if (tdpCurrentSubtask) return;
+    // Show inline input inside TDP subitems list
+    const list = document.getElementById('tdpSubitemsList');
+    if (!list) return;
+    // Don't add multiple inputs
+    if (list.querySelector('.tdp-subitem-input')) return;
+    
+    const inputRow = document.createElement('div');
+    inputRow.className = 'tdp-subitem tdp-subitem-input-row';
+    inputRow.innerHTML = `<input class="tdp-subitem-input" type="text" placeholder="Enter subitem name..." autofocus>`;
+    list.appendChild(inputRow);
+    
+    const input = inputRow.querySelector('input');
+    input.focus();
+    
+    let committed = false;
+    const commit = () => {
+        if (committed) return;
+        committed = true;
+        const name = input.value.trim();
+        inputRow.remove();
+        if (!name) return;
+        if (!tdpCurrentTask) return;
+        if (!tdpCurrentTask.subtasks) tdpCurrentTask.subtasks = [];
+        const subtaskData = {
+            id: newId(),
+            name: name,
+            owner: '',
+            status: '',
+            priority: '',
+            dueDate: '',
+            notes: '',
+            budget: 0,
+            files: 0,
+            timelineStart: '',
+            timelineEnd: '',
+            lastUpdated: nowISO(),
+            lastUpdatedBy: currentUser ? (currentUser.fullName || currentUser.email || '') : ''
+        };
+        tdpCurrentTask.subtasks.push(subtaskData);
+
+        markUpdated(tdpCurrentTask);
+        // Persist to normalized DB
+        const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : '';
+        sendStructural('createSubtask', {
+            groupId,
+            taskId: tdpCurrentTask.id,
+            data: { subtask: subtaskData }
+        });
+        renderTdpSubitems();
+        renderBoard();
+        saveToStorage();
+    };
+    
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') { committed = true; inputRow.remove(); }
     });
-    markUpdated(tdpCurrentTask);
-    renderTdpSubitems();
-    renderBoard();
-    saveToStorage();
+    input.addEventListener('blur', () => { setTimeout(commit, 150); });
 }
 
 function toggleTdpSubitemDone(idx) {
@@ -9794,6 +9877,9 @@ function toggleTdpSubitemDone(idx) {
     st.status = st.status === 'done' ? '' : 'done';
     markUpdated(st);
     markUpdated(tdpCurrentTask);
+    // Persist to normalized DB
+    const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : '';
+    patchCell({ taskId: tdpCurrentTask.id, subtaskId: st.id, groupId, field: 'status', value: st.status });
     renderTdpSubitems();
     renderBoard();
     saveToStorage();
@@ -9801,8 +9887,18 @@ function toggleTdpSubitemDone(idx) {
 
 function deleteTdpSubitem(idx) {
     if (!tdpCurrentTask || !tdpCurrentTask.subtasks) return;
+    const subtask = tdpCurrentTask.subtasks[idx];
+    if (!subtask) return;
+    const subtaskId = subtask.id;
+    const groupId = tdpCurrentGroup ? tdpCurrentGroup.id : '';
     tdpCurrentTask.subtasks.splice(idx, 1);
     markUpdated(tdpCurrentTask);
+    // Persist to normalized DB
+    sendStructural('deleteSubtask', {
+        groupId,
+        taskId: tdpCurrentTask.id,
+        subtaskId
+    });
     renderTdpSubitems();
     renderBoard();
     saveToStorage();
@@ -10982,7 +11078,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '86';
+const CURRENT_APP_VERSION = '87';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 
@@ -11043,30 +11139,8 @@ function startCollabStream() {
     const url = `/api/collab/stream?workspaceId=${activeWorkspaceId}&token=${authToken}`;
     collabStream = new EventSource(url);
     
-    collabStream.addEventListener('editing', (e) => {
-        const data = JSON.parse(e.data);
-        if (String(data.userId) === String(currentUser?.id)) return; // Ignore self
-        const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
-        // Clear existing timeout
-        const existing = collabEditingIndicators.get(key);
-        if (existing && existing.timeout) clearTimeout(existing.timeout);
-        // Set indicator with auto-expire
-        const timeout = setTimeout(() => {
-            collabEditingIndicators.delete(key);
-            removeCollabIndicator(data.taskId, data.subtaskId, data.field);
-        }, 30000);
-        collabEditingIndicators.set(key, { userName: data.userName, picture: data.picture, timeout });
-        showCollabIndicator(data.taskId, data.subtaskId, data.field, data.userName, data.picture);
-    });
-    
-    collabStream.addEventListener('editing_stopped', (e) => {
-        const data = JSON.parse(e.data);
-        const key = `${data.taskId}:${data.subtaskId || ''}:${data.field}`;
-        const existing = collabEditingIndicators.get(key);
-        if (existing && existing.timeout) clearTimeout(existing.timeout);
-        collabEditingIndicators.delete(key);
-        removeCollabIndicator(data.taskId, data.subtaskId, data.field);
-    });
+    // Note: 'editing' and 'editing_stopped' listeners are handled by setupCellStoreSSE()
+    // which provides colored per-user cell presence borders (replaces old generic orange system)
     
     collabStream.addEventListener('updated', (e) => {
         const data = JSON.parse(e.data);
@@ -11638,6 +11712,8 @@ async function loadFromNormalized() {
             }
             
             initBoardGroups();
+            // Re-link TDP reference if panel is open
+            refreshTdpTaskReference();
             try { localStorage.setItem('numiBoardData', JSON.stringify(boardData)); } catch(e) {}
             return true;
         }

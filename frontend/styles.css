@@ -6215,6 +6215,21 @@ tr.subtask-row:hover .subtask-action-btn {
     transition: background 0.15s;
 }
 
+.tdp-subitem-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 13px;
+    padding: 4px 0;
+    color: var(--text-primary);
+}
+
+.tdp-subitem-input-row {
+    border-color: #0073ea;
+    background: #f0f7ff;
+}
+
 .tdp-subitem:hover {
     background: #f0f2f5;
 }

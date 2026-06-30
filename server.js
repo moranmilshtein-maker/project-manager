@@ -3196,7 +3196,7 @@ app.post('/api/migrate/base64-to-r2', requireSuperAdmin, async (req, res) => {
 });
 
 // ===== VERSION ENDPOINT (for update popup) =====
-const APP_VERSION = '86';
+const APP_VERSION = '87';
 app.get('/api/version', (req, res) => {
   res.json({ version: APP_VERSION });
 });
@@ -3280,13 +3280,22 @@ app.post('/api/boards/structural', async (req, res) => {
     return res.status(403).json({ error: 'Not a member of this workspace' });
   }
 
-  // Ensure workspace is migrated
-  const isNormalized = await cellStore.isWorkspaceNormalized(workspaceId);
-  if (!isNormalized) {
-    const migrated = await cellStore.migrateWorkspaceToNormalized(workspaceId);
-    if (!migrated) {
-      return res.status(500).json({ error: 'Failed to migrate workspace to cell store' });
+  // Ensure workspace is migrated (skip if no database — use JSON blob fallback)
+  const pool = dataStore.pool;
+  if (pool) {
+    const isNormalized = await cellStore.isWorkspaceNormalized(workspaceId);
+    if (!isNormalized) {
+      const migrated = await cellStore.migrateWorkspaceToNormalized(workspaceId);
+      if (!migrated) {
+        return res.status(500).json({ error: 'Failed to migrate workspace to cell store' });
+      }
     }
+  }
+
+  // If no database pool, structural changes are handled by JSON blob — return success
+  if (!pool) {
+    res.json({ success: true, noDb: true });
+    return;
   }
 
   let result;
