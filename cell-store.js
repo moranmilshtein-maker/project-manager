@@ -61,7 +61,7 @@ async function initCellStore() {
                 board_id VARCHAR(100) NOT NULL,
                 workspace_id VARCHAR(100) NOT NULL,
                 name VARCHAR(1000) DEFAULT 'New Task',
-                owner VARCHAR(500) DEFAULT '',
+                owner TEXT DEFAULT '',
                 status VARCHAR(100) DEFAULT '',
                 due_date VARCHAR(50) DEFAULT '',
                 priority VARCHAR(50) DEFAULT '',
@@ -85,7 +85,7 @@ async function initCellStore() {
                 board_id VARCHAR(100) NOT NULL,
                 workspace_id VARCHAR(100) NOT NULL,
                 name VARCHAR(1000) DEFAULT 'New Subtask',
-                owner VARCHAR(500) DEFAULT '',
+                owner TEXT DEFAULT '',
                 status VARCHAR(100) DEFAULT '',
                 due_date VARCHAR(50) DEFAULT '',
                 priority VARCHAR(50) DEFAULT '',
@@ -102,6 +102,11 @@ async function initCellStore() {
             CREATE INDEX IF NOT EXISTS idx_tasks_board ON tasks(board_id, workspace_id);
             CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id, workspace_id);
         `);
+        // Migrate owner column to TEXT if it was VARCHAR (allows JSON arrays)
+        await pool.query(`
+            ALTER TABLE tasks ALTER COLUMN owner TYPE TEXT;
+            ALTER TABLE subtasks ALTER COLUMN owner TYPE TEXT;
+        `).catch(() => {}); // Ignore if already TEXT
         console.log('[CellStore] Normalized tables initialized');
         return true;
     } catch (e) {

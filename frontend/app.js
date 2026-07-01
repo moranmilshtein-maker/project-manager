@@ -72,6 +72,16 @@ function findMemberByOwnerName(ownerName) {
 function getTaskOwners(task) {
     if (!task) return [];
     if (task.owners && Array.isArray(task.owners)) return task.owners;
+    // Try parsing owner field as JSON array (multi-owner persistence format)
+    if (task.owner && task.owner.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(task.owner);
+            if (Array.isArray(parsed)) {
+                task.owners = parsed;
+                return parsed;
+            }
+        } catch (e) { /* not JSON, fall through */ }
+    }
     // Backward compat: migrate single owner string
     if (task.owner) {
         const member = findMemberByOwnerName(task.owner);
@@ -7834,10 +7844,11 @@ function toggleOwnerSelection(userId) {
     // Re-render board
     saveToStorage();
     renderBoard();
-    // Cell-level patch for owner
-    const ownerNames = targetItem.owners.map(o => o.name).join(', ');
-    patchCell({ taskId, subtaskId: subtaskId || null, groupId, field: 'owner', value: ownerNames });
+    // Cell-level patch for owner — save as JSON array for multi-owner persistence
+    const ownersJson = JSON.stringify(targetItem.owners);
+    patchCell({ taskId, subtaskId: subtaskId || null, groupId, field: 'owner', value: ownersJson });
     // Send collab done signal for owner change
+    const ownerNames = targetItem.owners.map(o => o.name).join(', ');
     sendCollabDone(taskId, subtaskId || null, 'owner', ownerNames, targetItem.name);
 }
 
