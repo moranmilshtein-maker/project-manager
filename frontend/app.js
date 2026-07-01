@@ -4056,6 +4056,7 @@ async function loadFromServer() {
                 renderBoard();
                 renderBoardSidebar();
                 serverDataLoaded = true;
+                executePendingDeepLink();
                 return true;
             }
         }
@@ -4081,6 +4082,7 @@ async function loadFromServer() {
             renderBoard();
             renderBoardSidebar();
             serverDataLoaded = true; // Allow saves now that real data is loaded
+            executePendingDeepLink();
             return true;
         } else {
             // No data for this workspace — check if legacy (non-workspace) data exists to migrate
@@ -4205,6 +4207,8 @@ async function initApp() {
     loadFromStorage();
     initBoardGroups();
     loadAuthToken();
+    // Capture deep link params before any redirect clears them
+    handleDeepLink();
 
     // Check for Google OAuth callback (highest priority)
     if (await handleGoogleOAuthCallback()) {
@@ -9338,6 +9342,165 @@ function closeTaskDetailsPanel() {
     tdpCurrentGroup = null;
 }
 
+// ===== TDP SHARE LINK =====
+
+function buildTaskShareUrl() {
+    const base = window.location.origin;
+    const params = new URLSearchParams();
+    if (activeWorkspaceId) params.set('ws', activeWorkspaceId);
+    const boardId = boardData?.activeBoard || 'board1';
+    params.set('board', boardId);
+    if (tdpCurrentSubtask) {
+        params.set('task', tdpCurrentSubtask.taskId);
+        params.set('sub', tdpCurrentSubtask.subId);
+    } else if (tdpCurrentTask) {
+        params.set('task', tdpCurrentTask.id);
+    }
+    return `${base}?${params.toString()}`;
+}
+
+function openSharePopover(event) {
+    event.stopPropagation();
+    const popover = document.getElementById('tdpSharePopover');
+    if (!popover) return;
+    // Build the share URL
+    const url = buildTaskShareUrl();
+    const input = document.getElementById('tdpShareLinkInput');
+    if (input) input.value = url;
+    // Hide copied indicator
+    const copied = document.getElementById('tdpShareCopied');
+    if (copied) copied.classList.remove('show');
+    // Show
+    popover.classList.add('open');
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', closeSharePopoverOutside);
+    }, 10);
+}
+
+function closeSharePopover() {
+    const popover = document.getElementById('tdpSharePopover');
+    if (popover) popover.classList.remove('open');
+    document.removeEventListener('click', closeSharePopoverOutside);
+}
+
+function closeSharePopoverOutside(e) {
+    const popover = document.getElementById('tdpSharePopover');
+    if (popover && !popover.contains(e.target) && !e.target.closest('.tdp-share-btn')) {
+        closeSharePopover();
+    }
+}
+
+function copyTaskLink() {
+    const input = document.getElementById('tdpShareLinkInput');
+    if (!input) return;
+    navigator.clipboard.writeText(input.value).then(() => {
+        const copied = document.getElementById('tdpShareCopied');
+        if (copied) {
+            copied.classList.add('show');
+            setTimeout(() => copied.classList.remove('show'), 2500);
+        }
+    }).catch(() => {
+        // Fallback for older browsers
+        input.select();
+        document.execCommand('copy');
+        const copied = document.getElementById('tdpShareCopied');
+        if (copied) {
+            copied.classList.add('show');
+            setTimeout(() => copied.classList.remove('show'), 2500);
+        }
+    });
+}
+
+function shareVia(channel) {
+    const url = encodeURIComponent(buildTaskShareUrl());
+    const taskName = encodeURIComponent(tdpCurrentTask ? tdpCurrentTask.name : 'Task');
+    let shareUrl = '';
+    switch (channel) {
+        case 'whatsapp':
+            shareUrl = `https://wa.me/?text=${taskName}%20${url}`;
+            break;
+        case 'telegram':
+            shareUrl = `https://t.me/share/url?url=${url}&text=${taskName}`;
+            break;
+        case 'gmail':
+            shareUrl = `https://mail.google.com/mail/?view=cm&su=${taskName}&body=${url}`;
+            break;
+        case 'outlook':
+            shareUrl = `https://outlook.live.com/mail/0/deeplink/compose?subject=${taskName}&body=${url}`;
+            break;
+    }
+    if (shareUrl) {
+        window.open(shareUrl, '_blank', 'noopener,noreferrer,width=600,height=500');
+    }
+    closeSharePopover();
+}
+
+// ===== DEEP LINK HANDLER =====
+
+function handleDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    const wsId = params.get('ws');
+    const boardId = params.get('board');
+    const taskId = params.get('task');
+    const subId = params.get('sub');
+    if (!taskId) return; // No deep link
+    // Store deep link info for after workspace load
+    window._pendingDeepLink = { wsId, boardId, taskId, subId };
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+}
+
+function executePendingDeepLink() {
+    const dl = window._pendingDeepLink;
+    if (!dl) return;
+    window._pendingDeepLink = null;
+    const { wsId, boardId, taskId, subId } = dl;
+    // If different workspace, switch to it
+    if (wsId && wsId !== activeWorkspaceId) {
+        const targetWs = userWorkspaces.find(w => w.id === wsId);
+        if (!targetWs) {
+            showToast('No access to this workspace', 'error');
+            return;
+        }
+        switchWorkspace(wsId).then(() => {
+            setTimeout(() => openDeepLinkTask(boardId, taskId, subId), 500);
+        });
+        return;
+    }
+    // Same workspace — switch board if needed then open task
+    if (boardId && boardData.activeBoard !== boardId) {
+        const board = (boardData.boards || []).find(b => b.id === boardId);
+        if (board) {
+            boardData.activeBoard = boardId;
+            renderBoard();
+        }
+    }
+    setTimeout(() => openDeepLinkTask(boardId, taskId, subId), 200);
+}
+
+function openDeepLinkTask(boardId, taskId, subId) {
+    // Find the task across all groups
+    let foundGroup = null;
+    const groups = boardData.boardGroups?.[boardId || boardData.activeBoard || 'board1'] || [];
+    for (const group of groups) {
+        const task = (group.tasks || []).find(t => String(t.id) === String(taskId));
+        if (task) {
+            foundGroup = group;
+            break;
+        }
+    }
+    if (!foundGroup) {
+        showToast('Task not found', 'error');
+        return;
+    }
+    if (subId) {
+        openSubtaskDetailsPanel(subId, taskId, foundGroup.id);
+    } else {
+        openTaskDetailsPanel(taskId, foundGroup.id);
+    }
+}
+
 function renderTaskDetailsPanel() {
     if (!tdpCurrentTask) return;
     const task = tdpCurrentTask;
@@ -11078,7 +11241,7 @@ async function checkForNewMentions() {
 
 // Start polling when user is authenticated
 // ===== VERSION UPDATE CHECKER =====
-const CURRENT_APP_VERSION = '87';
+const CURRENT_APP_VERSION = '88';
 const VERSION_CHECK_INTERVAL = 60000; // Check every 1 minute
 const VERSION_DISMISS_KEY = 'numiVersionDismissedAt';
 

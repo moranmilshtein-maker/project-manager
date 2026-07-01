@@ -6230,6 +6230,169 @@ tr.subtask-row:hover .subtask-action-btn {
     background: #f0f7ff;
 }
 
+/* ===== TDP Share Popover ===== */
+.tdp-share-btn {
+    position: relative;
+}
+
+.tdp-share-popover {
+    display: none;
+    position: absolute;
+    top: 40px;
+    right: 0;
+    width: 300px;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
+    z-index: 9999;
+    padding: 16px;
+    animation: tdpShareFadeIn 0.18s ease;
+}
+
+.tdp-share-popover.open {
+    display: block;
+}
+
+@keyframes tdpShareFadeIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.tdp-share-popover-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+}
+
+.tdp-share-popover-header .material-icons-outlined {
+    font-size: 18px;
+    color: #666;
+}
+
+.tdp-share-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    color: #666;
+}
+
+.tdp-share-close:hover {
+    background: #f0f2f5;
+    color: #333;
+}
+
+.tdp-share-close .material-icons-outlined {
+    font-size: 16px;
+}
+
+.tdp-share-link-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.tdp-share-link-input {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #555;
+    background: #f8f9fa;
+    outline: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: ltr;
+}
+
+.tdp-share-link-input:focus {
+    border-color: #0073ea;
+    background: #fff;
+}
+
+.tdp-share-copy-btn {
+    background: #0073ea;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    color: #fff;
+    transition: background 0.15s;
+}
+
+.tdp-share-copy-btn:hover {
+    background: #0060c2;
+}
+
+.tdp-share-copy-btn .material-icons-outlined {
+    font-size: 16px;
+}
+
+.tdp-share-copied {
+    font-size: 12px;
+    color: #00a651;
+    font-weight: 500;
+    margin-bottom: 12px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    height: 16px;
+}
+
+.tdp-share-copied.show {
+    opacity: 1;
+}
+
+.tdp-share-channels-label {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 10px;
+    font-weight: 500;
+}
+
+.tdp-share-channels {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.tdp-share-channel-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    border: 1px solid #e8e8e8;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.tdp-share-channel-btn:hover {
+    background: #f0f7ff;
+    border-color: #0073ea;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,115,234,0.12);
+}
+
+.tdp-share-channel-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
 .tdp-subitem:hover {
     background: #f0f2f5;
 }
