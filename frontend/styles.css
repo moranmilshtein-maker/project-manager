@@ -898,6 +898,7 @@ body {
 .cell-owner {
     width: 80px;
     text-align: center;
+    overflow: hidden;
 }
 
 /* Multi-owner stacked avatars */
@@ -906,6 +907,9 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 2px 4px;
 }
 
 .owner-stack-item {
